@@ -1,0 +1,10 @@
+node_modules/
+dist/
+dist-test/
+.forgelet/sessions/
+.forgelet/tmp/
+.env
+.env.*
+!.env.example
+.DS_Store
+npm-debug.log*
