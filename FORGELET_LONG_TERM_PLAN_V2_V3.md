@@ -1,10 +1,10 @@
 # Forgelet Long-Term Plan: V2 and V3
 
-This document extends the Forgelet V1 design into a longer-term roadmap. V1 proves the local coding-agent loop. V2 turns Forgelet into a stronger daily developer assistant with external context. V3 evolves it into a personal agent platform for work, learning, and life.
+This document extends the Forgelet V1 design into a longer-term roadmap. V1 proves the local agent kernel through coding and writing workflow foundations. V2 turns Forgelet into a writing, knowledge, and developer workbench with external read-only context. V3 evolves it into a broader personal agent platform with local creative tools and permissioned personal workflows.
 
 ## Product Direction
 
-Forgelet starts as a local-first CLI coding agent.
+Forgelet starts as a local-first personal agent kernel with coding as its first fully usable workflow.
 
 The long-term product vision is broader:
 
@@ -14,6 +14,7 @@ The core principle stays the same across versions:
 
 - Local-first by default
 - Explicit permissions for risky actions
+- Risk tiered autonomy for everyday flow
 - Traceable decisions and tool calls
 - Provider-neutral model layer
 - Tool-based extensibility
@@ -24,25 +25,28 @@ The core principle stays the same across versions:
 
 | Version | Theme | Main Outcome |
 | --- | --- | --- |
-| V1 | Local coding agent | Forgelet can complete small repo tasks with search/read/patch/test/diff. |
-| V2 | Developer workbench | Forgelet can use browser/file/issue context, resume sessions, manage project memory, and support richer coding workflows. |
-| V3 | Personal agent platform | Forgelet can support plugins/MCP, personal knowledge, learning workflows, calendar/tasks, and multi-surface usage. |
+| V1 | Agent kernel with coding first | Forgelet can complete small repo tasks and validate a text-only writing workflow skeleton. |
+| V2 | Writing, knowledge, and developer workbench | Forgelet can use browser/file/issue context, resume sessions, curate memory, support richer coding workflows, and create source-linked writing/learning outputs. |
+| V3 | Personal platform with local creative tools | Forgelet can support plugins/MCP, local creative tools, personal workflows, calendar/tasks, and multi-surface usage. |
 
-## V2: Developer Workbench
+## V2: Writing, Knowledge, and Developer Workbench
 
 ### V2 Goal
 
-V2 should make Forgelet useful in daily programming work, not just small isolated coding tasks.
+V2 should make Forgelet useful in daily programming, writing, and learning work, not just small isolated coding tasks.
 
 The main shift from V1 to V2:
 
 - V1: `forge "fix this bug"`
+- V1: `forge write --context draft.md "revise this"`
 - V2: `forge --with-browser "fix the issue I am viewing"`
+- V2: `forge write --with-browser "turn this article into an outline"`
+- V2: `forge learn --context paper.md "teach me the core ideas"`
 - V2: `forge resume <sessionId>`
 - V2: `forge memory review`
 - V2: `forge diagnose "backend tests are failing"`
 
-V2 remains primarily developer-focused. It should not yet become a general life assistant.
+V2 remains workbench-focused. It should support coding, writing, knowledge, and learning workflows, but it should not yet become a general life assistant or local creative-tool platform.
 
 ## V2 Major Themes
 
@@ -89,7 +93,7 @@ forge browser read-current
 
 **Recommended V2 path**
 
-Start with a small browser bridge or MCP browser provider that only exposes read-current-page tools. Avoid full browser automation until later.
+Start with a read-only browser extension bridge that only exposes user-approved current-page tools. Avoid Chrome DevTools Protocol, MCP browser servers, and Playwright-controlled automation for the default V2 path.
 
 **V2 tools**
 
@@ -127,7 +131,44 @@ forge sessions prune
 
 Resume should not blindly continue destructive actions. It should summarize previous state and ask for confirmation before executing risky follow-up actions.
 
-### 3. Project Memory Review and Curation
+### 3. Writing and Knowledge Workbench
+
+**Goal**
+
+Promote the V1 writing skeleton into a useful source-linked writing and learning workflow.
+
+**Use cases**
+
+```bash
+forge write --context draft.md "make this sharper and more technical"
+forge write --with-browser "turn this article into a draft post outline"
+forge learn --context paper.md "teach me the core ideas"
+forge notes create --scope project --from-session <sessionId>
+forge notes search --scope project "workflow graph design"
+```
+
+**Capabilities**
+
+- Critique and revise drafts
+- Summarize articles and papers with source links
+- Extract concepts and open questions
+- Generate study prompts or review questions
+- Save user-approved project Markdown notes under `.forgelet/knowledge/`
+- Preserve a `--scope project|personal` command shape for future personal knowledge
+- Suggest durable memory entries from high-value learning traces
+- Search accepted project or personal knowledge
+
+**Boundaries**
+
+- V2 does not become a full document editor.
+- V2 does not silently write durable memory.
+- V2 does not silently write knowledge notes; note creation requires user approval.
+- V2 implements project knowledge first; personal knowledge keeps the same Markdown model for a later release.
+- V2 does not publish posts, send messages, or mutate external apps.
+- Notes and learning outputs should keep source provenance.
+- The Knowledge Library is separate from Durable Memory.
+
+### 4. Project Memory Review and Curation
 
 **Goal**
 
@@ -161,7 +202,7 @@ forge memory edit
 
 Forgelet should suggest memory updates but not silently write long-term memory without user approval.
 
-### 4. Diagnose Mode
+### 5. Diagnose Mode
 
 **Goal**
 
@@ -193,7 +234,7 @@ Given a failing test command, Forgelet should:
 5. Apply minimal fix.
 6. Run targeted regression.
 
-### 5. Better Code Context
+### 6. Better Code Context
 
 **Goal**
 
@@ -230,7 +271,7 @@ Use cheap static analysis first:
 
 Avoid vector database indexing until there is a clear need.
 
-### 6. Richer Plan and Review Loop
+### 7. Richer Plan and Review Loop
 
 **Goal**
 
@@ -254,9 +295,9 @@ forge --dry-run "show the patch but do not apply it"
 
 **Default V2 behavior**
 
-Keep small tasks automatic. Require plan approval for broad refactors or high-risk file sets.
+Keep low-risk reads and analysis automatic. Require plan approval or confirmation for broad refactors, durable writes, model escalation, or high-risk file sets.
 
-### 7. Provider and Cost Improvements
+### 8. Provider and Cost Improvements
 
 **Goal**
 
@@ -290,6 +331,12 @@ forge "<task>"
 forge diagnose "<problem>"
 forge --context file.md "<task>"
 forge --with-browser "<task>"
+forge write --context draft.md "revise this for clarity"
+forge write --with-browser "turn this article into a post outline"
+forge learn --context paper.md "teach me the core ideas"
+forge notes create --scope project --from-session <sessionId>
+forge notes search --scope project "workflow graph design"
+forge ui
 forge resume <sessionId>
 forge sessions list
 forge sessions show <sessionId>
@@ -310,14 +357,16 @@ V2 should not include:
 - General browser automation with clicks and form submission
 - Email sending
 - Calendar mutation
+- Image generation or Photoshop automation
 - Full external plugin marketplace
 - Vector memory as a default dependency
 - Multi-agent orchestration as the default architecture
 - Cloud-hosted personal sync
+- Mutation-heavy local web UI controls
 
 ## V2 Success Standard
 
-Forgelet V2 succeeds when it can handle this daily workflow:
+Forgelet V2 succeeds when it can handle both of these daily workflows:
 
 1. User opens a GitHub issue or API doc in the browser.
 2. User runs `forge --with-browser "implement this"`.
@@ -328,6 +377,10 @@ Forgelet V2 succeeds when it can handle this daily workflow:
 7. Forgelet runs targeted tests.
 8. Forgelet updates trace and suggests memory updates.
 9. User can later run `forge explain <sessionId>` or `forge resume <sessionId>`.
+10. User opens a technical article or draft.
+11. User runs `forge write --with-browser "turn this into a concise post outline"` or `forge learn --context paper.md "teach me the core ideas"`.
+12. Forgelet returns source-linked notes, critique, revision, or learning prompts.
+13. Forgelet suggests durable memory updates without writing them automatically.
 
 ## V2 Implementation Issues
 
@@ -343,12 +396,14 @@ Acceptance criteria:
 
 ### V2 Issue 2: Implement read-only browser provider
 
-Add a read-only provider for current page URL, title, selected text, and main text.
+Add a read-only browser extension bridge provider for current page URL, title, selected text, main text, and optional screenshot metadata.
 
 Acceptance criteria:
 
 - `forge browser read-current` prints current page metadata.
 - `forge --with-browser "<task>"` attaches page content to a task.
+- Browser context comes from user-approved extension sharing, not hidden browser inspection.
+- No cookies, localStorage, password fields, clicking, typing, or form submission are available.
 - No browser mutation tools exist yet.
 
 ### V2 Issue 3: Implement session resume
@@ -401,16 +456,27 @@ Acceptance criteria:
 - `forge models test <modelId>` runs a minimal smoke test.
 - Final summaries include model IDs and estimated cost.
 
+### V2 Issue 8: Add local review UI
+
+Add a local web UI for inspecting Forgelet state after the core V2 workflows exist.
+
+Acceptance criteria:
+
+- `forge ui` starts a local-only web UI.
+- UI can inspect sessions, traces, plans, model/cost summaries, memory suggestions, and knowledge notes.
+- UI does not execute workflow actions or mutate external systems by default.
+- CLI remains the first-class execution surface.
+
 ## V3: Personal Agent Platform
 
 ### V3 Goal
 
-V3 evolves Forgelet from a developer workbench into a local-first personal agent platform. It should still be excellent for coding, but it can also help with learning, planning, personal knowledge, and routine life/work workflows.
+V3 evolves Forgelet from a writing, knowledge, and developer workbench into a local-first personal agent platform. It should still be excellent for coding and writing, but it can also help with local creative tools, planning, personal knowledge, and routine life/work workflows.
 
 The main shift from V2 to V3:
 
-- V2: developer assistant with browser context
-- V3: personal agent platform with extensible tools, multiple surfaces, and curated memory
+- V2: writing, knowledge, and developer workbench with read-only external context
+- V3: personal agent platform with local creative tools, extensible tools, multiple surfaces, and curated memory
 
 ## V3 Major Themes
 
@@ -475,14 +541,14 @@ Let users interact with Forgelet from more than the terminal.
 
 **Recommended order**
 
-1. Local web UI for sessions, traces, memory, and settings
-2. Browser extension for current-page context
+1. Late V2 local review UI for sessions, traces, plans, costs, memory suggestions, and knowledge notes
+2. Browser extension bridge for current-page context
 3. Editor integration only if CLI workflows prove limiting
 4. Desktop app if notifications/background tasks become important
 
 **Important rule**
 
-The CLI should remain first-class. UI surfaces should talk to the same core engine.
+The CLI should remain first-class. UI surfaces should talk to the same core engine. The first local web UI should be inspect/review oriented; mutation-heavy controls come later.
 
 ### 3. Personal Knowledge and Learning Assistant
 
@@ -539,7 +605,36 @@ V3 may draft actions automatically, but mutation should require confirmation:
 - Posting messages
 - Submitting forms
 
-### 5. Stronger Memory Architecture
+### 5. Local Creative Tool Workflows
+
+**Goal**
+
+Support local creative tools after the tool provider, capability, permission, trace, and asset boundaries are mature.
+
+**Use cases**
+
+```bash
+forge image edit --context brief.md input.png "create three retouch options"
+forge image generate --context moodboard.md "make a cover image draft"
+forge photoshop draft-actions input.psd "clean up the background non-destructively"
+```
+
+**Capabilities**
+
+- Read and write local asset files
+- Run local Stable Diffusion or similar image tools
+- Draft Photoshop actions or scripts for user review
+- Compare before/after assets
+- Export traceable variants
+
+**Boundaries**
+
+- V3 should not require cloud image generation.
+- External app mutation requires explicit capability grants and user confirmation.
+- Original assets should be preserved unless the user approves replacement.
+- Creative workflows should report model/tool cost, runtime, source assets, and output paths.
+
+### 6. Stronger Memory Architecture
 
 **Goal**
 
@@ -550,8 +645,9 @@ Support both project-specific and personal memory safely.
 ```text
 Project memory: .forgelet/memory.md
 Global user memory: ~/.forgelet/memory.md
+Project knowledge: .forgelet/knowledge/*.md
+Personal knowledge: ~/.forgelet/knowledge/*.md
 Session traces: .forgelet/sessions/*.jsonl
-Knowledge library: user-approved notes and sources
 Optional vector index: derived cache, rebuildable
 ```
 
@@ -561,9 +657,11 @@ Optional vector index: derived cache, rebuildable
 - User can edit/delete memory.
 - Memory writes require approval or configured rules.
 - Memory includes provenance.
+- Knowledge notes are Markdown source files, not memory entries.
+- Project and personal knowledge use the same note model with different scopes.
 - Embeddings/vector stores are caches, not source of truth.
 
-### 6. Workflow Graphs and Skills
+### 7. Workflow Graphs and Skills
 
 **Goal**
 
@@ -576,6 +674,7 @@ coding bugfix workflow
 diagnose workflow
 PR review workflow
 learning workflow
+local creative workflow
 browser research workflow
 daily planning workflow
 ```
@@ -594,7 +693,7 @@ intake -> gather_context -> plan -> act_loop -> review -> summarize -> memory_re
 
 Use structured workflows when the task has a known reliable shape. Use ReAct loops where exploration is needed.
 
-### 7. Controlled Browser Automation
+### 8. Controlled Browser Automation
 
 **Goal**
 
@@ -618,7 +717,7 @@ Move from read-only browser context to permissioned browser actions.
 - Show URL and action summary before mutations
 - Trace every browser action
 
-### 8. Collaboration and Review Modes
+### 9. Collaboration and Review Modes
 
 **Goal**
 
@@ -642,10 +741,11 @@ Multi-agent architecture should not be the default. It increases cost and coordi
 forge plugins list
 forge plugins install <plugin>
 forge mcp add <server>
-forge ui
 forge browser act "<task>"
 forge learn --context article.md "teach this to me"
 forge notes search "agent memory"
+forge image edit input.png "make this cleaner"
+forge photoshop draft-actions input.psd "remove the background"
 forge tasks create "follow up on PR review"
 forge daily plan
 forge workflow run diagnose "tests are failing"
@@ -672,10 +772,12 @@ Forgelet V3 succeeds when it can support this cross-domain workflow:
 3. Forgelet creates learning notes with source links.
 4. User asks Forgelet to apply the idea to a local codebase.
 5. Forgelet modifies code safely and runs tests.
-6. Forgelet drafts a follow-up task/reminder.
-7. Forgelet suggests durable memory updates.
-8. User can review the complete trace in CLI or local UI.
-9. No external action is taken without permission.
+6. User asks Forgelet to draft a source-linked visual or article asset.
+7. Forgelet runs or drafts local creative-tool actions with explicit permission.
+8. Forgelet drafts a follow-up task/reminder.
+9. Forgelet suggests durable memory updates.
+10. User can review the complete trace in CLI or local UI.
+11. No external action is taken without permission.
 
 ## V3 Implementation Epics
 
@@ -705,7 +807,7 @@ Forgelet V3 succeeds when it can support this cross-domain workflow:
 - Config editor
 - Model/cost dashboard
 
-### Epic 4: Browser Extension or Bridge
+### Epic 4: Browser Extension Bridge
 
 - Current page context
 - Selected text capture
@@ -718,6 +820,7 @@ Forgelet V3 succeeds when it can support this cross-domain workflow:
 - Source-linked notes
 - Learning summaries
 - Search
+- Markdown source of truth under `.forgelet/knowledge/` and later `~/.forgelet/knowledge/`
 - User-approved memory writes
 - Optional vector index cache
 
@@ -736,28 +839,38 @@ Forgelet V3 succeeds when it can support this cross-domain workflow:
 - Email draft integration
 - Reminder integration
 
+### Epic 8: Local Creative Tools
+
+- Asset attachment and output model
+- Stable Diffusion provider
+- Photoshop action/script draft provider
+- Before/after comparison summaries
+- Creative workflow trace events
+
 ## Roadmap Ordering Recommendation
 
 ### After V1, build V2 in this order
 
 1. Browser context attachment foundation
-2. Read-only current-page browser provider
-3. Session resume
-4. Project memory review workflow
-5. Diagnose mode
-6. Workspace summary and test discovery tools
-7. Model pricing registry and model diagnostics
+2. Read-only browser extension bridge provider
+3. Writing workflow hardening
+4. Source-linked learning and notes workflow
+5. Session resume
+6. Project memory review workflow
+7. Diagnose mode
+8. Workspace summary and test discovery tools
+9. Model pricing registry and model diagnostics
+10. Local review UI for traces, memory, and knowledge
 
 ### After V2, build V3 in this order
 
-1. Local web UI for traces/config/memory
-2. MCP integration for external tools
-3. Plugin runtime
-4. Personal knowledge layer
-5. Browser extension bridge
-6. Workflow graph engine
-7. Permissioned personal tools
-8. Controlled browser automation
+1. MCP integration for external tools
+2. Plugin runtime
+3. Browser extension bridge hardening
+4. Workflow graph engine
+5. Local creative tool workflows
+6. Permissioned personal tools
+7. Controlled browser automation
 
 ## Design Risks
 
@@ -765,14 +878,15 @@ Forgelet V3 succeeds when it can support this cross-domain workflow:
 
 Mitigation:
 
-- Keep V2 developer-focused.
-- Add life/learning tools only after tool registry, permission, trace, and memory are solid.
+- Keep V2 workbench-focused: coding, writing, learning, read-only browser context, and curated memory.
+- Add life and creative mutation tools only after tool registry, permission, trace, asset, and memory boundaries are solid.
 
 ### Risk: Browser automation creates unsafe behavior
 
 Mitigation:
 
 - V2 browser support is read-only.
+- V2 browser context comes from user-approved extension sharing.
 - V3 browser mutation requires explicit approval and trace.
 
 ### Risk: Memory becomes noisy or wrong
@@ -810,8 +924,9 @@ These decisions should survive across V1, V2, and V3:
 3. Model providers stay behind adapters.
 4. Tools go through a registry.
 5. Risky actions go through permission policy.
-6. Every run produces an inspectable trace.
-7. Memory writes are curated and auditable.
-8. External context is represented as structured attachments.
-9. Cost and token use stay visible.
-10. Learning/explainability remains part of the product, not an afterthought.
+6. Risk tiers guide autonomy before tool execution.
+7. Every run produces an inspectable trace.
+8. Memory writes are curated and auditable.
+9. External context is represented as structured attachments.
+10. Cost and token use stay visible.
+11. Learning/explainability remains part of the product, not an afterthought.

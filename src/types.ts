@@ -1,4 +1,20 @@
-export type AgentStage = "intake" | "plan" | "work" | "review" | "final";
+export type WorkflowKind = "coding" | "writing";
+
+export type AgentStage = "intake" | "inspect" | "plan" | "act_loop" | "verify" | "review" | "final";
+
+export type Capability =
+  | "read_context"
+  | "read_workspace"
+  | "write_workspace"
+  | "run_safe_command"
+  | "git_read"
+  | "update_plan"
+  | "model_generate_text";
+
+export interface WorkflowCapabilityGrant {
+  workflow: WorkflowKind;
+  capabilities: Capability[];
+}
 
 export type PlanStatus = "pending" | "in_progress" | "completed";
 
@@ -13,6 +29,7 @@ export interface AgentPlan {
 
 export interface AgentSession {
   id: string;
+  workflow: WorkflowKind;
   task: string;
   stage: AgentStage;
   plan: AgentPlan;
@@ -27,6 +44,16 @@ export interface ContextAttachment {
   mimeType: string;
   content: string;
   trustLevel: "user-provided" | "workspace" | "external";
+}
+
+export type MemorySuggestionStatus = "proposed" | "accepted" | "rejected";
+
+export interface MemorySuggestion {
+  id: string;
+  sourceSessionId: string;
+  text: string;
+  reason: string;
+  status: MemorySuggestionStatus;
 }
 
 export interface ModelTurnInput {
@@ -81,6 +108,8 @@ export interface JsonSchema {
 
 export interface ToolDefinition {
   name: string;
+  providerId: string;
+  capability: Capability;
   description: string;
   inputSchema: JsonSchema;
   execute(input: unknown, ctx: ToolContext): Promise<ToolResult>;
@@ -89,6 +118,8 @@ export interface ToolDefinition {
 export interface ToolContext {
   workspaceRoot: string;
   sessionId: string;
+  workflow: WorkflowKind;
+  grantedCapabilities: Capability[];
 }
 
 export interface ToolResult {
@@ -99,15 +130,21 @@ export interface ToolResult {
 }
 
 export interface ToolRequest {
+  workflow: WorkflowKind;
   toolName: string;
+  capability: Capability;
+  riskTier: RiskTier;
   input: unknown;
   workspaceRoot: string;
 }
 
 export type PermissionDecisionKind = "allow" | "confirm" | "deny";
 
+export type RiskTier = "low" | "medium" | "high" | "forbidden";
+
 export interface PermissionDecision {
   kind: PermissionDecisionKind;
+  riskTier: RiskTier;
   reason: string;
 }
 

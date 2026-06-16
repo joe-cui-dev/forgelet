@@ -1,1 +1,1 @@
-export type { PermissionDecision, PermissionPolicy, ToolRequest } from "../types.js";
+export type { Capability, PermissionDecision, PermissionPolicy, RiskTier, ToolRequest, WorkflowCapabilityGrant } from "../types.js";

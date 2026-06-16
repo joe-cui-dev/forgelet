@@ -4,6 +4,7 @@ import { runAgent } from "../../src/agent/runAgent.js";
 
 test("returns a placeholder session summary", async () => {
   const result = await runAgent({
+    workflow: "coding",
     task: "fix tests",
     contextFiles: ["issue.md"],
     model: "deepseek-v4-pro",
@@ -12,7 +13,9 @@ test("returns a placeholder session summary", async () => {
   });
 
   assert.equal(result.session.task, "fix tests");
+  assert.equal(result.session.workflow, "coding");
   assert.equal(result.session.stage, "final");
   assert.match(result.summary, /Forgelet scaffold is ready/);
+  assert.match(result.summary, /Workflow: coding/);
   assert.match(result.summary, /Context files: issue.md/);
 });

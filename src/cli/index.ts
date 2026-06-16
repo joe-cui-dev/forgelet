@@ -15,6 +15,7 @@ async function main(): Promise<void> {
       return;
     case "run": {
       const result = await runAgent({
+        workflow: command.workflow,
         task: command.task,
         contextFiles: command.contextFiles,
         model: command.model,
@@ -38,6 +39,12 @@ async function main(): Promise<void> {
       return;
     case "explain":
       console.log(`Explain mode is scaffolded for ${command.sessionId}.`);
+      return;
+    case "memory-suggest":
+      console.log(`Memory suggestion is scaffolded for session ${command.sessionId}.`);
+      return;
+    case "memory-accept":
+      console.log(`Memory acceptance is scaffolded for suggestion ${command.suggestionId}.`);
       return;
     default: {
       const exhaustive: never = command;

@@ -1,6 +1,7 @@
-import type { AgentPlan, AgentSession } from "../types.js";
+import type { AgentPlan, AgentSession, WorkflowKind } from "../types.js";
 
 export interface RunAgentInput {
+  workflow?: WorkflowKind;
   task: string;
   contextFiles: string[];
   model?: string;
@@ -25,6 +26,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
 
   const session: AgentSession = {
     id: sessionId,
+    workflow: input.workflow ?? "coding",
     task: input.task,
     stage: "final",
     plan,
@@ -33,6 +35,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
 
   const details = [
     `Task: ${input.task}`,
+    `Workflow: ${input.workflow ?? "coding"}`,
     `Workspace: ${input.workspaceRoot}`,
     input.model ? `Model override: ${input.model}` : "Model override: none",
     input.budgetUsd ? `Budget override: $${input.budgetUsd}` : "Budget override: none",

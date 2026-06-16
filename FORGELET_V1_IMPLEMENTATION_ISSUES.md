@@ -117,6 +117,7 @@ Implement parsing for:
 ```bash
 forge "<task>"
 forge --context issue.md "<task>"
+forge write --context draft.md "revise this"
 forge --model deepseek-v4-pro "<task>"
 forge --budget 0.25 "<task>"
 forge config get
@@ -124,6 +125,8 @@ forge config set defaultModel deepseek-v4-pro
 forge sessions list
 forge sessions show <sessionId>
 forge explain <sessionId>
+forge memory suggest <sessionId>
+forge memory accept <suggestionId>
 ```
 
 **Out of scope**
@@ -137,6 +140,8 @@ forge explain <sessionId>
 - CLI validates required arguments.
 - CLI exits non-zero for invalid commands.
 - CLI returns clear errors for missing task/session/config keys.
+- `forge write` routes to a writing workflow command shape, even if execution is still stubbed.
+- `forge memory suggest` and `forge memory accept` parse as memory commands, even if execution is still stubbed.
 - CLI parser has unit tests for all V1 commands.
 
 ---
@@ -203,6 +208,17 @@ Users can set default models, provider env vars, safe commands, budgets, and pro
   "defaultModel": "deepseek-v4-pro",
   "fallbackModel": "gpt-5",
   "cheapModel": "deepseek-v4-flash",
+  "routing": {
+    "coding": {
+      "default": "deepseek-v4-pro",
+      "review": "deepseek-v4-pro"
+    },
+    "writing": {
+      "default": "deepseek-v4-flash",
+      "review": "deepseek-v4-flash"
+    },
+    "fallback": "gpt-5"
+  },
   "providers": {
     "deepseek": { "apiKeyEnv": "DEEPSEEK_API_KEY" },
     "openai": { "apiKeyEnv": "OPENAI_API_KEY" },
@@ -380,7 +396,7 @@ Users can pass issues, specs, logs, and notes into Forgelet without manually pas
 
 **Goal**
 
-Classify tool requests into allow, confirm, or deny before execution.
+Classify tool requests through workflow capability grants, risk tiers, and then allow, confirm, or deny before execution.
 
 **User value**
 
@@ -388,14 +404,17 @@ Forgelet can act autonomously for safe operations while guarding risky actions.
 
 **Scope**
 
-Default policy:
+Default workflow grants:
 
-- Allow file reads in workspace.
-- Allow writes in workspace except sensitive files.
-- Allow `git status` and `git diff`.
-- Allow commands listed in `safeCommands`.
-- Confirm dependency installs, network requests, commit, push, deploy, and cross-workspace writes.
-- Deny or strongly confirm destructive commands.
+- Coding workflow: `read_workspace`, `write_workspace`, `run_safe_command`, `git_read`, `update_plan`, `model_generate_text`.
+- Writing workflow: `read_context`, `update_plan`, `model_generate_text`.
+
+Default risk tiers:
+
+- Low risk: file reads in workspace, browser read-only context, `git status`, `git diff`, planning, critique, and non-durable model output.
+- Medium risk: writes inside workspace, commands listed in `safeCommands`, accepted knowledge notes, and accepted memory suggestions.
+- High risk: dependency installs, network requests, commit, push, deploy, cross-workspace writes, model escalation with meaningful cost, and external app mutation.
+- Forbidden risk: destructive commands, credential exfiltration, hidden browser scraping, and unapproved secret-file edits.
 
 Sensitive files include:
 
@@ -412,10 +431,15 @@ Dangerous commands include:
 
 **Acceptance criteria**
 
+- Tool calls without a workflow grant are denied before command-level risk checks.
+- Tool calls include a risk tier before execution.
+- Coding workflow receives workspace read/write and safe command grants.
+- Writing workflow does not receive workspace write or shell command grants by default.
 - Permission decisions are deterministic.
 - Decisions include a reason.
+- Permission decisions include risk tier.
 - Permission decisions are written to trace.
-- Unit tests cover safe, confirm, and deny cases.
+- Unit tests cover grant denial, low/medium/high/forbidden tiers, safe, confirm, and deny cases.
 
 ---
 
@@ -442,7 +466,7 @@ Users can control token spend, especially when using multiple model providers.
 **Out of scope**
 
 - Perfect tokenizer accuracy.
-- Dynamic model routing.
+- Automatic semantic model routing beyond the configured workflow-stage routing policy.
 
 **Acceptance criteria**
 
@@ -468,6 +492,7 @@ Forgelet can add tools cleanly without coupling the agent loop to specific tool 
 **Scope**
 
 - Register built-in tools.
+- Store provider ID and capability metadata for each tool.
 - Expose tool schemas for model requests.
 - Dispatch by tool name.
 - Validate tool input against schema.
@@ -477,9 +502,10 @@ Forgelet can add tools cleanly without coupling the agent loop to specific tool 
 **Acceptance criteria**
 
 - Duplicate tool names are rejected.
+- Tools without provider ID or capability metadata are rejected.
 - Unknown tool calls return a controlled error.
 - Invalid input returns a controlled error.
-- Tests cover registration, dispatch, unknown tools, and invalid input.
+- Tests cover registration, provider/capability metadata, dispatch, unknown tools, and invalid input.
 
 ---
 
@@ -716,32 +742,71 @@ Explain:
 
 ---
 
+### Issue 27: Implement user-approved memory suggestions
+
+**Goal**
+
+Generate durable-memory suggestions from traces and write them only after user approval.
+
+**User value**
+
+Forgelet can learn useful project habits without silently polluting future sessions with noisy or wrong memory.
+
+**Scope**
+
+- Add `MemorySuggestion` type.
+- Add `forge memory suggest <sessionId>`.
+- Add `forge memory accept <suggestionId>`.
+- Store proposed suggestions separately from accepted durable memory.
+- Append accepted entries to configured `memoryFile`.
+- Include source session provenance in accepted entries.
+- Write `memory_suggestion` and `memory_acceptance` trace events.
+
+**Out of scope**
+
+- Automatic memory writes.
+- Vector database memory.
+- Global personal memory outside the project memory file.
+
+**Acceptance criteria**
+
+- Suggestions can be generated from a representative trace.
+- Suggestions are not written to durable memory until accepted.
+- Accepted entries include source session provenance.
+- Rejected or unaccepted suggestions are not loaded as durable memory.
+- Tests cover suggest, accept, and no-silent-write behavior.
+
+---
+
 ## Milestone 9: Real Model Providers
 
 ### Issue 20: Implement model provider registry and selection
 
 **Goal**
 
-Select a configured provider/model from defaults or CLI override.
+Select a configured provider/model from workflow-stage routing, fallback rules, or CLI override.
 
 **User value**
 
-Users can choose DeepSeek, OpenAI, or Anthropic models without changing agent code.
+Users can choose DeepSeek, OpenAI, or Anthropic models without changing agent code, while Forgelet remains cost-aware by default.
 
 **Scope**
 
 - Parse model IDs and provider mapping.
-- Use config defaults.
-- Let `--model` override defaults.
-- Support fallback model configuration.
+- Use routing config by workflow and stage.
+- Let `--model` override routing for the run.
+- Support fallback and explicit review model configuration.
+- Record the selected route and reason in the run state or trace.
 - Return clear errors for missing API key env vars.
 
 **Acceptance criteria**
 
 - `deepseek-v4-pro` resolves to DeepSeek provider.
-- CLI override beats default config.
+- Coding default route resolves to `deepseek-v4-pro`.
+- Writing default route resolves to `deepseek-v4-flash`.
+- CLI override beats routing config.
 - Missing API key produces actionable error.
-- Tests cover provider selection and fallback config.
+- Tests cover provider selection, workflow-stage routing, CLI override, and fallback config.
 
 ---
 
@@ -847,9 +912,18 @@ Add:
 - `README.md`
 - `ARCHITECTURE.md`
 - `docs/adr/0001-local-cli-first.md`
-- `docs/adr/0002-react-loop-with-stage-constraints.md`
-- `docs/adr/0003-provider-adapter-model-client.md`
-- `docs/adr/0004-permission-policy.md`
+- `docs/adr/0002-tool-providers-and-capabilities.md`
+- `docs/adr/0003-workflow-graphs-with-react-nodes.md`
+- `docs/adr/0004-v1-includes-writing-workflow-skeleton.md`
+- `docs/adr/0005-workflow-stage-model-routing.md`
+- `docs/adr/0006-workflow-capability-grants.md`
+- `docs/adr/0007-user-approved-memory-persistence.md`
+- `docs/adr/0008-markdown-knowledge-library.md`
+- `docs/adr/0009-local-review-ui-after-core-workflows.md`
+- `docs/adr/0010-browser-context-extension-bridge-first.md`
+- `docs/adr/0011-risk-tiered-autonomy.md`
+- Provider adapter ADR
+- Permission policy ADR
 
 **Acceptance criteria**
 
@@ -888,6 +962,34 @@ Proves Forgelet is not only a toy demo.
 
 ---
 
+### Issue 26: Validate writing workflow skeleton
+
+**Goal**
+
+Validate that Forgelet can run a text-only non-code workflow through the same kernel boundaries.
+
+**User value**
+
+Proves Forgelet is becoming a personal agent platform rather than a coding-only CLI.
+
+**Scope**
+
+- Create a small draft text fixture.
+- Run `forge write --context draft.md "revise this for clarity"`.
+- Ensure the writing workflow does not receive workspace edit or shell tools by default.
+- Capture trace, model ID, and estimated cost.
+- Document what worked and what failed.
+
+**Acceptance criteria**
+
+- Forgelet loads text context as a structured attachment.
+- Writing workflow returns revised text or critique.
+- Final summary includes model ID, estimated cost, and trace path.
+- No code workspace mutation tools are available to the writing workflow by default.
+- Any failure is turned into a follow-up issue.
+
+---
+
 ## Suggested Build Order
 
 1. Issue 1: Scaffold the TypeScript CLI project
@@ -907,12 +1009,14 @@ Proves Forgelet is not only a toy demo.
 15. Issue 9: Implement `--context <file>` text attachments
 16. Issue 8: Implement session listing and display commands
 17. Issue 19: Implement `forge explain <sessionId>`
-18. Issue 20: Implement model provider registry and selection
-19. Issue 21: Implement DeepSeek provider adapter
-20. Issue 22: Implement OpenAI provider adapter
-21. Issue 23: Implement Anthropic provider adapter
-22. Issue 24: Add README, architecture doc, and ADRs
-23. Issue 25: Run first real-repo success test
+18. Issue 27: Implement user-approved memory suggestions
+19. Issue 20: Implement model provider registry and selection
+20. Issue 21: Implement DeepSeek provider adapter
+21. Issue 22: Implement OpenAI provider adapter
+22. Issue 23: Implement Anthropic provider adapter
+23. Issue 24: Add README, architecture doc, and ADRs
+24. Issue 26: Validate writing workflow skeleton
+25. Issue 25: Run first real-repo success test
 
 ## MVP-B Cut Line
 
@@ -942,6 +1046,7 @@ MVP-C adds:
 - Issue 9
 - Issue 11
 - Issue 19
+- Issue 27
 - Issue 20
 - Issue 21
 - Issue 22

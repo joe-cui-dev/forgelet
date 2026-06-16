@@ -4,6 +4,7 @@ export function helpText(): string {
 Usage:
   forge "<task>"
   forge --context issue.md "<task>"
+  forge write --context draft.md "revise this"
   forge --model deepseek-v4-pro "<task>"
   forge --budget 0.25 "<task>"
   forge config get
@@ -11,6 +12,8 @@ Usage:
   forge sessions list
   forge sessions show <sessionId>
   forge explain <sessionId>
+  forge memory suggest <sessionId>
+  forge memory accept <suggestionId>
 
 Forgelet V1 is currently scaffolded. The real agent loop, tools, trace, config, and model providers will be implemented incrementally.`;
 }
