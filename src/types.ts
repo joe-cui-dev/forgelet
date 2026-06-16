@@ -42,8 +42,15 @@ export interface ContextAttachment {
   title?: string;
   uri?: string;
   mimeType: string;
-  content: string;
+  contentBytes: number;
+  contentHash: string;
+  preview: string;
   trustLevel: "user-provided" | "workspace" | "external";
+}
+
+export interface LoadedContextAttachment {
+  attachment: ContextAttachment;
+  content: string;
 }
 
 export type MemorySuggestionStatus = "proposed" | "accepted" | "rejected";

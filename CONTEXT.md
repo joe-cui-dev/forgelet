@@ -24,6 +24,18 @@ _Avoid_: Final text only, writing chat reply
 A named task shape that uses the **Agent Kernel** to coordinate stages, model calls, tools, permissions, trace, budget, and review. Workflows can be coding, writing, image work, learning, research, or other personal agent routines.
 _Avoid_: Prompt, mode, command
 
+**Session**:
+One auditable run of a **Workflow**, including the user's task, selected workflow, context, trace, decisions, and final outcome. In V1, a **Session** belongs to the current project workspace and is the reusable boundary for review, explanation, and memory provenance.
+_Avoid_: Agent conversation, chat session, workflow session
+
+**Trace**:
+The chronological record of events that actually occurred during a **Session**. A **Trace** is evidence for review, explanation, and memory provenance; it should not contain simulated model turns, tool calls, or permission decisions that did not happen.
+_Avoid_: Transcript, log dump, demo script
+
+**Context Attachment**:
+User-provided or user-approved material attached to a **Session** so a **Workflow** can use it as task context. A **Trace** should record attachment provenance, size, hash, and a short preview rather than silently turning the attachment into durable full-text storage.
+_Avoid_: Prompt paste, hidden source, trace content
+
 **Workflow Graph**:
 The explicit stage structure of a **Workflow**. A graph can include deterministic steps and local **ReAct Nodes** where exploration or tool use is needed.
 _Avoid_: Single generic loop, hidden prompt flow
