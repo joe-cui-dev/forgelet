@@ -11,6 +11,23 @@ import type {
 } from "../../types.js";
 
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
+const TOKENS_PER_MILLION = 1_000_000;
+
+const DEEPSEEK_PRICES_USD_PER_1M: Record<
+  string,
+  { inputCacheHit: number; inputCacheMiss: number; output: number }
+> = {
+  "deepseek-v4-flash": {
+    inputCacheHit: 0.0028,
+    inputCacheMiss: 0.14,
+    output: 0.28,
+  },
+  "deepseek-v4-pro": {
+    inputCacheHit: 0.003625,
+    inputCacheMiss: 0.435,
+    output: 0.87,
+  },
+};
 
 export interface DeepSeekModelClientOptions {
   apiKey: string;
@@ -54,7 +71,7 @@ export class DeepSeekModelClient implements ModelClient {
         Authorization: `Bearer ${this.apiKey}`,
       },
     );
-    return fromDeepSeekResponse(response);
+    return fromDeepSeekResponse(response, this.model);
   }
 }
 
@@ -86,6 +103,8 @@ interface DeepSeekChatResponse {
   usage?: {
     prompt_tokens?: number;
     completion_tokens?: number;
+    prompt_cache_hit_tokens?: number;
+    prompt_cache_miss_tokens?: number;
     estimated_cost_usd?: number;
   };
 }
@@ -141,12 +160,15 @@ function toDeepSeekToolCall(toolCall: ModelToolCall): DeepSeekToolCall {
   };
 }
 
-function fromDeepSeekResponse(response: DeepSeekChatResponse): ModelTurnOutput {
+function fromDeepSeekResponse(
+  response: DeepSeekChatResponse,
+  model: string,
+): ModelTurnOutput {
   const message = response.choices?.[0]?.message;
   return {
     content: message?.content ?? undefined,
     toolCalls: (message?.tool_calls ?? []).map(fromDeepSeekToolCall),
-    usage: fromDeepSeekUsage(response.usage),
+    usage: fromDeepSeekUsage(response.usage, model),
   };
 }
 
@@ -168,13 +190,40 @@ function parseToolArguments(value: string): unknown {
 
 function fromDeepSeekUsage(
   usage: DeepSeekChatResponse["usage"],
+  model: string,
 ): ModelUsage | undefined {
   if (!usage) return undefined;
-  return {
+  const modelUsage: ModelUsage = {
     inputTokens: usage.prompt_tokens,
     outputTokens: usage.completion_tokens,
-    estimatedCostUsd: usage.estimated_cost_usd,
+    estimatedCostUsd:
+      usage.estimated_cost_usd ?? estimateDeepSeekCostUsd(model, usage),
   };
+  if (usage.prompt_cache_hit_tokens !== undefined)
+    modelUsage.inputCacheHitTokens = usage.prompt_cache_hit_tokens;
+  if (usage.prompt_cache_miss_tokens !== undefined)
+    modelUsage.inputCacheMissTokens = usage.prompt_cache_miss_tokens;
+  return modelUsage;
+}
+
+function estimateDeepSeekCostUsd(
+  model: string,
+  usage: NonNullable<DeepSeekChatResponse["usage"]>,
+): number | undefined {
+  const pricing = DEEPSEEK_PRICES_USD_PER_1M[model];
+  if (!pricing) return undefined;
+  const promptTokens = usage.prompt_tokens ?? 0;
+  const cacheHitTokens = usage.prompt_cache_hit_tokens ?? 0;
+  const cacheMissTokens =
+    usage.prompt_cache_miss_tokens ??
+    Math.max(promptTokens - cacheHitTokens, 0);
+  const outputTokens = usage.completion_tokens ?? 0;
+  return (
+    (cacheHitTokens * pricing.inputCacheHit +
+      cacheMissTokens * pricing.inputCacheMiss +
+      outputTokens * pricing.output) /
+    TOKENS_PER_MILLION
+  );
 }
 
 async function postJsonWithHttps(

@@ -92,3 +92,34 @@ test("DeepSeekModelClient converts Forgelet turns to chat completions with tools
     estimatedCostUsd: 0.001,
   });
 });
+
+test("DeepSeekModelClient estimates cost when the API returns token usage without cost", async () => {
+  const client = new DeepSeekModelClient({
+    apiKey: "test-key",
+    model: "deepseek-v4-pro",
+    postJson: async () => ({
+      choices: [{ message: { content: "Done." } }],
+      usage: {
+        prompt_tokens: 1000,
+        prompt_cache_hit_tokens: 100,
+        prompt_cache_miss_tokens: 900,
+        completion_tokens: 200,
+      },
+    }),
+  });
+
+  const result = await client.createTurn({
+    task: "estimate cost",
+    messages: [{ role: "user", content: "Hello" }],
+    tools: [],
+  });
+
+  assert.equal(result.usage?.inputTokens, 1000);
+  assert.equal(result.usage?.inputCacheHitTokens, 100);
+  assert.equal(result.usage?.inputCacheMissTokens, 900);
+  assert.equal(result.usage?.outputTokens, 200);
+  assert.ok(
+    Math.abs((result.usage?.estimatedCostUsd ?? 0) - 0.0005658625) <
+      Number.EPSILON,
+  );
+});

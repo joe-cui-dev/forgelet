@@ -5,6 +5,7 @@ Usage:
   forge "<task>"
   forge --context issue.md "<task>"
   forge write --context draft.md "revise this"
+  forge --live --budget 0.25 "<task>"
   forge --model deepseek-v4-pro "<task>"
   forge --budget 0.25 "<task>"
   forge config get
@@ -15,5 +16,5 @@ Usage:
   forge memory suggest <sessionId>
   forge memory accept <suggestionId>
 
-Forgelet V1 is currently scaffolded. The real agent loop, tools, trace, config, and model providers will be implemented incrementally.`;
+Forgelet V1 runs scaffolded Sessions by default. Use --live to run a read-only Session with the built-in DeepSeek route.`;
 }

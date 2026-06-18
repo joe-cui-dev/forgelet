@@ -1,7 +1,7 @@
 import type { WorkflowKind } from "../types.js";
 
 export type ForgeCommand =
-  | { kind: "run"; workflow: WorkflowKind; task: string; contextFiles: string[]; model?: string; budgetUsd?: number }
+  | { kind: "run"; workflow: WorkflowKind; task: string; contextFiles: string[]; model?: string; budgetUsd?: number; live: boolean }
   | { kind: "config-get" }
   | { kind: "config-set"; key: string; value: string }
   | { kind: "sessions-list" }
@@ -53,9 +53,23 @@ export function parseArgs(argv: string[]): ForgeCommand {
 function parseConfig(args: string[]): ForgeCommand {
   if (args[0] === "get" && args.length === 1) return { kind: "config-get" };
   if (args[0] === "set" && args.length === 3) {
+    if (isModelDefaultConfigKey(args[1] ?? ""))
+      throw new Error(
+        "Model defaults are defined in src/config/index.ts; use --model for a single run override.",
+      );
     return { kind: "config-set", key: args[1] ?? "", value: args[2] ?? "" };
   }
   throw new Error("Usage: forge config get | forge config set <key> <value>");
+}
+
+function isModelDefaultConfigKey(key: string): boolean {
+  return (
+    key === "defaultModel" ||
+    key === "fallbackModel" ||
+    key === "cheapModel" ||
+    key === "routing" ||
+    key.startsWith("routing.")
+  );
 }
 
 function parseSessions(args: string[]): ForgeCommand {
@@ -80,6 +94,7 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
   const contextFiles: string[] = [];
   let model: string | undefined;
   let budgetUsd: number | undefined;
+  let live = false;
   const taskParts: string[] = [];
 
   for (let i = 0; i < args.length; i += 1) {
@@ -104,11 +119,15 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
       budgetUsd = parsed;
       continue;
     }
+    if (arg === "--live") {
+      live = true;
+      continue;
+    }
     if (arg?.startsWith("-")) throw new Error(`Unknown option: ${arg}`);
     taskParts.push(arg ?? "");
   }
 
   const task = taskParts.join(" ").trim();
   if (!task) throw new Error(workflow === "writing" ? "Usage: forge write \"<task>\"" : "Usage: forge \"<task>\"");
-  return { kind: "run", workflow, task, contextFiles, model, budgetUsd };
+  return { kind: "run", workflow, task, contextFiles, model, budgetUsd, live };
 }

@@ -104,13 +104,10 @@ function mergeConfig(
 ): ForgeletConfig {
   return {
     ...base,
-    ...override,
-    routing: {
-      ...base.routing,
-      ...override.routing,
-      coding: { ...base.routing.coding, ...override.routing?.coding },
-      writing: { ...base.routing.writing, ...override.routing?.writing },
-    },
+    defaultModel: defaultConfig.defaultModel,
+    fallbackModel: defaultConfig.fallbackModel,
+    cheapModel: defaultConfig.cheapModel,
+    routing: defaultConfig.routing,
     providers: {
       ...base.providers,
       ...override.providers,

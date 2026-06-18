@@ -9,18 +9,20 @@ test("parses a simple run task", () => {
     task: "fix tests",
     contextFiles: [],
     model: undefined,
-    budgetUsd: undefined
+    budgetUsd: undefined,
+    live: false
   });
 });
 
 test("parses run options", () => {
-  assert.deepEqual(parseArgs(["--context", "issue.md", "--model", "deepseek-v4-pro", "--budget", "0.25", "fix bug"]), {
+  assert.deepEqual(parseArgs(["--live", "--context", "issue.md", "--model", "deepseek-v4-pro", "--budget", "0.25", "fix bug"]), {
     kind: "run",
     workflow: "coding",
     task: "fix bug",
     contextFiles: ["issue.md"],
     model: "deepseek-v4-pro",
-    budgetUsd: 0.25
+    budgetUsd: 0.25,
+    live: true
   });
 });
 
@@ -31,16 +33,28 @@ test("parses a writing workflow task", () => {
     task: "revise this",
     contextFiles: ["draft.md"],
     model: undefined,
-    budgetUsd: undefined
+    budgetUsd: undefined,
+    live: false
   });
 });
 
-test("parses config set", () => {
-  assert.deepEqual(parseArgs(["config", "set", "defaultModel", "deepseek-v4-pro"]), {
+test("parses non-model config set", () => {
+  assert.deepEqual(parseArgs(["config", "set", "memoryFile", ".forgelet/memory.md"]), {
     kind: "config-set",
-    key: "defaultModel",
-    value: "deepseek-v4-pro"
+    key: "memoryFile",
+    value: ".forgelet/memory.md"
   });
+});
+
+test("rejects config set for model defaults", () => {
+  assert.throws(
+    () => parseArgs(["config", "set", "defaultModel", "deepseek-v4-flash"]),
+    /Model defaults are defined in src\/config\/index\.ts/,
+  );
+  assert.throws(
+    () => parseArgs(["config", "set", "routing.coding.default", "deepseek-v4-flash"]),
+    /Model defaults are defined in src\/config\/index\.ts/,
+  );
 });
 
 test("parses memory commands", () => {

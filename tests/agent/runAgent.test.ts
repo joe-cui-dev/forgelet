@@ -62,7 +62,7 @@ test("records context attachment evidence without storing full content in the tr
   assert.match(result.summary, /Context attachments: issue.md/);
 });
 
-test("selects the model route from project config when no CLI override is given", async () => {
+test("selects the built-in model route when project config tries to override defaults", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-routing-"));
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
   await writeFile(
@@ -81,6 +81,6 @@ test("selects the model route from project config when no CLI override is given"
   const trace = await readFile(result.tracePath ?? "", "utf8");
   const events = trace.trim().split("\n").map((line) => JSON.parse(line));
   const routing = events.find((event) => event.type === "routing_selected");
-  assert.equal(routing.payload.model, "local-writing-model");
-  assert.match(result.summary, /Route: local-writing-model/);
+  assert.equal(routing.payload.model, "deepseek-v4-flash");
+  assert.match(result.summary, /Route: deepseek-v4-flash/);
 });

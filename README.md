@@ -20,16 +20,23 @@ For local DeepSeek smoke testing, copy `.env.example` to `.env`, fill in `DEEPSE
 npm run smoke:deepseek
 ```
 
+`DEEPSEEK_MODEL` is only used by the smoke test. Live Session defaults are defined in `src/config/index.ts`; choose a different model for one run with `--model`:
+
+```bash
+forge --live --model deepseek-v4-pro --budget 0.10 "inspect this repo"
+```
+
 ## V1 Command Shape
 
 ```bash
 forge "<task>"
 forge --context issue.md "<task>"
 forge write --context draft.md "revise this"
+forge --live --budget 0.25 "<task>"
 forge --model deepseek-v4-pro "<task>"
 forge --budget 0.25 "<task>"
 forge config get
-forge config set defaultModel deepseek-v4-pro
+forge config set memoryFile .forgelet/memory.md
 forge sessions list
 forge sessions show <sessionId>
 forge explain <sessionId>

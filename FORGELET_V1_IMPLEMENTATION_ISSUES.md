@@ -121,7 +121,7 @@ forge write --context draft.md "revise this"
 forge --model deepseek-v4-pro "<task>"
 forge --budget 0.25 "<task>"
 forge config get
-forge config set defaultModel deepseek-v4-pro
+forge config set memoryFile .forgelet/memory.md
 forge sessions list
 forge sessions show <sessionId>
 forge explain <sessionId>
@@ -190,7 +190,7 @@ Load and merge global config from `~/.forgelet/config.json` and project config f
 
 **User value**
 
-Users can set default models, provider env vars, safe commands, budgets, and project memory location.
+Users can set provider env vars, safe commands, budgets, and project memory location. Model defaults stay in `src/config/index.ts`.
 
 **Scope**
 
@@ -205,20 +205,6 @@ Users can set default models, provider env vars, safe commands, budgets, and pro
 
 ```json
 {
-  "defaultModel": "deepseek-v4-pro",
-  "fallbackModel": "gpt-5",
-  "cheapModel": "deepseek-v4-flash",
-  "routing": {
-    "coding": {
-      "default": "deepseek-v4-pro",
-      "review": "deepseek-v4-pro"
-    },
-    "writing": {
-      "default": "deepseek-v4-flash",
-      "review": "deepseek-v4-flash"
-    },
-    "fallback": "gpt-5"
-  },
   "providers": {
     "deepseek": { "apiKeyEnv": "DEEPSEEK_API_KEY" },
     "openai": { "apiKeyEnv": "OPENAI_API_KEY" },
@@ -259,16 +245,16 @@ Allow users to inspect and update global Forgelet configuration.
 
 **User value**
 
-Users can set `defaultModel` and provider preferences without manually editing JSON.
+Users can set provider preferences without manually editing JSON. Model defaults are edited in `src/config/index.ts`.
 
 **Scope**
 
 - `forge config get` prints merged config or global config clearly.
 - `forge config set <key> <value>` updates global config.
-- Support at least:
-  - `defaultModel`
-  - `fallbackModel`
-  - `cheapModel`
+- Reject model default keys such as `defaultModel`, `fallbackModel`, `cheapModel`, and `routing.*`.
+- Support at least non-model keys such as:
+  - `memoryFile`
+  - provider API key env var names
 - Preserve existing unknown keys if possible.
 - Create `~/.forgelet/config.json` if missing.
 
@@ -279,8 +265,8 @@ Users can set `defaultModel` and provider preferences without manually editing J
 
 **Acceptance criteria**
 
-- `forge config set defaultModel deepseek-v4-pro` writes config.
-- `forge config get` displays the updated value.
+- `forge config set defaultModel deepseek-v4-pro` fails with a clear message.
+- `forge config get` displays model defaults from `src/config/index.ts`.
 - Tests use a temporary home directory.
 
 ---
@@ -784,29 +770,29 @@ Forgelet can learn useful project habits without silently polluting future sessi
 
 **Goal**
 
-Select a configured provider/model from workflow-stage routing, fallback rules, or CLI override.
+Select a provider/model from code-defined workflow-stage routing, fallback rules, or CLI override.
 
 **User value**
 
-Users can choose DeepSeek, OpenAI, or Anthropic models without changing agent code, while Forgelet remains cost-aware by default.
+Users can choose a different model for a single run with `--model`, while Forgelet keeps default model routing in code and remains cost-aware by default.
 
 **Scope**
 
 - Parse model IDs and provider mapping.
-- Use routing config by workflow and stage.
+- Use code-defined routing by workflow and stage.
 - Let `--model` override routing for the run.
-- Support fallback and explicit review model configuration.
+- Support code-defined fallback and explicit review model routing.
 - Record the selected route and reason in the run state or trace.
 - Return clear errors for missing API key env vars.
 
 **Acceptance criteria**
 
 - `deepseek-v4-pro` resolves to DeepSeek provider.
-- Coding default route resolves to `deepseek-v4-pro`.
+- Coding default route resolves to `deepseek-v4-flash`.
 - Writing default route resolves to `deepseek-v4-flash`.
-- CLI override beats routing config.
+- CLI override beats code-defined routing.
 - Missing API key produces actionable error.
-- Tests cover provider selection, workflow-stage routing, CLI override, and fallback config.
+- Tests cover provider selection, workflow-stage routing, CLI override, and fallback routing.
 
 ---
 

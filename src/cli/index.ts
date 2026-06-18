@@ -1,20 +1,36 @@
 #!/usr/bin/env node
-import { pathToFileURL } from "node:url";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "./parseArgs.js";
 import { helpText } from "./help.js";
 import { runAgent } from "../agent/runAgent.js";
-import { loadConfig } from "../config/index.js";
+import { loadConfig, routeModel } from "../config/index.js";
+import { loadDotEnv } from "../config/env.js";
+import { DeepSeekModelClient } from "../models/providers/deepseek.js";
 import { listSessions, showSession } from "../sessions/index.js";
+import type { ModelClient, WorkflowKind } from "../types.js";
 
 export interface RunCliOptions {
   homeDir?: string;
   workspaceRoot?: string;
+  env?: NodeJS.ProcessEnv;
+  createLiveModelClient?: (
+    input: CreateLiveModelClientInput,
+  ) => Promise<ModelClient>;
 }
 
 export interface RunCliResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+}
+
+export interface CreateLiveModelClientInput {
+  workflow: WorkflowKind;
+  modelOverride?: string;
+  homeDir?: string;
+  workspaceRoot: string;
+  env: NodeJS.ProcessEnv;
 }
 
 export async function runCli(argv: string[], options: RunCliOptions = {}): Promise<RunCliResult> {
@@ -29,13 +45,23 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
       case "version":
         return ok("0.1.0");
       case "run": {
+        const modelClient = command.live
+          ? await (options.createLiveModelClient ?? createDeepSeekLiveModelClient)({
+              workflow: command.workflow,
+              modelOverride: command.model,
+              homeDir: options.homeDir,
+              workspaceRoot,
+              env: options.env ?? process.env,
+            })
+          : undefined;
         const result = await runAgent({
           workflow: command.workflow,
           task: command.task,
           contextFiles: command.contextFiles,
           model: command.model,
           budgetUsd: command.budgetUsd,
-          workspaceRoot
+          workspaceRoot,
+          modelClient
         });
         return ok(result.summary);
       }
@@ -62,6 +88,27 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
     const message = error instanceof Error ? error.message : String(error);
     return { stdout: "", stderr: `forge: ${message}`, exitCode: 1 };
   }
+}
+
+async function createDeepSeekLiveModelClient(
+  input: CreateLiveModelClientInput,
+): Promise<ModelClient> {
+  await loadDotEnv({ workspaceRoot: input.workspaceRoot, env: input.env });
+  const config = await loadConfig({
+    homeDir: input.homeDir,
+    workspaceRoot: input.workspaceRoot,
+  });
+  const route = routeModel(config, input.workflow, input.modelOverride);
+  if (!route.model.startsWith("deepseek-")) {
+    throw new Error(
+      `Live execution currently supports DeepSeek models only. Route selected ${route.model}.`,
+    );
+  }
+  const apiKeyEnv = config.providers.deepseek.apiKeyEnv;
+  const apiKey = input.env[apiKeyEnv];
+  if (!apiKey)
+    throw new Error(`${apiKeyEnv} is required for --live DeepSeek execution.`);
+  return new DeepSeekModelClient({ apiKey, model: route.model });
 }
 
 function ok(stdout: string): RunCliResult {
@@ -96,6 +143,18 @@ async function main(): Promise<void> {
   process.exitCode = result.exitCode;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+export function isCliEntrypoint(
+  argvPath: string | undefined,
+  moduleUrl: string,
+): boolean {
+  if (!argvPath) return false;
+  try {
+    return realpathSync(argvPath) === realpathSync(fileURLToPath(moduleUrl));
+  } catch {
+    return argvPath === fileURLToPath(moduleUrl);
+  }
+}
+
+if (isCliEntrypoint(process.argv[1], import.meta.url)) {
   await main();
 }

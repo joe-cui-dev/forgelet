@@ -101,6 +101,8 @@ export interface ModelTurnOutput {
 export interface ModelUsage {
   inputTokens?: number;
   outputTokens?: number;
+  inputCacheHitTokens?: number;
+  inputCacheMissTokens?: number;
   estimatedCostUsd?: number;
 }
 
