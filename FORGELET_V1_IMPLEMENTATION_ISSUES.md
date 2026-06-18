@@ -2,6 +2,61 @@
 
 This document breaks the Forgelet V1 technical design into the first implementation issues. The order is intentional: start with the CLI skeleton, then configuration, trace, tool registry, mock agent loop, and finally real model providers.
 
+## Current Implementation Focus
+
+The next implementation work is split into two tracer bullets. The first finishes the safe read-only Agent Kernel foundation; the second crosses into medium-risk action only after the tool and permission boundaries are explicit.
+
+### Tracer Bullet 1: Safe read-only kernel
+
+**Goal**
+
+Make the live DeepSeek-backed Session loop safe, observable, and useful for repo inspection before any workspace mutation exists.
+
+**Scope**
+
+- Render `ContextAttachment` content into model prompts with source labels, byte/hash metadata, per-attachment limits, total attachment limits, and clear truncation markers.
+- Keep Trace entries for context attachments metadata-only.
+- Add `git_diff` as a low-risk `git_read` tool.
+- Implement a real internal `ToolRegistry` that registers tools, validates metadata, exposes schemas by granted Capability, and dispatches by tool name.
+- Implement a real `PermissionPolicy` that returns `allow`, `confirm`, or `deny` from a full `ToolRequest`.
+- Keep low-risk read, git read, plan update, and model text generation automatic when granted to the active Workflow.
+- Ensure ungranted and unknown tool calls return controlled model observations and traceable permission decisions.
+
+**Acceptance criteria**
+
+- A Coding Workflow can see read workspace, git read, update plan, and model text tools.
+- A Writing Workflow cannot see workspace read/write, git, or shell tools by default.
+- `ContextAttachment` content reaches the model prompt, but Trace records only provenance, size, hash, and preview metadata.
+- `git_diff` returns a useful read-only summary and model observation.
+- Tool schemas are filtered by Workflow Capability Grant, and dispatch re-checks the Capability before execution.
+- Tests cover context prompt rendering, `git_diff`, registry dispatch, grant denial, unknown tools, and metadata-only trace results.
+
+### Tracer Bullet 2: Minimal actionable Coding Workflow
+
+**Goal**
+
+Let a Coding Workflow complete a small repository task by patching ordinary workspace files, running approved verification commands, reviewing the diff, and producing an auditable final summary.
+
+**Scope**
+
+- Add `apply_patch` as a medium-risk workspace write tool that accepts unified patch text.
+- Confirm each concrete `apply_patch` tool call before execution; approval does not grant a whole Capability for the rest of the Session.
+- Allow patching ordinary files inside the current workspace only.
+- Deny or strongly block sensitive, internal, generated, or outside-workspace paths such as `.env*`, obvious secret/key/token/credential files, `.git/**`, `.forgelet/sessions/**`, `node_modules/**`, `dist/**`, and `dist-test/**`.
+- Trace patch hash, changed files, stats, short preview, risk tier, and result without storing the full patch text.
+- Add `run_command` as a medium-risk shell tool that only executes exact commands from configured `safeCommands`.
+- Confirm each concrete command execution before running it.
+- Capture command exit code, duration, summarized output, and short preview; avoid storing full command output in Trace.
+- Use `git_diff` during review so the final answer can report what changed.
+
+**Acceptance criteria**
+
+- A small mocked Coding Workflow can read, patch, run an approved verification command, inspect diff, and finish.
+- Medium-risk patch and command tool calls return `confirm` before execution and are denied in non-interactive mode unless an approval handler is injected.
+- Unsafe commands and sensitive or outside-workspace patch paths are denied before execution.
+- Final summary includes changed files, verification commands and results, model turns, estimated cost, remaining risks, and Trace path.
+- Trace records real tool calls, permission decisions, results, budget updates, and final summary without storing full patches or full command outputs.
+
 ## Milestone 0: Repository Bootstrap
 
 ### Issue 1: Scaffold the TypeScript CLI project
@@ -360,6 +415,8 @@ Users can pass issues, specs, logs, and notes into Forgelet without manually pas
 - Create `ContextAttachment` objects.
 - Write `context_attachment` trace events.
 - Add source labels when passing attachments to the model.
+- Render attachment content into model prompts with per-attachment and total attachment size limits.
+- Mark truncated attachment content clearly in the prompt.
 
 **Out of scope**
 
@@ -372,6 +429,8 @@ Users can pass issues, specs, logs, and notes into Forgelet without manually pas
 - Missing file returns a clear error.
 - Unsupported extension returns a clear error.
 - Attachment metadata is written to trace.
+- Attachment content is available to the live model prompt with source/title/hash/bytes/truncated metadata.
+- Trace does not store full attachment content.
 - Tests cover supported, missing, and unsupported files.
 
 ---
@@ -415,12 +474,26 @@ Dangerous commands include:
 - `git checkout -- <path>`
 - deploy commands unless explicitly approved
 
+Tool Providers classify risk for their own tool calls before `PermissionPolicy` decides whether to allow, confirm, or deny. A policy request includes the workflow, tool name, capability, risk tier, raw input, workspace root, and any extracted target metadata such as paths or commands.
+
+Confirmation rules:
+
+- Low-risk actions are allowed automatically when the Workflow has the required Capability.
+- Medium-risk actions return `confirm` by default.
+- Confirmation applies only to the concrete tool call being requested, not to a whole Capability for the remainder of the Session.
+- CLI execution asks interactively before a confirmed action runs.
+- Non-interactive execution denies confirmed actions unless an approval handler is injected for tests or controlled automation.
+- Forbidden actions are denied.
+
 **Acceptance criteria**
 
 - Tool calls without a workflow grant are denied before command-level risk checks.
 - Tool calls include a risk tier before execution.
 - Coding workflow receives workspace read/write and safe command grants.
 - Writing workflow does not receive workspace write or shell command grants by default.
+- Medium-risk tool calls return `confirm` rather than silent allow.
+- Confirmation is scoped to one concrete tool call.
+- Non-interactive confirmation produces a controlled denial unless an approval handler is injected.
 - Permission decisions are deterministic.
 - Decisions include a reason.
 - Permission decisions include risk tier.
@@ -479,10 +552,11 @@ Forgelet can add tools cleanly without coupling the agent loop to specific tool 
 
 - Register built-in tools.
 - Store provider ID and capability metadata for each tool.
-- Expose tool schemas for model requests.
+- Expose tool schemas for model requests after filtering by Workflow Capability Grant.
 - Dispatch by tool name.
 - Validate tool input against schema.
 - Return normalized `ToolResult`.
+- Return controlled observations for unknown, ungranted, and invalid tool calls.
 - Write tool call/result events to trace.
 
 **Acceptance criteria**
@@ -491,6 +565,7 @@ Forgelet can add tools cleanly without coupling the agent loop to specific tool 
 - Tools without provider ID or capability metadata are rejected.
 - Unknown tool calls return a controlled error.
 - Invalid input returns a controlled error.
+- Dispatch re-checks Capability even when a schema was not exposed to the model.
 - Tests cover registration, provider/capability metadata, dispatch, unknown tools, and invalid input.
 
 ---
@@ -518,6 +593,7 @@ Forgelet can inspect a codebase before deciding what to change.
 - Prefer `rg` for file listing/search where available.
 - Restrict file reads to allowed paths.
 - Limit output size and summarize large results.
+- Include `git_diff` as a low-risk `git_read` tool.
 - Normalize errors.
 
 **Acceptance criteria**
@@ -526,6 +602,7 @@ Forgelet can inspect a codebase before deciding what to change.
 - Search works on a temp test repo.
 - Read file rejects paths outside allowed workspace unless explicitly permitted.
 - Git tools return useful summaries.
+- Trace records read-only tool result metadata and short previews, not full file or diff content.
 
 ---
 
@@ -541,10 +618,11 @@ Forgelet can complete coding tasks, not just suggest changes.
 
 **Scope**
 
-- Accept unified patch or structured patch input.
+- Accept unified patch input.
 - Apply only within workspace.
 - Use permission policy before write.
 - Reject sensitive file edits by default.
+- Confirm each concrete patch tool call rather than granting write access for the whole Session.
 - Return changed files summary.
 - Ensure failures are readable and recoverable.
 
@@ -558,7 +636,7 @@ Forgelet can complete coding tasks, not just suggest changes.
 - Applies a valid patch in a temp repo.
 - Rejects path traversal/outside-workspace patches.
 - Rejects sensitive file changes by default.
-- Trace records patch attempt and result.
+- Trace records patch hash, changed files, stats, short preview, permission decision, and result without storing the full patch.
 
 ---
 
@@ -576,7 +654,8 @@ Forgelet can verify its own changes.
 
 - Execute commands in workspace.
 - Require permission decision before execution.
-- Allow commands from `safeCommands`.
+- Allow only exact commands from `safeCommands`.
+- Confirm each concrete command execution rather than granting shell access for the whole Session.
 - Capture stdout, stderr, exit code, duration.
 - Enforce timeout.
 - Summarize large output.
@@ -589,9 +668,10 @@ Forgelet can verify its own changes.
 **Acceptance criteria**
 
 - Safe command executes in temp workspace.
-- Unsafe command asks for confirmation or returns controlled denial in non-interactive tests.
+- Unsafe command returns controlled denial.
+- Confirmed safe commands execute in interactive mode or with an injected approval handler.
 - Timeout is enforced.
-- Output is summarized and traced.
+- Output is summarized for the model and traced with exit code, duration, summary, and short preview rather than full output.
 
 ---
 

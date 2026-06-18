@@ -14,7 +14,8 @@ import type {
 const READ_FILE_LIMIT_BYTES = 20 * 1024;
 const TRACE_PREVIEW_CHARS = 500;
 
-export function createReadOnlyTools(plan: AgentPlan): ToolDefinition[] {
+// Builds the low-risk tool set exposed to a read-only Session loop.
+export const createReadOnlyTools = (plan: AgentPlan): ToolDefinition[] => {
   return [
     {
       name: "list_files",
@@ -140,13 +141,14 @@ export function createReadOnlyTools(plan: AgentPlan): ToolDefinition[] {
       },
     },
   ];
-}
+};
 
-export function toolResultToObservation(
+// Converts tool results into model-visible observations while keeping trace metadata compact.
+export const toolResultToObservation = (
   result: ToolResult,
   toolCallId: string,
   toolName: string,
-): ToolObservation {
+): ToolObservation => {
   const data = isRecord(result.data) ? result.data : {};
   const content = typeof data.content === "string" ? data.content : undefined;
   const metadata = {
@@ -171,13 +173,14 @@ export function toolResultToObservation(
       : { code: "tool_failed", message: result.error ?? result.summary },
     metadata,
   };
-}
+};
 
-export function deniedToolObservation(
+// Produces the standard observation shape for policy-denied tool calls.
+export const deniedToolObservation = (
   toolCallId: string,
   toolName: string,
   message: string,
-): ToolObservation {
+): ToolObservation => {
   return {
     ok: false,
     toolCallId,
@@ -186,12 +189,13 @@ export function deniedToolObservation(
     error: { code: "permission_denied", message },
     metadata: {},
   };
-}
+};
 
-export function unknownToolObservation(
+// Produces the standard observation shape for model-requested tools that do not exist.
+export const unknownToolObservation = (
   toolCallId: string,
   toolName: string,
-): ToolObservation {
+): ToolObservation => {
   const message = `Unknown tool: ${toolName}`;
   return {
     ok: false,
@@ -201,12 +205,13 @@ export function unknownToolObservation(
     error: { code: "unknown_tool", message },
     metadata: {},
   };
-}
+};
 
-async function safeWorkspacePath(
+// Resolves a path through realpath so symlinks cannot escape the workspace.
+const safeWorkspacePath = async (
   workspaceRoot: string,
   path: string,
-): Promise<string> {
+): Promise<string> => {
   const absolute = resolve(workspaceRoot, path);
   const [realWorkspaceRoot, realTarget] = await Promise.all([
     realpath(workspaceRoot),
@@ -216,12 +221,13 @@ async function safeWorkspacePath(
   if (rel.startsWith(".."))
     throw new Error(`Path is outside workspace: ${path}`);
   return realTarget;
-}
+};
 
-async function listFiles(
+// Recursively lists workspace files while skipping generated and internal folders.
+const listFiles = async (
   root: string,
   workspaceRoot: string,
-): Promise<string[]> {
+): Promise<string[]> => {
   const entries = await readdir(root, { withFileTypes: true });
   const files: string[] = [];
   for (const entry of entries) {
@@ -241,9 +247,10 @@ async function listFiles(
     }
   }
   return files.sort();
-}
+};
 
-async function readTextIfSmall(path: string): Promise<string | undefined> {
+// Returns UTF-8 text only for files that look safe and useful to search.
+const readTextIfSmall = async (path: string): Promise<string | undefined> => {
   const ext = extname(path);
   if ([".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".zip"].includes(ext))
     return undefined;
@@ -254,9 +261,10 @@ async function readTextIfSmall(path: string): Promise<string | undefined> {
   } catch {
     return undefined;
   }
-}
+};
 
-function gitStatus(workspaceRoot: string): Promise<string> {
+// Keeps git integration read-only and degrades gracefully outside a git checkout.
+const gitStatus = (workspaceRoot: string): Promise<string> => {
   return new Promise((resolveStatus) => {
     execFile(
       "git",
@@ -268,21 +276,24 @@ function gitStatus(workspaceRoot: string): Promise<string> {
       },
     );
   });
-}
+};
 
-function requiredString(input: unknown, key: string): string {
+// Reads a required string field from model-provided tool input.
+const requiredString = (input: unknown, key: string): string => {
   const value = optionalString(input, key);
   if (!value) throw new Error(`Missing required string input: ${key}`);
   return value;
-}
+};
 
-function optionalString(input: unknown, key: string): string | undefined {
+// Reads an optional string field without accepting non-object input.
+const optionalString = (input: unknown, key: string): string | undefined => {
   if (!isRecord(input)) return undefined;
   const value = input[key];
   return typeof value === "string" ? value : undefined;
-}
+};
 
-function readPlanItems(input: unknown): AgentPlan["items"] {
+// Validates the model-provided replacement plan before mutating Session state.
+const readPlanItems = (input: unknown): AgentPlan["items"] => {
   if (!isRecord(input) || !Array.isArray(input.items))
     throw new Error("Missing plan items.");
   return input.items.map((item) => {
@@ -294,18 +305,21 @@ function readPlanItems(input: unknown): AgentPlan["items"] {
       throw new Error("Invalid plan item.");
     return { step: item.step, status: item.status };
   });
-}
+};
 
-function isPlanStatus(value: unknown): value is PlanStatus {
+// Narrows untrusted values to the Session plan status vocabulary.
+const isPlanStatus = (value: unknown): value is PlanStatus => {
   return (
     value === "pending" || value === "in_progress" || value === "completed"
   );
-}
+};
 
-function formatPlan(plan: AgentPlan): string {
+// Formats the mutable Session plan for model observation content.
+const formatPlan = (plan: AgentPlan): string => {
   return plan.items.map((item) => `- [${item.status}] ${item.step}`).join("\n");
-}
+};
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+// Shared guard for tool inputs and tool result payloads.
+const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null;
-}
+};
