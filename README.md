@@ -14,6 +14,12 @@ npm link
 forge "fix this bug"
 ```
 
+For local DeepSeek smoke testing, copy `.env.example` to `.env`, fill in `DEEPSEEK_API_KEY`, and run:
+
+```bash
+npm run smoke:deepseek
+```
+
 ## V1 Command Shape
 
 ```bash

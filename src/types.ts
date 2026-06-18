@@ -1,6 +1,13 @@
 export type WorkflowKind = "coding" | "writing";
 
-export type AgentStage = "intake" | "inspect" | "plan" | "act_loop" | "verify" | "review" | "final";
+export type AgentStage =
+  | "intake"
+  | "inspect"
+  | "plan"
+  | "act_loop"
+  | "verify"
+  | "review"
+  | "final";
 
 export type Capability =
   | "read_context"
@@ -35,6 +42,9 @@ export interface AgentSession {
   plan: AgentPlan;
   createdAt: string;
 }
+
+export type SessionFinishStatus = "completed" | "stopped" | "failed";
+export type SessionStopReason = "budget_exceeded" | "max_model_turns";
 
 export interface ContextAttachment {
   id: string;
@@ -72,6 +82,8 @@ export interface ModelTurnInput {
 export interface ModelMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
+  toolCallId?: string;
+  toolCalls?: ModelToolCall[];
 }
 
 export interface ModelToolCall {
@@ -134,6 +146,32 @@ export interface ToolResult {
   summary: string;
   data?: unknown;
   error?: string;
+}
+
+export type ToolObservationErrorCode =
+  | "unknown_tool"
+  | "permission_denied"
+  | "invalid_input"
+  | "tool_failed";
+
+export interface ToolObservation {
+  ok: boolean;
+  toolCallId: string;
+  toolName: string;
+  summary: string;
+  content?: string;
+  error?: {
+    code: ToolObservationErrorCode;
+    message: string;
+  };
+  metadata: {
+    truncated?: boolean;
+    totalBytes?: number;
+    returnedBytes?: number;
+    contentHash?: string;
+    path?: string;
+    preview?: string;
+  };
 }
 
 export interface ToolRequest {

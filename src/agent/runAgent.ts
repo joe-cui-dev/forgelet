@@ -1,4 +1,4 @@
-import type { AgentSession, WorkflowKind } from "../types.js";
+import type { AgentSession, ModelClient, WorkflowKind } from "../types.js";
 import { runWorkflowSession } from "../workflows/index.js";
 
 export interface RunAgentInput {
@@ -8,6 +8,7 @@ export interface RunAgentInput {
   model?: string;
   budgetUsd?: number;
   workspaceRoot: string;
+  modelClient?: ModelClient;
 }
 
 export interface RunAgentResult {
@@ -23,6 +24,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     contextFiles: input.contextFiles,
     model: input.model,
     budgetUsd: input.budgetUsd,
-    workspaceRoot: input.workspaceRoot
+    workspaceRoot: input.workspaceRoot,
+    modelClient: input.modelClient,
   });
 }
