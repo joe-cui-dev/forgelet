@@ -10,7 +10,6 @@ import type {
   ModelToolCall,
   SessionFinishStatus,
   SessionStopReason,
-  ToolDefinition,
   ToolObservation,
   TraceEvent,
   WorkflowKind,
@@ -18,12 +17,11 @@ import type {
 import { loadConfig, routeModel } from "../config/index.js";
 import { loadContextAttachments } from "../context/index.js";
 import { createTraceWriter } from "../trace/index.js";
+import { createReadOnlyTools } from "../tools/readOnly.js";
 import {
-  createReadOnlyTools,
-  deniedToolObservation,
-  toolResultToObservation,
-  unknownToolObservation,
-} from "../tools/readOnly.js";
+  createToolRegistry,
+  type ToolRegistry,
+} from "../tools/toolRegistry.js";
 
 export interface RunWorkflowInput {
   workflow: WorkflowKind;
@@ -251,12 +249,8 @@ const runReadOnlyLoop = async (
     estimatedCostUsd: 0,
   };
   const grantedCapabilities = workflowCapabilities(input.session.workflow);
-  const allTools = createReadOnlyTools(input.plan);
-  // Tool schemas are filtered for model ergonomics, while dispatch below still
-  // enforces capabilities as the hard boundary.
-  const tools = allTools.filter((tool) =>
-    grantedCapabilities.includes(tool.capability),
-  );
+  const toolRegistry = createToolRegistry(createReadOnlyTools(input.plan));
+  const tools = toolRegistry.listTools(grantedCapabilities);
   const conversation: ModelMessage[] = [];
   let finalContent = "";
 
@@ -332,10 +326,10 @@ const runReadOnlyLoop = async (
     for (const toolCall of output.toolCalls) {
       const observation = await executeToolCall({
         toolCall,
-        tools: allTools,
-        grantedCapabilities,
+        toolRegistry,
         session: input.session,
         workspaceRoot: input.workspaceRoot,
+        grantedCapabilities,
         appendTrace: input.appendTrace,
       });
       conversation.push({
@@ -353,10 +347,10 @@ const runReadOnlyLoop = async (
  */
 const executeToolCall = async (input: {
   toolCall: ModelToolCall;
-  tools: ToolDefinition[];
-  grantedCapabilities: Capability[];
+  toolRegistry: ToolRegistry;
   session: AgentSession;
   workspaceRoot: string;
+  grantedCapabilities: Capability[];
   appendTrace(type: string, payload: Record<string, unknown>): Promise<void>;
 }): Promise<ToolObservation> => {
   await input.appendTrace("tool_call", {
@@ -364,83 +358,28 @@ const executeToolCall = async (input: {
     name: input.toolCall.name,
     input: input.toolCall.input,
   });
-  const tool = input.tools.find(
-    (candidate) => candidate.name === input.toolCall.name,
-  );
-  if (!tool) {
-    // Unknown and ungranted tools are returned as observations, not thrown, so
-    // the model can self-correct without crossing the permission boundary.
-    const observation = unknownToolObservation(
-      input.toolCall.id,
-      input.toolCall.name,
-    );
-    await input.appendTrace("permission_decision", {
-      toolCallId: input.toolCall.id,
-      toolName: input.toolCall.name,
-      decision: "deny",
-      reason: observation.summary,
-    });
-    await input.appendTrace("tool_result", traceToolObservation(observation));
-    return observation;
-  }
-
-  if (!input.grantedCapabilities.includes(tool.capability)) {
-    // Defense in depth: hidden tool schemas are not enough; dispatch re-checks
-    // the capability before any tool implementation can run.
-    const observation = deniedToolObservation(
-      input.toolCall.id,
-      input.toolCall.name,
-      `Capability not granted: ${tool.capability}`,
-    );
-    await input.appendTrace("permission_decision", {
-      toolCallId: input.toolCall.id,
-      toolName: input.toolCall.name,
-      capability: tool.capability,
-      decision: "deny",
-      reason: observation.summary,
-    });
-    await input.appendTrace("tool_result", traceToolObservation(observation));
-    return observation;
-  }
-
+  const execution = await input.toolRegistry.execute(input.toolCall, {
+    workspaceRoot: input.workspaceRoot,
+    sessionId: input.session.id,
+    workflow: input.session.workflow,
+    grantedCapabilities: input.grantedCapabilities,
+  });
   await input.appendTrace("permission_decision", {
     toolCallId: input.toolCall.id,
     toolName: input.toolCall.name,
-    capability: tool.capability,
-    decision: "allow",
-    reason: "Workflow capability grant allows read-only tool.",
+    capability: execution.capability,
+    decision: execution.permissionDecision.kind,
+    riskTier: execution.permissionDecision.riskTier,
+    reason: execution.permissionDecision.reason,
   });
-
-  try {
-    const result = await tool.execute(input.toolCall.input, {
-      workspaceRoot: input.workspaceRoot,
-      sessionId: input.session.id,
-      workflow: input.session.workflow,
-      grantedCapabilities: input.grantedCapabilities,
-    });
-    const observation = toolResultToObservation(
-      result,
-      input.toolCall.id,
-      input.toolCall.name,
-    );
-    await input.appendTrace("tool_result", traceToolObservation(observation));
-    // Plan changes are trace-worthy Session state, not just tool output.
-    if (result.ok && tool.name === "update_plan")
-      await input.appendTrace("plan_update", { plan: input.session.plan });
-    return observation;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const observation: ToolObservation = {
-      ok: false,
-      toolCallId: input.toolCall.id,
-      toolName: input.toolCall.name,
-      summary: message,
-      error: { code: "invalid_input", message },
-      metadata: {},
-    };
-    await input.appendTrace("tool_result", traceToolObservation(observation));
-    return observation;
-  }
+  await input.appendTrace(
+    "tool_result",
+    traceToolObservation(execution.observation),
+  );
+  // Plan changes are trace-worthy Session state, not just tool output.
+  if (execution.observation.ok && input.toolCall.name === "update_plan")
+    await input.appendTrace("plan_update", { plan: input.session.plan });
+  return execution.observation;
 };
 
 const workflowCapabilities = (workflow: WorkflowKind): Capability[] => {

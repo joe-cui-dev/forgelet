@@ -45,8 +45,6 @@ test("DeepSeekModelClient converts Forgelet turns to chat completions with tools
     tools: [
       {
         name: "read_file",
-        providerId: "workspace",
-        capability: "read_workspace",
         description: "Read a file",
         inputSchema: {
           type: "object",
@@ -54,7 +52,6 @@ test("DeepSeekModelClient converts Forgelet turns to chat completions with tools
           required: ["path"],
           additionalProperties: false,
         },
-        execute: async () => ({ ok: true, summary: "unused" }),
       },
     ],
   });

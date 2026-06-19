@@ -1,0 +1,69 @@
+import type { ToolObservation, ToolResult } from "../types.js";
+
+const TRACE_PREVIEW_CHARS = 500;
+
+// Converts tool results into model-visible observations while keeping trace metadata compact.
+export const toolResultToObservation = (
+  result: ToolResult,
+  toolCallId: string,
+  toolName: string,
+): ToolObservation => {
+  const data = isRecord(result.data) ? result.data : {};
+  const content = typeof data.content === "string" ? data.content : undefined;
+  const metadata: ToolObservation["metadata"] = {};
+  if (typeof data.truncated === "boolean") metadata.truncated = data.truncated;
+  if (typeof data.totalBytes === "number") metadata.totalBytes = data.totalBytes;
+  if (typeof data.returnedBytes === "number")
+    metadata.returnedBytes = data.returnedBytes;
+  if (typeof data.contentHash === "string")
+    metadata.contentHash = data.contentHash;
+  if (typeof data.path === "string") metadata.path = data.path;
+  if (content) metadata.preview = content.slice(0, TRACE_PREVIEW_CHARS);
+  return {
+    ok: result.ok,
+    toolCallId,
+    toolName,
+    summary: result.summary,
+    content,
+    error: result.ok
+      ? undefined
+      : { code: "tool_failed", message: result.error ?? result.summary },
+    metadata,
+  };
+};
+
+// Produces the standard observation shape for policy-denied tool calls.
+export const deniedToolObservation = (
+  toolCallId: string,
+  toolName: string,
+  message: string,
+): ToolObservation => {
+  return {
+    ok: false,
+    toolCallId,
+    toolName,
+    summary: message,
+    error: { code: "permission_denied", message },
+    metadata: {},
+  };
+};
+
+// Produces the standard observation shape for model-requested tools that do not exist.
+export const unknownToolObservation = (
+  toolCallId: string,
+  toolName: string,
+): ToolObservation => {
+  const message = `Unknown tool: ${toolName}`;
+  return {
+    ok: false,
+    toolCallId,
+    toolName,
+    summary: message,
+    error: { code: "unknown_tool", message },
+    metadata: {},
+  };
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+};

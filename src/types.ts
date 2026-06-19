@@ -76,7 +76,7 @@ export interface MemorySuggestion {
 export interface ModelTurnInput {
   task: string;
   messages: ModelMessage[];
-  tools: ToolDefinition[];
+  tools: ToolSchema[];
 }
 
 export interface ModelMessage {
@@ -134,6 +134,12 @@ export interface ToolDefinition {
   description: string;
   inputSchema: JsonSchema;
   execute(input: unknown, ctx: ToolContext): Promise<ToolResult>;
+}
+
+export interface ToolSchema {
+  name: string;
+  description: string;
+  inputSchema: JsonSchema;
 }
 
 export interface ToolContext {

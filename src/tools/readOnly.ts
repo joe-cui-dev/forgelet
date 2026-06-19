@@ -7,13 +7,11 @@ import type {
   PlanStatus,
   ToolContext,
   ToolDefinition,
-  ToolObservation,
   ToolResult,
 } from "../types.js";
 
 const READ_FILE_LIMIT_BYTES = 20 * 1024;
 const GIT_DIFF_LIMIT_BYTES = 20 * 1024;
-const TRACE_PREVIEW_CHARS = 500;
 
 // Builds the low-risk tool set exposed to a read-only Session loop.
 export const createReadOnlyTools = (plan: AgentPlan): ToolDefinition[] => {
@@ -150,70 +148,6 @@ export const createReadOnlyTools = (plan: AgentPlan): ToolDefinition[] => {
       },
     },
   ];
-};
-
-// Converts tool results into model-visible observations while keeping trace metadata compact.
-export const toolResultToObservation = (
-  result: ToolResult,
-  toolCallId: string,
-  toolName: string,
-): ToolObservation => {
-  const data = isRecord(result.data) ? result.data : {};
-  const content = typeof data.content === "string" ? data.content : undefined;
-  const metadata = {
-    truncated: typeof data.truncated === "boolean" ? data.truncated : undefined,
-    totalBytes:
-      typeof data.totalBytes === "number" ? data.totalBytes : undefined,
-    returnedBytes:
-      typeof data.returnedBytes === "number" ? data.returnedBytes : undefined,
-    contentHash:
-      typeof data.contentHash === "string" ? data.contentHash : undefined,
-    path: typeof data.path === "string" ? data.path : undefined,
-    preview: content ? content.slice(0, TRACE_PREVIEW_CHARS) : undefined,
-  };
-  return {
-    ok: result.ok,
-    toolCallId,
-    toolName,
-    summary: result.summary,
-    content,
-    error: result.ok
-      ? undefined
-      : { code: "tool_failed", message: result.error ?? result.summary },
-    metadata,
-  };
-};
-
-// Produces the standard observation shape for policy-denied tool calls.
-export const deniedToolObservation = (
-  toolCallId: string,
-  toolName: string,
-  message: string,
-): ToolObservation => {
-  return {
-    ok: false,
-    toolCallId,
-    toolName,
-    summary: message,
-    error: { code: "permission_denied", message },
-    metadata: {},
-  };
-};
-
-// Produces the standard observation shape for model-requested tools that do not exist.
-export const unknownToolObservation = (
-  toolCallId: string,
-  toolName: string,
-): ToolObservation => {
-  const message = `Unknown tool: ${toolName}`;
-  return {
-    ok: false,
-    toolCallId,
-    toolName,
-    summary: message,
-    error: { code: "unknown_tool", message },
-    metadata: {},
-  };
 };
 
 // Resolves a path through realpath so symlinks cannot escape the workspace.

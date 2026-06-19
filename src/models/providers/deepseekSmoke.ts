@@ -24,16 +24,13 @@ async function main(): Promise<void> {
     tools: [
       {
         name: "ping_tool",
-        providerId: "smoke",
-        capability: "model_generate_text",
         description: "Echo a short message for protocol validation.",
         inputSchema: {
           type: "object",
           properties: { message: { type: "string" } },
           required: ["message"],
           additionalProperties: false
-        },
-        execute: async () => ({ ok: true, summary: "unused" })
+        }
       }
     ]
   });

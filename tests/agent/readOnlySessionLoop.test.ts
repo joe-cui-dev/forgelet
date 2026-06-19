@@ -184,6 +184,77 @@ test("a coding Session can inspect a truncated git diff without storing the full
   assert.doesNotMatch(JSON.stringify(diffResult.payload), /Hidden diff tail marker/);
 });
 
+test("a coding Session exposes only registry-projected tool schemas to the model", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-tools-"));
+  const modelClient = new FakeModelClient([
+    { content: "Tools inspected.", toolCalls: [] },
+  ]);
+
+  await runAgent({
+    workflow: "coding",
+    task: "inspect available tools",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const tools = modelClient.turnInputs[0]?.tools ?? [];
+  assert.deepEqual(
+    tools.map((tool) => tool.name),
+    [
+      "list_files",
+      "search_text",
+      "read_file",
+      "git_status",
+      "git_diff",
+      "update_plan",
+    ],
+  );
+  assert.equal(tools.some((tool) => "execute" in tool), false);
+  assert.equal(tools.some((tool) => "providerId" in tool), false);
+  assert.equal(tools.some((tool) => "capability" in tool), false);
+});
+
+test("a writing Session requesting git_diff receives a controlled registry denial", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-writing-git-"));
+  const modelClient = new FakeModelClient([
+    { toolCalls: [{ id: "call_diff", name: "git_diff", input: {} }] },
+    { content: "I cannot inspect git diffs in this workflow.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "writing",
+    task: "review git diff",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  assert.match(result.summary, /cannot inspect git diffs/);
+  assert.equal(
+    modelClient.turnInputs[0]?.tools.some((tool) => tool.name === "git_diff"),
+    false,
+  );
+  assert.match(
+    modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "",
+    /permission_denied/,
+  );
+
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const denial = events.find(
+    (event) =>
+      event.type === "permission_decision" &&
+      event.payload.toolName === "git_diff",
+  );
+  assert.ok(denial);
+  assert.equal(denial.payload.decision, "deny");
+  assert.equal(denial.payload.reason, "Capability not granted: git_read");
+});
+
 test("an ungranted tool call returns a denial observation and the Session can recover", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-deny-"));
   await writeFile(join(workspaceRoot, "draft.md"), "private draft\n", "utf8");

@@ -7,7 +7,7 @@ import type {
   ModelTurnInput,
   ModelTurnOutput,
   ModelUsage,
-  ToolDefinition,
+  ToolSchema,
 } from "../../types.js";
 
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
@@ -138,7 +138,7 @@ function toDeepSeekMessage(message: ModelMessage): DeepSeekMessage {
   return { role: message.role, content: message.content };
 }
 
-function toDeepSeekTool(tool: ToolDefinition): DeepSeekTool {
+function toDeepSeekTool(tool: ToolSchema): DeepSeekTool {
   return {
     type: "function",
     function: {
