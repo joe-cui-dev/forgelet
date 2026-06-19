@@ -17,7 +17,8 @@ Make the live DeepSeek-backed Session loop safe, observable, and useful for repo
 - Render `ContextAttachment` content into model prompts with source labels, byte/hash metadata, per-attachment limits, total attachment limits, and clear truncation markers.
 - Keep Trace entries for context attachments metadata-only.
 - Add `git_diff` as a low-risk `git_read` tool.
-- Implement a real internal `ToolRegistry` that registers tools, validates metadata, exposes schemas by granted Capability, and dispatches by tool name.
+- Implement a real internal `ToolRegistry` as a single-layer registry that registers tools, validates metadata, exposes tool schemas by granted Capability, resolves tools by name, and dispatches tool calls.
+- `ToolRegistry` validates tool names are unique and required metadata is present when tools are registered.
 - Implement a real `PermissionPolicy` that returns `allow`, `confirm`, or `deny` from a full `ToolRequest`.
 - Keep low-risk read, git read, plan update, and model text generation automatic when granted to the active Workflow.
 - Ensure ungranted and unknown tool calls return controlled model observations and traceable permission decisions.
@@ -29,7 +30,18 @@ Make the live DeepSeek-backed Session loop safe, observable, and useful for repo
 - `ContextAttachment` content reaches the model prompt, but Trace records only provenance, size, hash, and preview metadata.
 - `git_diff` returns a useful read-only summary and model observation.
 - Tool schemas are filtered by Workflow Capability Grant, and dispatch re-checks the Capability before execution.
+- `ToolRegistry` exposes a minimal interface for listing tools by grants, resolving by tool name, and executing or normalizing tool-call results; V1 does not introduce a separate provider registry layer.
+- `ToolRegistry.listTools(grants)` returns model-facing schemas with `name`, `description`, and `inputSchema` only; execution functions and authorization metadata stay internal.
+- `update_plan` remains a normal `ToolRegistry` tool from the `session` provider with the `update_plan` Capability; the runner does not special-case it outside registry dispatch.
+- V1 creates a Session-scoped `ToolRegistry` inside the Session loop so tools can receive Session-local mutable state such as the current plan; it is not a global singleton.
+- Registry construction fails early on duplicate tool names or incomplete tool metadata.
+- `ToolRegistry` re-checks Workflow Capability Grants during execution; schema filtering is for model ergonomics, while registry dispatch is the authorization boundary.
+- Unknown and ungranted tool calls return controlled observations from `ToolRegistry`.
+- `ToolRegistry.execute` returns both the model-facing observation and explicit permission decision metadata; the runner does not infer permission trace data from the observation.
+- Tool execution failures keep the prior authorization decision, such as `allow`, and return a failed tool observation rather than being converted into permission denials.
+- `ToolRegistry` does not write Trace directly; the Session runner appends `tool_call`, `permission_decision`, and `tool_result` events from registry outputs.
 - Tests cover context prompt rendering, `git_diff`, registry dispatch, grant denial, unknown tools, and metadata-only trace results.
+- `ToolRegistry` implementation uses focused registry unit tests plus at least one Session loop integration test that proves workflow-specific tool visibility and denial still work.
 
 ### Tracer Bullet 2: Minimal actionable Coding Workflow
 
@@ -40,11 +52,22 @@ Let a Coding Workflow complete a small repository task by patching ordinary work
 **Scope**
 
 - Add `apply_patch` as a medium-risk workspace write tool that accepts unified patch text.
+- Capture a lightweight git status baseline at the start of an actionable Coding Workflow Session and write it as a metadata-only `workspace_baseline` trace event so final review can distinguish pre-existing workspace changes from Forgelet changes.
+- Parse the patch and extract target metadata before permission policy decides, including changed paths and whether the patch touches sensitive, generated, internal, or outside-workspace targets.
 - Confirm each concrete `apply_patch` tool call before execution; approval does not grant a whole Capability for the rest of the Session.
-- Allow patching ordinary files inside the current workspace only.
+- Allow creating or modifying ordinary files inside the current workspace only.
+- Deny file deletion patches in V1.
 - Deny or strongly block sensitive, internal, generated, or outside-workspace paths such as `.env*`, obvious secret/key/token/credential files, `.git/**`, `.forgelet/sessions/**`, `node_modules/**`, `dist/**`, and `dist-test/**`.
+- Apply patches all-or-nothing: preflight every target and leave the workspace unchanged if any target, risk check, or hunk application fails.
+- Use `git apply --check` followed by `git apply` for V1 patch application, while keeping Forgelet-owned target parsing and risk metadata extraction before permission policy decisions.
+- Deny patches that target files with pre-existing staged or unstaged changes so Forgelet changes do not mix with user worktree edits.
+- New-file targets must be entirely new paths; existing, untracked, or staged-add paths are denied.
 - Trace patch hash, changed files, stats, short preview, risk tier, and result without storing the full patch text.
-- Add `run_command` as a medium-risk shell tool that only executes exact commands from configured `safeCommands`.
+- Patch confirmation prompts show changed files, stats, risk reason, short preview, and patch hash, but not the full patch text.
+- Interactive approval may offer a show-full-patch option for the current prompt without persisting the full patch to Trace.
+- `apply_patch` does not automatically run formatters, tests, or other commands; it may return suggested verification commands, but execution requires an explicit `run_command` tool call.
+- `apply_patch` modifies the working tree only; it does not stage or commit files.
+- Add `run_command` as a medium-risk command tool that accepts a complete command string, only executes exact commands from configured `safeCommands`, and runs them without a shell.
 - Confirm each concrete command execution before running it.
 - Capture command exit code, duration, summarized output, and short preview; avoid storing full command output in Trace.
 - Use `git_diff` during review so the final answer can report what changed.
@@ -55,6 +78,8 @@ Let a Coding Workflow complete a small repository task by patching ordinary work
 - Medium-risk patch and command tool calls return `confirm` before execution and are denied in non-interactive mode unless an approval handler is injected.
 - Unsafe commands and sensitive or outside-workspace patch paths are denied before execution.
 - Final summary includes changed files, verification commands and results, model turns, estimated cost, remaining risks, and Trace path.
+- Final summary separates workspace changes into files changed by Forgelet, changes pre-existing at Session start, and other changes observed during the Session.
+- Final summary uses the Session-start git status baseline rather than final status alone to identify changes pre-existing at Session start.
 - Trace records real tool calls, permission decisions, results, budget updates, and final summary without storing full patches or full command outputs.
 
 ## Milestone 0: Repository Bootstrap
@@ -346,15 +371,19 @@ Users can audit what Forgelet did, debug behavior, and later generate explanatio
 - Support event types:
   - `user_task`
   - `context_attachment`
+  - `workspace_baseline`
   - `model_turn`
   - `tool_call`
   - `tool_result`
   - `permission_decision`
+  - `approval_decision`
   - `plan_update`
   - `budget_update`
   - `final_summary`
 - Add timestamps.
 - Avoid writing full secret values.
+- Store workspace baseline git status metadata only, not full diffs or file content.
+- `workspace_baseline` stores structured status entries as canonical data and may include the raw short status summary for human readability.
 
 **Acceptance criteria**
 
@@ -481,9 +510,18 @@ Confirmation rules:
 - Low-risk actions are allowed automatically when the Workflow has the required Capability.
 - Medium-risk actions return `confirm` by default.
 - Confirmation applies only to the concrete tool call being requested, not to a whole Capability for the remainder of the Session.
+- V1 does not reuse approvals across later tool calls; each medium-risk concrete tool call requires its own permission decision and approval decision.
+- `PermissionPolicy` only returns the decision; Session execution resolves `confirm` decisions through an approval handler before running the tool.
+- `permission_decision` records the policy result; `approval_decision` records the approval handler result for confirmed actions.
 - CLI execution asks interactively before a confirmed action runs.
+- Interactive CLI approval may let the user temporarily show the full patch for the current confirmation, but the full patch is not persisted to Trace.
+- If the full patch is shown during interactive approval, `approval_decision` may record `fullPatchShown: true` without storing patch content.
 - Non-interactive execution denies confirmed actions unless an approval handler is injected for tests or controlled automation.
+- Approval rejection or unavailable approval returns a controlled `permission_denied` observation to the model so it can self-correct or summarize the blocked action.
+- Tool implementations do not prompt the user directly.
 - Forbidden actions are denied.
+- All tool-call authorization outcomes are recorded as `permission_decision` trace events; missing Workflow Capability Grants are recorded as `deny` decisions with a clear `Capability not granted` reason rather than a separate trace event type.
+- Unknown tool calls are also recorded as `permission_decision` deny events and then returned to the model as controlled `unknown_tool` observations so the model can self-correct.
 
 **Acceptance criteria**
 
@@ -493,11 +531,17 @@ Confirmation rules:
 - Writing workflow does not receive workspace write or shell command grants by default.
 - Medium-risk tool calls return `confirm` rather than silent allow.
 - Confirmation is scoped to one concrete tool call.
+- Medium-risk approvals are not reused for later tool calls in the same Session.
+- Confirm decisions are resolved by a Session-level approval handler, not inside `PermissionPolicy` or the tool implementation.
+- Confirmed actions write an `approval_decision` trace event with `approved`, `rejected`, or `unavailable` before any tool execution.
 - Non-interactive confirmation produces a controlled denial unless an approval handler is injected.
+- Approval rejection or unavailable approval does not throw; it returns an `ok: false` model observation using the existing `permission_denied` error code and a clear reason.
 - Permission decisions are deterministic.
 - Decisions include a reason.
 - Permission decisions include risk tier.
 - Permission decisions are written to trace.
+- Grant failures are written to trace as `permission_decision` events with `decision: "deny"`.
+- Unknown tool calls are written to trace as `permission_decision` events with `decision: "deny"` and a clear unknown-tool reason.
 - Unit tests cover grant denial, low/medium/high/forbidden tiers, safe, confirm, and deny cases.
 
 ---
@@ -619,24 +663,45 @@ Forgelet can complete coding tasks, not just suggest changes.
 **Scope**
 
 - Accept unified patch input.
-- Apply only within workspace.
+- Parse patch headers and extract target path metadata before permission policy decides.
+- Create or modify ordinary files only within workspace.
+- Deny delete-file patches with a controlled observation.
+- Preflight every target before writing.
+- Check that target files are clean before writing; staged or unstaged pre-existing target changes produce a controlled denial.
+- For new files, check that the target path does not already exist and does not appear in git status.
+- Apply the patch atomically with `git apply --check` and `git apply`; partial application is not allowed.
 - Use permission policy before write.
-- Reject sensitive file edits by default.
+- Reject sensitive, internal, generated, or outside-workspace file creation and edits by default.
 - Confirm each concrete patch tool call rather than granting write access for the whole Session.
+- Confirmation prompt includes patch metadata and a short preview, not the full patch text.
 - Return changed files summary.
+- Return optional suggested verification commands without executing them.
 - Ensure failures are readable and recoverable.
+- Do not let `PermissionPolicy` parse unified patch text directly.
 
 **Out of scope**
 
 - Auto-commit.
+- Auto-staging or any staging tool.
 - Formatting every file automatically.
+- File deletion.
+- Non-git workspace patch application.
 
 **Acceptance criteria**
 
 - Applies a valid patch in a temp repo.
+- Creates ordinary workspace files when the patch targets safe paths.
 - Rejects path traversal/outside-workspace patches.
-- Rejects sensitive file changes by default.
+- Rejects sensitive, internal, or generated file creation and changes by default.
+- Rejects delete-file patches with a controlled denial.
+- Rejects patches that target files with pre-existing staged or unstaged changes.
+- Rejects new-file patches when the target already exists or appears in git status.
+- Leaves the workspace unchanged when any target or hunk fails.
+- Returns a controlled failure when the workspace cannot support `git apply`.
+- Does not run formatting, tests, or commands automatically after patching.
+- Does not stage or commit changed files.
 - Trace records patch hash, changed files, stats, short preview, permission decision, and result without storing the full patch.
+- Confirmation prompt does not render the full patch text.
 
 ---
 
@@ -654,10 +719,14 @@ Forgelet can verify its own changes.
 
 - Execute commands in workspace.
 - Require permission decision before execution.
-- Allow only exact commands from `safeCommands`.
+- Accept `{ command: string }` and allow only exact command strings from `safeCommands`.
+- Deny appended arguments, shell expansion, redirects, and command variants unless the exact full string is configured as its own safe command.
+- After exact matching, parse the command into executable and argv and execute without a shell.
+- Reject commands that cannot be parsed into safe argv form.
 - Confirm each concrete command execution rather than granting shell access for the whole Session.
 - Capture stdout, stderr, exit code, duration.
-- Enforce timeout.
+- Return `ok: false` for non-zero exit codes while preserving exit code and summarized output for model repair.
+- Enforce timeout; timeout returns a controlled failed observation, not a permission denial or automatic Session stop.
 - Summarize large output.
 
 **Out of scope**
@@ -668,9 +737,10 @@ Forgelet can verify its own changes.
 **Acceptance criteria**
 
 - Safe command executes in temp workspace.
-- Unsafe command returns controlled denial.
+- Unsafe or non-exact command returns controlled denial.
 - Confirmed safe commands execute in interactive mode or with an injected approval handler.
-- Timeout is enforced.
+- Non-zero exit code returns a failed tool observation with exit code and summarized output.
+- Timeout returns a failed tool observation and trace metadata with `timedOut: true`, duration, and output preview.
 - Output is summarized for the model and traced with exit code, duration, summary, and short preview rather than full output.
 
 ---

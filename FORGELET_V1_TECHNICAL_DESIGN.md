@@ -185,12 +185,14 @@ Built-in V1 tools:
 
 The workflow runner should only talk to `ToolRegistry`, not directly to individual tool implementations. Future browser, MCP, calendar, notes, and email tools can be added as tool providers behind the same registry.
 
+V1 `apply_patch` uses `git apply --check` followed by `git apply` for patch application in repository workspaces. Forgelet still parses patch targets itself before policy decisions so path risk, sensitive files, and trace metadata do not depend on Git's patch parser.
+
 ## 7. Permissions
 
 Forgelet uses two permission layers:
 
 1. Workflow capability grants decide which capabilities a workflow may request.
-2. Risk tier classification decides whether the requested action is low, medium, high, or forbidden risk.
+2. Tool Providers classify provider-specific target metadata and risk before execution.
 3. PermissionPolicy decides whether a specific tool call is allowed, confirmed, or denied.
 
 Default V1 workflow grants:
@@ -221,6 +223,8 @@ interface PermissionPolicy {
 ```
 
 The permission layer should classify risk before a tool executes. Risk tiers and permission decisions must be written to the session trace.
+
+`PermissionPolicy` is decision-only: it returns `allow`, `confirm`, or `deny`. Session execution resolves `confirm` decisions through an approval handler before the tool runs, so CLI, tests, and future review surfaces can supply different confirmation behavior without embedding prompts inside policy or tool implementations. The trace records the policy result as `permission_decision` and the handler result as a separate `approval_decision`.
 
 ## 8. Configuration
 
@@ -266,6 +270,8 @@ Project config: `<repo>/.forgelet/config.json`
   "memoryFile": ".forgelet/memory.md"
 }
 ```
+
+V1 command execution is exact-match only. `run_command` accepts a complete command string and executes it only when that string exactly matches one configured `safeCommands` entry; appended arguments, shell expansion, redirects, and command variants are denied unless configured as their own safe command. After the exact match, Forgelet parses the command into executable and argv and runs it without a shell.
 
 Global config stores personal preferences and provider settings. Project config stores repository-specific commands, safety rules, and memory location.
 

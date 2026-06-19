@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -78,6 +79,109 @@ test("a coding Session can search, read, and finish through read-only tools", as
   assert.equal(readResult.payload.path, "example.ts");
   assert.equal("content" in readResult.payload, false);
   assert.match(String(readResult.payload.preview), /needle/);
+});
+
+test("context attachments are rendered for the model without storing full content in the trace", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-context-"));
+  const largeContext = `Important issue context\n${"x".repeat(22 * 1024)}\nHidden tail marker\n`;
+  await writeFile(join(workspaceRoot, "issue.md"), largeContext, "utf8");
+  const modelClient = new FakeModelClient([
+    { content: "I can see the attached issue context.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "use the attached issue",
+    contextFiles: ["issue.md"],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const firstUserMessage = modelClient.turnInputs[0]?.messages.find(
+    (message) => message.role === "user",
+  )?.content;
+  assert.ok(firstUserMessage);
+  assert.match(firstUserMessage, /Context attachments:/);
+  assert.match(firstUserMessage, /id: ctx_1/);
+  assert.match(firstUserMessage, /source: file/);
+  assert.match(firstUserMessage, /title: issue\.md/);
+  assert.match(firstUserMessage, /contentHash:/);
+  assert.match(firstUserMessage, /contentBytes:/);
+  assert.match(firstUserMessage, /returnedBytes: 20480/);
+  assert.match(firstUserMessage, /truncated: true/);
+  assert.match(firstUserMessage, /Important issue context/);
+  assert.match(
+    firstUserMessage,
+    /\[truncated: showing 20480 of \d+ bytes\]/,
+  );
+  assert.doesNotMatch(firstUserMessage, /Hidden tail marker/);
+
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const contextEvent = events.find(
+    (event) => event.type === "context_attachment",
+  );
+  assert.ok(contextEvent);
+  assert.equal("content" in contextEvent.payload, false);
+  assert.doesNotMatch(JSON.stringify(contextEvent.payload), /Hidden tail marker/);
+});
+
+test("a coding Session can inspect a truncated git diff without storing the full diff in the trace", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-git-diff-"));
+  await execGit(workspaceRoot, ["init"]);
+  await writeFile(join(workspaceRoot, "review.txt"), "original\n", "utf8");
+  await execGit(workspaceRoot, ["add", "review.txt"]);
+  const changedContent = `changed\n${"x".repeat(25 * 1024)}\nHidden diff tail marker\n`;
+  await writeFile(join(workspaceRoot, "review.txt"), changedContent, "utf8");
+  const modelClient = new FakeModelClient([
+    { toolCalls: [{ id: "call_diff", name: "git_diff", input: {} }] },
+    { content: "I reviewed the diff.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "review the diff",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  assert.equal(
+    modelClient.turnInputs[0]?.tools.some((tool) => tool.name === "git_diff"),
+    true,
+  );
+  const toolMessage = modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "";
+  const observation = JSON.parse(toolMessage);
+  assert.equal(observation.ok, true);
+  assert.equal(observation.toolName, "git_diff");
+  assert.equal(observation.metadata.truncated, true);
+  assert.equal(observation.metadata.returnedBytes, 20 * 1024);
+  assert.match(observation.content, /Git diff stat:/);
+  assert.match(observation.content, /review\.txt/);
+  assert.match(observation.content, /Git diff:/);
+  assert.match(observation.content, /changed/);
+  assert.match(
+    observation.content,
+    /\[truncated: showing 20480 of \d+ bytes\]/,
+  );
+  assert.doesNotMatch(observation.content, /Hidden diff tail marker/);
+
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const diffResult = events.find(
+    (event) =>
+      event.type === "tool_result" && event.payload.toolName === "git_diff",
+  );
+  assert.ok(diffResult);
+  assert.equal("content" in diffResult.payload, false);
+  assert.equal(diffResult.payload.truncated, true);
+  assert.doesNotMatch(JSON.stringify(diffResult.payload), /Hidden diff tail marker/);
 });
 
 test("an ungranted tool call returns a denial observation and the Session can recover", async () => {
@@ -302,3 +406,12 @@ test("read-only tools do not follow workspace symlinks outside the workspace", a
   assert.equal(readResult.payload.ok, false);
   assert.equal(readResult.payload.error.code, "invalid_input");
 });
+
+function execGit(workspaceRoot: string, args: string[]): Promise<void> {
+  return new Promise((resolveExec, rejectExec) => {
+    execFile("git", args, { cwd: workspaceRoot }, (error) => {
+      if (error) rejectExec(error);
+      else resolveExec();
+    });
+  });
+}

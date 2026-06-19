@@ -81,7 +81,7 @@ The explicit configuration that maps a **Workflow** and stage to a model role or
 _Avoid_: Smart model picker, hidden fallback
 
 **Tool Provider**:
-A source of related tools that share an operational boundary, such as workspace files, shell commands, browser context, writing surfaces, local image generation, Photoshop, or MCP. A **Tool Provider** declares **Capabilities** before its tools are used by a **Workflow**.
+A source of related tools that share an operational boundary, such as workspace files, shell commands, browser context, writing surfaces, local image generation, Photoshop, or MCP. A **Tool Provider** declares **Capabilities** and classifies provider-specific tool risk before its tools are used by a **Workflow**.
 _Avoid_: Plugin, tool category
 
 **Capability**:
@@ -91,6 +91,10 @@ _Avoid_: Tool name, command type
 **Workflow Capability Grant**:
 The set of **Capabilities** a **Workflow** may request by default. A grant is necessary but not sufficient: each tool call still passes through the permission policy.
 _Avoid_: Global tool access, tool allowlist
+
+**Permission Policy**:
+The Session-time rule that decides whether a concrete tool call is allowed, requires confirmation, or is denied after **Workflow Capability Grants** and provider-classified risk tier are considered.
+_Avoid_: Tool allowlist, global approval
 
 **Risk Tiered Autonomy**:
 The default execution policy where low-risk read, analysis, and reversible model work can proceed automatically, durable writes or external effects require confirmation, and destructive or secret-touching actions are denied or strongly confirmed.
@@ -149,6 +153,10 @@ Domain expert: "It should come from a Tool Provider that declares image-editing 
 Dev: "Can the writing workflow run shell commands if it asks nicely?"
 
 Domain expert: "No. The Writing Workflow does not receive shell or workspace mutation grants by default, so those tool calls should be denied before command-level risk is considered."
+
+Dev: "If the Coding Workflow has workspace write capability, can it edit files whenever it wants?"
+
+Domain expert: "No. The Workflow Capability Grant only makes the request eligible. The Permission Policy still decides whether each concrete tool call is allowed, requires confirmation, or is denied."
 
 Dev: "Should Forgelet ask before every step?"
 

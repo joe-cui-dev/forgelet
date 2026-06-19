@@ -12,6 +12,7 @@ import type {
 } from "../types.js";
 
 const READ_FILE_LIMIT_BYTES = 20 * 1024;
+const GIT_DIFF_LIMIT_BYTES = 20 * 1024;
 const TRACE_PREVIEW_CHARS = 500;
 
 // Builds the low-risk tool set exposed to a read-only Session loop.
@@ -118,6 +119,14 @@ export const createReadOnlyTools = (plan: AgentPlan): ToolDefinition[] => {
           data: { content },
         };
       },
+    },
+    {
+      name: "git_diff",
+      providerId: "git",
+      capability: "git_read",
+      description: "Show unstaged git diff stat and a truncated diff.",
+      inputSchema: { type: "object", additionalProperties: false },
+      execute: async (_input, ctx) => gitDiff(ctx.workspaceRoot),
     },
     {
       name: "update_plan",
@@ -273,6 +282,82 @@ const gitStatus = (workspaceRoot: string): Promise<string> => {
       (error, stdout) => {
         if (error) resolveStatus("Git status is unavailable.");
         else resolveStatus(stdout);
+      },
+    );
+  });
+};
+
+const gitDiff = async (workspaceRoot: string): Promise<ToolResult> => {
+  const [stat, diff] = await Promise.all([
+    gitOutput(workspaceRoot, ["diff", "--stat"]),
+    gitOutput(workspaceRoot, ["diff"]),
+  ]);
+  if (stat === undefined || diff === undefined) {
+    return {
+      ok: true,
+      summary: "Git diff is unavailable.",
+      data: {
+        content: "Git diff is unavailable.",
+        truncated: false,
+        totalBytes: 0,
+        returnedBytes: 0,
+      },
+    };
+  }
+  if (!stat.trim() && !diff.trim()) {
+    return {
+      ok: true,
+      summary: "Workspace git diff is empty.",
+      data: {
+        content: "",
+        truncated: false,
+        totalBytes: 0,
+        returnedBytes: 0,
+      },
+    };
+  }
+
+  const buffer = Buffer.from(diff, "utf8");
+  const returned = buffer.subarray(0, GIT_DIFF_LIMIT_BYTES);
+  const truncated = buffer.length > returned.length;
+  const renderedDiff = returned.toString("utf8");
+  const truncationNotice = truncated
+    ? `\n[truncated: showing ${returned.length} of ${buffer.length} bytes]`
+    : "";
+
+  return {
+    ok: true,
+    summary: truncated
+      ? "Read git diff with truncation."
+      : "Read git diff.",
+    data: {
+      content: [
+        "Git diff stat:",
+        stat.trim() || "(none)",
+        "",
+        "Git diff:",
+        renderedDiff + truncationNotice,
+      ].join("\n"),
+      truncated,
+      totalBytes: buffer.length,
+      returnedBytes: returned.length,
+      contentHash: createHash("sha256").update(diff).digest("hex"),
+    },
+  };
+};
+
+const gitOutput = (
+  workspaceRoot: string,
+  args: string[],
+): Promise<string | undefined> => {
+  return new Promise((resolveOutput) => {
+    execFile(
+      "git",
+      args,
+      { cwd: workspaceRoot, maxBuffer: 5 * 1024 * 1024 },
+      (error, stdout) => {
+        if (error) resolveOutput(undefined);
+        else resolveOutput(stdout);
       },
     );
   });

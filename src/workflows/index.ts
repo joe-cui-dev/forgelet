@@ -4,6 +4,7 @@ import type {
   BudgetLimits,
   BudgetUsage,
   Capability,
+  LoadedContextAttachment,
   ModelClient,
   ModelMessage,
   ModelToolCall,
@@ -50,6 +51,7 @@ interface ActLoopRoute {
 interface RunReadOnlyLoopInput {
   modelClient: ModelClient;
   session: AgentSession;
+  contextAttachments: LoadedContextAttachment[];
   workspaceRoot: string;
   route: ActLoopRoute;
   plan: AgentPlan;
@@ -62,6 +64,9 @@ interface RunReadOnlyLoopResult {
   reason?: SessionStopReason;
   summary: string;
 }
+
+const CONTEXT_ATTACHMENT_PROMPT_LIMIT_BYTES = 20 * 1024;
+const CONTEXT_ATTACHMENTS_PROMPT_LIMIT_BYTES = 60 * 1024;
 
 /**
  * Runs a Forgelet workflow session with the given input, returning the final
@@ -132,6 +137,7 @@ export const runWorkflowSession = async (
     const execution = await runReadOnlyLoop({
       modelClient: input.modelClient,
       session,
+      contextAttachments,
       workspaceRoot: input.workspaceRoot,
       route,
       plan,
@@ -273,6 +279,7 @@ const runReadOnlyLoop = async (
         input.session,
         input.plan,
         input.route,
+        input.contextAttachments,
         usage,
         input.limits,
         conversation,
@@ -465,10 +472,13 @@ const buildMessages = (
   session: AgentSession,
   plan: AgentPlan,
   route: ActLoopRoute,
+  contextAttachments: LoadedContextAttachment[],
   usage: BudgetUsage,
   limits: BudgetLimits,
   conversation: ModelMessage[],
 ): ModelMessage[] => {
+  const contextAttachmentLines =
+    formatContextAttachmentsForPrompt(contextAttachments);
   const messages: ModelMessage[] = [
     {
       role: "system",
@@ -487,6 +497,8 @@ const buildMessages = (
         `Stage: ${route.stage}`,
         `Task: ${session.task}`,
         "",
+        ...contextAttachmentLines,
+        ...(contextAttachmentLines.length > 0 ? [""] : []),
         "Current plan:",
         ...plan.items.map((item) => `- ${item.status}: ${item.step}`),
         "",
@@ -498,6 +510,58 @@ const buildMessages = (
   messages.push(...conversation);
   return messages;
 };
+
+const formatContextAttachmentsForPrompt = (
+  attachments: LoadedContextAttachment[],
+): string[] => {
+  if (attachments.length === 0) return [];
+
+  const lines = ["Context attachments:"];
+  let remainingBudget = CONTEXT_ATTACHMENTS_PROMPT_LIMIT_BYTES;
+
+  attachments.forEach(({ attachment, content }) => {
+    const contentBytes = Buffer.byteLength(content, "utf8");
+    const returnedBytes = Math.min(
+      contentBytes,
+      CONTEXT_ATTACHMENT_PROMPT_LIMIT_BYTES,
+      remainingBudget,
+    );
+    const rendered = Buffer.from(content, "utf8")
+      .subarray(0, returnedBytes)
+      .toString("utf8");
+    const truncated = returnedBytes < contentBytes;
+    remainingBudget -= returnedBytes;
+
+    const attachmentLines = [
+      `- id: ${attachment.id}`,
+      `  source: ${attachment.source}`,
+      `  title: ${attachment.title ?? "(untitled)"}`,
+      `  mimeType: ${attachment.mimeType}`,
+      `  contentHash: ${attachment.contentHash}`,
+      `  contentBytes: ${attachment.contentBytes}`,
+      `  returnedBytes: ${returnedBytes}`,
+      `  truncated: ${truncated}`,
+      "  content:",
+      "  ```",
+      indentPromptContent(
+        truncated
+          ? `${rendered}\n[truncated: showing ${returnedBytes} of ${contentBytes} bytes]`
+          : rendered,
+      ),
+      "  ```",
+    ];
+    if (attachment.uri) attachmentLines.splice(3, 0, `  uri: ${attachment.uri}`);
+    lines.push(...attachmentLines);
+  });
+
+  return lines;
+};
+
+const indentPromptContent = (content: string): string =>
+  content
+    .split("\n")
+    .map((line) => `  ${line}`)
+    .join("\n");
 
 const observationForModel = (
   observation: ToolObservation,
