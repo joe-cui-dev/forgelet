@@ -1,4 +1,5 @@
 import type { AgentSession, ModelClient, WorkflowKind } from "../types.js";
+import type { ApprovalHandler } from "../tools/toolRegistry.js";
 import { runWorkflowSession } from "../workflows/index.js";
 
 export interface RunAgentInput {
@@ -9,6 +10,8 @@ export interface RunAgentInput {
   budgetUsd?: number;
   workspaceRoot: string;
   modelClient?: ModelClient;
+  act?: boolean;
+  approvalHandler?: ApprovalHandler;
 }
 
 export interface RunAgentResult {
@@ -26,5 +29,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     budgetUsd: input.budgetUsd,
     workspaceRoot: input.workspaceRoot,
     modelClient: input.modelClient,
+    act: input.act,
+    approvalHandler: input.approvalHandler,
   });
 }

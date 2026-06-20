@@ -19,6 +19,8 @@ test("loads merged default, global, and project config", async () => {
     JSON.stringify({
       routing: { coding: { default: "local-coding-model" } },
       safeCommands: ["npm test"],
+      commandTimeoutMs: 12_345,
+      maxPatchBytes: 54_321,
     }),
     "utf8",
   );
@@ -30,4 +32,6 @@ test("loads merged default, global, and project config", async () => {
   expect(config.routing.coding.default).toBe("deepseek-v4-pro");
   expect(config.routing.writing.default).toBe("deepseek-v4-flash");
   expect(config.safeCommands).toEqual(["npm test"]);
+  expect(config.commandTimeoutMs).toBe(12_345);
+  expect(config.maxPatchBytes).toBe(54_321);
 });

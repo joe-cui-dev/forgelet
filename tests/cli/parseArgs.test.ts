@@ -9,7 +9,8 @@ test("parses a simple run task", () => {
     contextFiles: [],
     model: undefined,
     budgetUsd: undefined,
-    live: false
+    live: false,
+    act: false
   });
 });
 
@@ -21,8 +22,26 @@ test("parses run options", () => {
     contextFiles: ["issue.md"],
     model: "deepseek-v4-pro",
     budgetUsd: 0.25,
-    live: true
+    live: true,
+    act: false
   });
+});
+
+test("parses actionable coding runs", () => {
+  expect(parseArgs(["--live", "--act", "fix bug"])).toEqual({
+    kind: "run",
+    workflow: "coding",
+    task: "fix bug",
+    contextFiles: [],
+    model: undefined,
+    budgetUsd: undefined,
+    live: true,
+    act: true
+  });
+});
+
+test("rejects actionable writing runs", () => {
+  expect(() => parseArgs(["write", "--live", "--act", "revise this"])).toThrow(/--act is only available for the coding workflow/);
 });
 
 test("parses a writing workflow task", () => {
@@ -33,7 +52,8 @@ test("parses a writing workflow task", () => {
     contextFiles: ["draft.md"],
     model: undefined,
     budgetUsd: undefined,
-    live: false
+    live: false,
+    act: false
   });
 });
 

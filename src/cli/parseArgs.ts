@@ -1,7 +1,7 @@
 import type { WorkflowKind } from "../types.js";
 
 export type ForgeCommand =
-  | { kind: "run"; workflow: WorkflowKind; task: string; contextFiles: string[]; model?: string; budgetUsd?: number; live: boolean }
+  | { kind: "run"; workflow: WorkflowKind; task: string; contextFiles: string[]; model?: string; budgetUsd?: number; live: boolean; act: boolean }
   | { kind: "config-get" }
   | { kind: "config-set"; key: string; value: string }
   | { kind: "sessions-list" }
@@ -95,6 +95,7 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
   let model: string | undefined;
   let budgetUsd: number | undefined;
   let live = false;
+  let act = false;
   const taskParts: string[] = [];
 
   for (let i = 0; i < args.length; i += 1) {
@@ -123,11 +124,17 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
       live = true;
       continue;
     }
+    if (arg === "--act") {
+      if (workflow !== "coding")
+        throw new Error("--act is only available for the coding workflow.");
+      act = true;
+      continue;
+    }
     if (arg?.startsWith("-")) throw new Error(`Unknown option: ${arg}`);
     taskParts.push(arg ?? "");
   }
 
   const task = taskParts.join(" ").trim();
   if (!task) throw new Error(workflow === "writing" ? "Usage: forge write \"<task>\"" : "Usage: forge \"<task>\"");
-  return { kind: "run", workflow, task, contextFiles, model, budgetUsd, live };
+  return { kind: "run", workflow, task, contextFiles, model, budgetUsd, live, act };
 }

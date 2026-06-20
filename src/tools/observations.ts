@@ -18,6 +18,15 @@ export const toolResultToObservation = (
   if (typeof data.contentHash === "string")
     metadata.contentHash = data.contentHash;
   if (typeof data.path === "string") metadata.path = data.path;
+  if (Array.isArray(data.changedFiles))
+    metadata.changedFiles = data.changedFiles.filter(
+      (item): item is string => typeof item === "string",
+    );
+  if (typeof data.command === "string") metadata.command = data.command;
+  if (typeof data.exitCode === "number" || data.exitCode === null)
+    metadata.exitCode = data.exitCode;
+  if (typeof data.durationMs === "number") metadata.durationMs = data.durationMs;
+  if (typeof data.timedOut === "boolean") metadata.timedOut = data.timedOut;
   if (content) metadata.preview = content.slice(0, TRACE_PREVIEW_CHARS);
   return {
     ok: result.ok,

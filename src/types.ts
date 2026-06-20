@@ -180,6 +180,11 @@ export interface ToolObservation {
     contentHash?: string;
     path?: string;
     preview?: string;
+    changedFiles?: string[];
+    command?: string;
+    exitCode?: number | null;
+    durationMs?: number;
+    timedOut?: boolean;
   };
 }
 
@@ -202,6 +207,8 @@ export type ToolTarget =
         | "sensitive"
         | "internal"
         | "generated"
+        | "dirty_at_session_start"
+        | "delete_file"
         | "outside_workspace";
     }
   | {

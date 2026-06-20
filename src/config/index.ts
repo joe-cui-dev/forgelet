@@ -35,6 +35,8 @@ export interface ForgeletConfig {
   };
   safeCommands: string[];
   testCommands: string[];
+  commandTimeoutMs: number;
+  maxPatchBytes: number;
   memoryFile: string;
 }
 
@@ -65,6 +67,8 @@ export const defaultConfig: ForgeletConfig = {
   },
   safeCommands: ["npm test", "npm run build", "npx jest"],
   testCommands: ["npm test", "npm run build"],
+  commandTimeoutMs: 60_000,
+  maxPatchBytes: 100 * 1024,
   memoryFile: ".forgelet/memory.md",
 };
 
@@ -124,6 +128,8 @@ function mergeConfig(
     },
     safeCommands: override.safeCommands ?? base.safeCommands,
     testCommands: override.testCommands ?? base.testCommands,
+    commandTimeoutMs: override.commandTimeoutMs ?? base.commandTimeoutMs,
+    maxPatchBytes: override.maxPatchBytes ?? base.maxPatchBytes,
     memoryFile: override.memoryFile ?? base.memoryFile,
   };
 }

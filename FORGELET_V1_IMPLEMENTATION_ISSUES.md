@@ -52,35 +52,52 @@ Let a Coding Workflow complete a small repository task by patching ordinary work
 
 **Scope**
 
-- Add `apply_patch` as a medium-risk workspace write tool that accepts unified patch text.
+- Add an explicit `--act` CLI switch for actionable Coding Workflow runs; `--live` selects a real model, while `--act` allows the model to request medium-risk coding actions.
+- Without `--act`, live Coding Workflow runs remain read-only and expose only the existing read/git/plan tools.
+- Add actionable coding tools in `src/tools/actionable.ts`; keep `src/tools/readOnly.ts` for read/git/session-plan tools, and let the workflow combine read-only plus actionable tools only when explicit act mode is enabled.
+- Add `apply_patch` as a medium-risk workspace write tool that accepts standard unified diff text compatible with `git apply`.
+- Implement the first actionable slice end-to-end with both `apply_patch` and `run_command`; the first mocked Coding Workflow should read, patch, run an approved configured command, inspect `git_diff`, and finish.
+- Enforce a configurable `maxPatchBytes` limit for each `apply_patch` call, with a conservative default; oversized patches return a controlled denial so the model can split the change.
 - Capture a lightweight git status baseline at the start of an actionable Coding Workflow Session and write it as a metadata-only `workspace_baseline` trace event so final review can distinguish pre-existing workspace changes from Forgelet changes.
 - Parse the patch and extract target metadata before permission policy decides, including changed paths and whether the patch touches sensitive, generated, internal, or outside-workspace targets.
 - Confirm each concrete `apply_patch` tool call before execution; approval does not grant a whole Capability for the rest of the Session.
 - Allow creating or modifying ordinary files inside the current workspace only.
+- Allow new-file patches to create missing parent directories when the file path and every new parent directory are ordinary workspace paths.
 - Deny file deletion patches in V1.
 - Deny or strongly block sensitive, internal, generated, or outside-workspace paths such as `.env*`, obvious secret/key/token/credential files, `.git/**`, `.forgelet/sessions/**`, `node_modules/**`, `dist/**`, and `dist-test/**`.
 - Apply patches all-or-nothing: preflight every target and leave the workspace unchanged if any target, risk check, or hunk application fails.
 - Use `git apply --check` followed by `git apply` for V1 patch application, while keeping Forgelet-owned target parsing and risk metadata extraction before permission policy decisions.
 - Deny patches that target files with pre-existing staged or unstaged changes so Forgelet changes do not mix with user worktree edits.
+- Allow later patches in the same Session to modify files that Forgelet already changed in that Session, as long as those files were not dirty in the Session-start `workspace_baseline`.
+- Track Forgelet-touched files during the Session so repair loops can patch, run a configured command, inspect failure output, and patch again without mixing with user pre-existing changes.
 - New-file targets must be entirely new paths; existing, untracked, or staged-add paths are denied.
+- Missing parent directories for new files are allowed only when their paths pass the same sensitive, internal, generated, and outside-workspace checks as file targets.
 - Trace patch hash, changed files, stats, short preview, risk tier, and result without storing the full patch text.
-- Patch confirmation prompts show changed files, stats, risk reason, short preview, and patch hash, but not the full patch text.
-- Interactive approval may offer a show-full-patch option for the current prompt without persisting the full patch to Trace.
+- Patch confirmation prompts show changed files, stats, risk reason, short preview, and patch hash by default, plus an explicit show-full-patch option for the current prompt without persisting the full patch to Trace.
 - `apply_patch` does not automatically run formatters, tests, or other commands; it may return suggested verification commands, but execution requires an explicit `run_command` tool call.
 - `apply_patch` modifies the working tree only; it does not stage or commit files.
 - Add `run_command` as a medium-risk command tool that accepts a complete command string, only executes exact commands from configured `safeCommands`, and runs them without a shell.
-- Confirm each concrete command execution before running it.
-- Capture command exit code, duration, summarized output, and short preview; avoid storing full command output in Trace.
+- Confirm each concrete command execution before running it; command confirmation prompts show the exact command, the configured safe command it matched, and the workspace directory.
+- Enforce a configurable `commandTimeoutMs` value from global/project config, with a conservative default.
+- Return truncated stdout/stderr content to the model observation with truncation metadata so the model can repair failures without unbounded token use.
+- Capture command exit code, duration, output hash, summarized output, truncation metadata, and short preview in Trace; avoid storing full command output in Trace.
 - Use `git_diff` during review so the final answer can report what changed.
+- Let the model provide the natural-language final conclusion, then have the Session runner append a deterministic audit footer with changed files, verification commands and exit codes, model turns, estimated cost, pre-existing changes, remaining risks when known, and Trace path.
 
 **Acceptance criteria**
 
+- `forge --live "<task>"` remains read-only.
+- `forge --live --act "<task>"` exposes `apply_patch` and `run_command` for Coding Workflow only, subject to capability grants, Permission Policy, and interactive approval.
+- `forge write --live --act "<task>"` is rejected or ignores `--act` with a clear error because Writing Workflow has no workspace write or command grants.
+- The TDD order starts with focused `apply_patch` and `run_command` tool tests, then adds one thin mocked Session e2e proving `read_file -> apply_patch -> run_command -> git_diff -> final`, and only then covers CLI parser/help and interactive approval prompt behavior.
 - A small mocked Coding Workflow can read, patch, run an approved verification command, inspect diff, and finish.
 - Medium-risk patch and command tool calls return `confirm` before execution and are denied in non-interactive mode unless an approval handler is injected.
 - Unsafe commands and sensitive or outside-workspace patch paths are denied before execution.
 - Final summary includes changed files, verification commands and results, model turns, estimated cost, remaining risks, and Trace path.
+- Final summary separates model-authored conclusions from runner-authored audit facts so auditable facts are not solely model-generated.
 - Final summary separates workspace changes into files changed by Forgelet, changes pre-existing at Session start, and other changes observed during the Session.
 - Final summary uses the Session-start git status baseline rather than final status alone to identify changes pre-existing at Session start.
+- A second patch can modify a file changed earlier by Forgelet in the same Session, but still rejects files that were already dirty at Session start.
 - Trace records real tool calls, permission decisions, results, budget updates, and final summary without storing full patches or full command outputs.
 
 ## Milestone 0: Repository Bootstrap
@@ -674,7 +691,7 @@ Forgelet can complete coding tasks, not just suggest changes.
 
 **Scope**
 
-- Accept unified patch input.
+- Accept only standard unified diff text compatible with `git apply`.
 - Parse patch headers and extract target path metadata before permission policy decides.
 - Create or modify ordinary files only within workspace.
 - Deny delete-file patches with a controlled observation.
@@ -703,6 +720,7 @@ Forgelet can complete coding tasks, not just suggest changes.
 
 - Applies a valid patch in a temp repo.
 - Creates ordinary workspace files when the patch targets safe paths.
+- Creates missing ordinary parent directories for new safe file targets.
 - Rejects path traversal/outside-workspace patches.
 - Rejects sensitive, internal, or generated file creation and changes by default.
 - Rejects delete-file patches with a controlled denial.
@@ -710,6 +728,8 @@ Forgelet can complete coding tasks, not just suggest changes.
 - Rejects new-file patches when the target already exists or appears in git status.
 - Leaves the workspace unchanged when any target or hunk fails.
 - Returns a controlled failure when the workspace cannot support `git apply`.
+- Returns a controlled failure when the patch is not parseable as `git apply` compatible unified diff.
+- Oversized patches beyond `maxPatchBytes` are denied before execution and leave the workspace unchanged.
 - Does not run formatting, tests, or commands automatically after patching.
 - Does not stage or commit changed files.
 - Trace records patch hash, changed files, stats, short preview, permission decision, and result without storing the full patch.
@@ -752,8 +772,9 @@ Forgelet can verify its own changes.
 - Unsafe or non-exact command returns controlled denial.
 - Confirmed safe commands execute in interactive mode or with an injected approval handler.
 - Non-zero exit code returns a failed tool observation with exit code and summarized output.
-- Timeout returns a failed tool observation and trace metadata with `timedOut: true`, duration, and output preview.
-- Output is summarized for the model and traced with exit code, duration, summary, and short preview rather than full output.
+- Project config can override `commandTimeoutMs`, and the tool uses the merged config value.
+- Timeout returns a failed tool observation with truncated output content and trace metadata with `timedOut: true`, duration, and output preview.
+- Output is truncated for the model observation and traced with exit code, duration, hash, summary, truncation metadata, and short preview rather than full output.
 
 ---
 

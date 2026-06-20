@@ -1,6 +1,6 @@
 import { expect, test } from "@jest/globals";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { runAgent } from "../../src/agent/runAgent.js";
@@ -57,6 +57,26 @@ function execNode(
   });
 }
 
+function execGit(workspaceRoot: string, args: string[]): Promise<void> {
+  return new Promise((resolveExec, rejectExec) => {
+    execFile(
+      "git",
+      [
+        "-c",
+        "user.email=test@example.com",
+        "-c",
+        "user.name=Test User",
+        ...args,
+      ],
+      { cwd: workspaceRoot },
+      (error) => {
+        if (error) rejectExec(error);
+        else resolveExec();
+      },
+    );
+  });
+}
+
 test("CLI prints merged config", async () => {
   const homeDir = await mkdtemp(join(tmpdir(), "forgelet-cli-home-"));
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-config-"));
@@ -105,6 +125,55 @@ test("CLI --live runs a read-only Session with an injected live model client", a
   expect(result.stdout).toMatch(/Forgelet session completed/);
   expect(result.stdout).toMatch(/Found needle in example.ts/);
   expect(modelClient.turnInputs.length).toBe(2);
+});
+
+test("CLI --live --act runs an actionable coding Session with injected approval", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-act-"));
+  await execGit(workspaceRoot, ["init"]);
+  await writeFile(join(workspaceRoot, "example.txt"), "original\n", "utf8");
+  await execGit(workspaceRoot, ["add", "example.txt"]);
+  await execGit(workspaceRoot, ["commit", "-m", "baseline"]);
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  const command = `${process.execPath} -e "console.log('verified')"`;
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "config.json"),
+    JSON.stringify({ safeCommands: [command], commandTimeoutMs: 1_000 }),
+    "utf8",
+  );
+  const patch = [
+    "diff --git a/example.txt b/example.txt",
+    "--- a/example.txt",
+    "+++ b/example.txt",
+    "@@ -1 +1 @@",
+    "-original",
+    "+changed",
+    "",
+  ].join("\n");
+  const modelClient = new FakeModelClient([
+    { toolCalls: [{ id: "call_patch", name: "apply_patch", input: { patch } }] },
+    {
+      toolCalls: [
+        { id: "call_command", name: "run_command", input: { command } },
+      ],
+    },
+    { content: "Changed example.txt.", toolCalls: [] },
+  ]);
+
+  const result = await runCli(["--live", "--act", "change example"], {
+    workspaceRoot,
+    env: {},
+    createLiveModelClient: async () => modelClient,
+    approvalHandler: async () => ({
+      status: "approved",
+      reason: "Approved by test.",
+    }),
+  });
+
+  expect(result.exitCode).toBe(0);
+  await expect(readFile(join(workspaceRoot, "example.txt"), "utf8")).resolves.toBe(
+    "changed\n",
+  );
+  expect(result.stdout).toMatch(/Changed example\.txt/);
 });
 
 test("CLI --live requires a DeepSeek API key", async () => {

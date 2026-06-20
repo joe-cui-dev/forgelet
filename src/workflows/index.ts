@@ -14,12 +14,15 @@ import type {
   TraceEvent,
   WorkflowKind,
 } from "../types.js";
+import { execFile } from "node:child_process";
 import { loadConfig, routeModel } from "../config/index.js";
 import { loadContextAttachments } from "../context/index.js";
 import { createTraceWriter } from "../trace/index.js";
+import { createActionableCodingTools } from "../tools/actionable.js";
 import { createReadOnlyTools } from "../tools/readOnly.js";
 import {
   createToolRegistry,
+  type ApprovalHandler,
   type ToolRegistry,
 } from "../tools/toolRegistry.js";
 
@@ -31,6 +34,8 @@ export interface RunWorkflowInput {
   budgetUsd?: number;
   workspaceRoot: string;
   modelClient?: ModelClient;
+  act?: boolean;
+  approvalHandler?: ApprovalHandler;
 }
 
 export interface RunWorkflowResult {
@@ -54,6 +59,12 @@ interface RunReadOnlyLoopInput {
   route: ActLoopRoute;
   plan: AgentPlan;
   limits: BudgetLimits;
+  safeCommands: string[];
+  commandTimeoutMs: number;
+  maxPatchBytes: number;
+  act: boolean;
+  baselineDirtyPaths: Set<string>;
+  approvalHandler?: ApprovalHandler;
   appendTrace(type: string, payload: Record<string, unknown>): Promise<void>;
 }
 
@@ -61,6 +72,11 @@ interface RunReadOnlyLoopResult {
   status: SessionFinishStatus;
   reason?: SessionStopReason;
   summary: string;
+}
+
+interface RunAuditState {
+  changedFiles: Set<string>;
+  commands: { command: string; exitCode: number | null; timedOut: boolean }[];
 }
 
 const CONTEXT_ATTACHMENT_PROMPT_LIMIT_BYTES = 20 * 1024;
@@ -79,6 +95,10 @@ export const runWorkflowSession = async (
   const sessionId = `sess_${Date.now().toString(36)}`;
   const traceWriter = await createTraceWriter(input.workspaceRoot, sessionId);
   const config = await loadConfig({ workspaceRoot: input.workspaceRoot });
+  const baselineDirtyPaths =
+    input.act && input.workflow === "coding"
+      ? await gitStatusPaths(input.workspaceRoot)
+      : new Set<string>();
   const contextAttachments = await loadContextAttachments(
     input.workspaceRoot,
     input.contextFiles,
@@ -125,6 +145,12 @@ export const runWorkflowSession = async (
   await traceWriter.append(
     createTraceEvent(sessionId, "routing_selected", now, { ...route }),
   );
+  if (input.act && input.workflow === "coding")
+    await traceWriter.append(
+      createTraceEvent(sessionId, "workspace_baseline", now, {
+        dirtyPaths: [...baselineDirtyPaths],
+      }),
+    );
   await traceWriter.append(
     createTraceEvent(sessionId, "plan_update", now, { plan }),
   );
@@ -144,6 +170,12 @@ export const runWorkflowSession = async (
         maxEstimatedCostUsd:
           input.budgetUsd ?? config.budgets.maxEstimatedCostUsd,
       },
+      safeCommands: config.safeCommands,
+      commandTimeoutMs: config.commandTimeoutMs,
+      maxPatchBytes: config.maxPatchBytes,
+      act: input.act === true && input.workflow === "coding",
+      baselineDirtyPaths,
+      approvalHandler: input.approvalHandler,
       appendTrace: (type, payload) =>
         traceWriter.append(
           createTraceEvent(sessionId, type, new Date().toISOString(), payload),
@@ -152,7 +184,7 @@ export const runWorkflowSession = async (
 
     await traceWriter.append(
       createTraceEvent(sessionId, "final_summary", new Date().toISOString(), {
-        summary: execution.summary,
+        summary: withTracePath(execution.summary, traceWriter.tracePath),
       }),
     );
     await traceWriter.append(
@@ -170,7 +202,7 @@ export const runWorkflowSession = async (
 
     return {
       session,
-      summary: execution.summary,
+      summary: withTracePath(execution.summary, traceWriter.tracePath),
       tracePath: traceWriter.tracePath,
     };
   }
@@ -248,10 +280,32 @@ const runReadOnlyLoop = async (
     outputTokens: 0,
     estimatedCostUsd: 0,
   };
-  const grantedCapabilities = workflowCapabilities(input.session.workflow);
-  const toolRegistry = createToolRegistry(createReadOnlyTools(input.plan));
+  const grantedCapabilities = workflowCapabilities(
+    input.session.workflow,
+    input.act,
+  );
+  const actionableTools =
+    input.act && input.session.workflow === "coding"
+      ? createActionableCodingTools({
+          safeCommands: input.safeCommands,
+          commandTimeoutMs: input.commandTimeoutMs,
+          maxPatchBytes: input.maxPatchBytes,
+          sessionState: {
+            baselineDirtyPaths: input.baselineDirtyPaths,
+            forgeletTouchedPaths: new Set(),
+          },
+        })
+      : [];
+  const toolRegistry = createToolRegistry(
+    [...createReadOnlyTools(input.plan), ...actionableTools],
+    { approvalHandler: input.approvalHandler },
+  );
   const tools = toolRegistry.listTools(grantedCapabilities);
   const conversation: ModelMessage[] = [];
+  const audit: RunAuditState = {
+    changedFiles: new Set(),
+    commands: [],
+  };
   let finalContent = "";
 
   for (let turnIndex = 0; ; turnIndex += 1) {
@@ -309,12 +363,13 @@ const runReadOnlyLoop = async (
       input.session.stage = "final";
       return {
         status: "completed",
-        summary: formatCompletedSummary(
-          input.session,
-          input.route,
-          finalContent,
-          usage,
-        ),
+          summary: formatCompletedSummary(
+            input.session,
+            input.route,
+            finalContent,
+            usage,
+            audit,
+          ),
       };
     }
 
@@ -332,6 +387,7 @@ const runReadOnlyLoop = async (
         grantedCapabilities,
         appendTrace: input.appendTrace,
       });
+      recordAuditObservation(audit, observation);
       conversation.push({
         role: "tool",
         toolCallId: observation.toolCallId,
@@ -339,6 +395,22 @@ const runReadOnlyLoop = async (
       });
     }
   }
+};
+
+const recordAuditObservation = (
+  audit: RunAuditState,
+  observation: ToolObservation,
+): void => {
+  if (observation.toolName === "apply_patch" && observation.ok)
+    observation.metadata.changedFiles?.forEach((path) =>
+      audit.changedFiles.add(path),
+    );
+  if (observation.toolName === "run_command")
+    audit.commands.push({
+      command: observation.metadata.command ?? observation.toolName,
+      exitCode: observation.metadata.exitCode ?? null,
+      timedOut: observation.metadata.timedOut === true,
+    });
 };
 
 /** The tool execution flow enforces capability grants and appends trace events
@@ -390,7 +462,10 @@ const executeToolCall = async (input: {
   return execution.observation;
 };
 
-const workflowCapabilities = (workflow: WorkflowKind): Capability[] => {
+const workflowCapabilities = (
+  workflow: WorkflowKind,
+  act: boolean,
+): Capability[] => {
   if (workflow === "coding")
     return [
       "read_context",
@@ -398,8 +473,33 @@ const workflowCapabilities = (workflow: WorkflowKind): Capability[] => {
       "git_read",
       "update_plan",
       "model_generate_text",
+      ...(act ? (["write_workspace", "run_safe_command"] as const) : []),
     ];
   return ["read_context", "update_plan", "model_generate_text"];
+};
+
+const gitStatusPaths = (workspaceRoot: string): Promise<Set<string>> => {
+  return new Promise((resolvePaths) => {
+    execFile(
+      "git",
+      ["status", "--porcelain"],
+      { cwd: workspaceRoot },
+      (error, stdout) => {
+        if (error) {
+          resolvePaths(new Set());
+          return;
+        }
+        resolvePaths(
+          new Set(
+            stdout
+              .split("\n")
+              .map((line) => line.slice(3).trim())
+              .filter(Boolean),
+          ),
+        );
+      },
+    );
+  });
 };
 
 const budgetStopReason = (
@@ -541,6 +641,11 @@ const traceToolObservation = (
     returnedBytes: observation.metadata.returnedBytes,
     contentHash: observation.metadata.contentHash,
     preview: observation.metadata.preview,
+    changedFiles: observation.metadata.changedFiles,
+    command: observation.metadata.command,
+    exitCode: observation.metadata.exitCode,
+    durationMs: observation.metadata.durationMs,
+    timedOut: observation.metadata.timedOut,
   };
 };
 
@@ -549,6 +654,7 @@ const formatCompletedSummary = (
   route: ActLoopRoute,
   finalContent: string,
   usage: BudgetUsage,
+  audit: RunAuditState,
 ): string => {
   return [
     `Forgelet session completed: ${session.id}`,
@@ -557,7 +663,29 @@ const formatCompletedSummary = (
     `Route: ${route.model} (${route.reason})`,
     `Model turns: ${usage.modelTurns}`,
     finalContent,
+    formatAuditFooter(audit),
   ].join("\n");
+};
+
+const formatAuditFooter = (audit: RunAuditState): string => {
+  return [
+    "",
+    "Audit:",
+    `Changed files: ${audit.changedFiles.size > 0 ? [...audit.changedFiles].join(", ") : "none"}`,
+    audit.commands.length > 0
+      ? "Verification commands:"
+      : "Verification commands: none",
+    ...audit.commands.map(
+      (command) =>
+        `- Command: ${command.command} (${command.timedOut ? "timed out" : `exit ${command.exitCode}`})`,
+    ),
+  ].join("\n");
+};
+
+const withTracePath = (summary: string, tracePath: string): string => {
+  return summary.includes("\nTrace: ")
+    ? summary
+    : [summary, `Trace: ${tracePath}`].join("\n");
 };
 
 const formatStoppedSummary = (

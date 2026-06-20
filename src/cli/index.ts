@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { realpathSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "./parseArgs.js";
 import { helpText } from "./help.js";
@@ -9,6 +11,7 @@ import { loadDotEnv } from "../config/env.js";
 import { DeepSeekModelClient } from "../models/providers/deepseek.js";
 import { listSessions, showSession } from "../sessions/index.js";
 import type { ModelClient, WorkflowKind } from "../types.js";
+import type { ApprovalHandler, ApprovalRequest } from "../tools/toolRegistry.js";
 
 export interface RunCliOptions {
   homeDir?: string;
@@ -17,6 +20,7 @@ export interface RunCliOptions {
   createLiveModelClient?: (
     input: CreateLiveModelClientInput,
   ) => Promise<ModelClient>;
+  approvalHandler?: ApprovalHandler;
 }
 
 export interface RunCliResult {
@@ -61,7 +65,11 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
           model: command.model,
           budgetUsd: command.budgetUsd,
           workspaceRoot,
-          modelClient
+          modelClient,
+          act: command.act,
+          approvalHandler: command.act
+            ? options.approvalHandler ?? createTerminalApprovalHandler()
+            : undefined,
         });
         return ok(result.summary);
       }
@@ -89,6 +97,82 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
     return { stdout: "", stderr: `forge: ${message}`, exitCode: 1 };
   }
 }
+
+function createTerminalApprovalHandler(): ApprovalHandler {
+  return async (request) => {
+    const prompt = formatApprovalPrompt(request);
+    const readline = createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+    try {
+      let answer = await readline.question(`${prompt}\nApprove? [y/N${request.toolCall.name === "apply_patch" ? "/s" : ""}] `);
+      if (request.toolCall.name === "apply_patch" && answer.toLowerCase() === "s") {
+        const patch = isRecord(request.toolCall.input) && typeof request.toolCall.input.patch === "string"
+          ? request.toolCall.input.patch
+          : "";
+        if (patch) process.stdout.write(`\n${patch}\n`);
+        answer = await readline.question("Approve? [y/N] ");
+        return {
+          status: answer.toLowerCase() === "y" ? "approved" : "rejected",
+          reason: answer.toLowerCase() === "y" ? "Approved by user." : "Rejected by user.",
+          fullPatchShown: true,
+        };
+      }
+      return {
+        status: answer.toLowerCase() === "y" ? "approved" : "rejected",
+        reason: answer.toLowerCase() === "y" ? "Approved by user." : "Rejected by user.",
+        fullPatchShown: false,
+      };
+    } finally {
+      readline.close();
+    }
+  };
+}
+
+function formatApprovalPrompt(request: ApprovalRequest): string {
+  if (request.toolCall.name === "run_command") {
+    const command = isRecord(request.toolCall.input) && typeof request.toolCall.input.command === "string"
+      ? request.toolCall.input.command
+      : "(unknown command)";
+    return [
+      "Forgelet requests approval to run a configured command.",
+      `Command: ${command}`,
+      `Workspace: ${request.toolRequest.workspaceRoot}`,
+      `Reason: ${request.permissionDecision.reason}`,
+    ].join("\n");
+  }
+  if (request.toolCall.name === "apply_patch") {
+    const patch = isRecord(request.toolCall.input) && typeof request.toolCall.input.patch === "string"
+      ? request.toolCall.input.patch
+      : "";
+    const hash = patch ? hashText(patch) : "(unknown)";
+    const files = request.toolRequest.targets
+      ?.filter((target) => target.kind === "path")
+      .map((target) => target.path)
+      .join(", ") || "(unknown)";
+    return [
+      "Forgelet requests approval to apply a patch.",
+      `Changed files: ${files}`,
+      `Patch hash: ${hash}`,
+      `Preview:\n${patch.slice(0, 1_000)}`,
+      `Reason: ${request.permissionDecision.reason}`,
+      "Enter s to show the full patch before deciding.",
+    ].join("\n");
+  }
+  return [
+    `Forgelet requests approval for ${request.toolCall.name}.`,
+    `Reason: ${request.permissionDecision.reason}`,
+  ].join("\n");
+}
+
+function hashText(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null;
+};
 
 async function createDeepSeekLiveModelClient(
   input: CreateLiveModelClientInput,

@@ -199,6 +199,95 @@ test("a coding Session exposes only registry-projected tool schemas to the model
   expect(tools.some((tool) => "capability" in tool)).toBe(false);
 });
 
+test("an actionable coding Session can patch, run a configured command, inspect diff, and finish", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-actionable-session-"));
+  await execGit(workspaceRoot, ["init"]);
+  await writeFile(join(workspaceRoot, "example.txt"), "original\n", "utf8");
+  await execGit(workspaceRoot, ["add", "example.txt"]);
+  await execGit(workspaceRoot, ["commit", "-m", "baseline"]);
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  const command = `${process.execPath} -e "console.log('verified')"`;
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "config.json"),
+    JSON.stringify({ safeCommands: [command], commandTimeoutMs: 1_000 }),
+    "utf8",
+  );
+  const patch = [
+    "diff --git a/example.txt b/example.txt",
+    "--- a/example.txt",
+    "+++ b/example.txt",
+    "@@ -1 +1 @@",
+    "-original",
+    "+changed",
+    "",
+  ].join("\n");
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        { id: "call_read", name: "read_file", input: { path: "example.txt" } },
+      ],
+    },
+    { toolCalls: [{ id: "call_patch", name: "apply_patch", input: { patch } }] },
+    {
+      toolCalls: [
+        { id: "call_command", name: "run_command", input: { command } },
+      ],
+    },
+    { toolCalls: [{ id: "call_diff", name: "git_diff", input: {} }] },
+    { content: "Changed example.txt and verified the result.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "change example",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+    act: true,
+    approvalHandler: async () => ({
+      status: "approved",
+      reason: "Approved by test.",
+    }),
+  });
+
+  expect(modelClient.turnInputs[0]?.tools.map((tool) => tool.name)).toEqual([
+    "list_files",
+    "search_text",
+    "read_file",
+    "git_status",
+    "git_diff",
+    "update_plan",
+    "apply_patch",
+    "run_command",
+  ]);
+  await expect(readFile(join(workspaceRoot, "example.txt"), "utf8")).resolves.toBe(
+    "changed\n",
+  );
+  expect(result.summary).toMatch(/Changed example\.txt and verified/);
+  expect(result.summary).toMatch(/Audit/);
+  expect(result.summary).toMatch(/Changed files: example\.txt/);
+  expect(result.summary).toMatch(new RegExp(`Command: ${escapeRegExp(command)} \\(exit 0\\)`));
+  expect(result.summary).toMatch(/Trace:/);
+
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(events.some((event) => event.type === "workspace_baseline")).toBe(true);
+  expect(events.some((event) => event.type === "approval_decision")).toBe(true);
+  expect(
+    events.some(
+      (event) =>
+        event.type === "tool_result" && event.payload.toolName === "run_command",
+    ),
+  ).toBe(true);
+});
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 test("a writing Session requesting git_diff receives a controlled registry denial", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-writing-git-"));
   const modelClient = new FakeModelClient([
@@ -446,9 +535,20 @@ test("read-only tools do not follow workspace symlinks outside the workspace", a
 
 function execGit(workspaceRoot: string, args: string[]): Promise<void> {
   return new Promise((resolveExec, rejectExec) => {
-    execFile("git", args, { cwd: workspaceRoot }, (error) => {
+    execFile(
+      "git",
+      [
+        "-c",
+        "user.email=test@example.com",
+        "-c",
+        "user.name=Test User",
+        ...args,
+      ],
+      { cwd: workspaceRoot },
+      (error) => {
       if (error) rejectExec(error);
       else resolveExec();
-    });
+      },
+    );
   });
 }

@@ -37,6 +37,10 @@ export const createPermissionPolicy = (): PermissionPolicy => ({
 const deniedTargetReason = (request: ToolRequest): string | undefined => {
   const target = request.targets?.find(isDeniedTarget);
   if (!target) return undefined;
+  if (target.kind === "path" && target.classification === "delete_file")
+    return `${target.path} delete-file patches are denied`;
+  if (target.kind === "path" && target.classification === "dirty_at_session_start")
+    return `${target.path} was dirty at Session start`;
   if (target.kind === "path")
     return `${target.path} is ${target.classification}`;
   return `${target.command} is ${target.classification}`;
