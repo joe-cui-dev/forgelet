@@ -372,6 +372,14 @@ const executeToolCall = async (input: {
     riskTier: execution.permissionDecision.riskTier,
     reason: execution.permissionDecision.reason,
   });
+  if (execution.approvalDecision)
+    await input.appendTrace("approval_decision", {
+      toolCallId: input.toolCall.id,
+      toolName: input.toolCall.name,
+      status: execution.approvalDecision.status,
+      reason: execution.approvalDecision.reason,
+      fullPatchShown: execution.approvalDecision.fullPatchShown,
+    });
   await input.appendTrace(
     "tool_result",
     traceToolObservation(execution.observation),

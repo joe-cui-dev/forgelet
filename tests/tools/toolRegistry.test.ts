@@ -69,7 +69,7 @@ test("ToolRegistry executes a granted tool and returns an allow decision", async
   );
 
   assert.equal(result.permissionDecision.kind, "allow");
-  assert.equal(result.permissionDecision.reason, "Workflow capability grant allows tool.");
+  assert.equal(result.permissionDecision.reason, "Low-risk tool request is allowed.");
   assert.deepEqual(result.observation, {
     ok: true,
     toolCallId: "call_1",
@@ -155,6 +155,105 @@ test("ToolRegistry keeps the allow decision when granted tool execution fails", 
       message: "Path is outside workspace: secret-link.txt",
     },
     metadata: {},
+  });
+});
+
+test("ToolRegistry denies confirmed tool requests when approval is unavailable", async () => {
+  let executed = false;
+  const registry = createToolRegistry([
+    testTool({
+      name: "apply_patch",
+      capability: "write_workspace",
+      classify: (input, ctx) => ({
+        workflow: ctx.workflow,
+        toolName: "apply_patch",
+        capability: "write_workspace",
+        riskTier: "medium",
+        input,
+        workspaceRoot: ctx.workspaceRoot,
+      }),
+      execute: async () => {
+        executed = true;
+        return { ok: true, summary: "applied patch" };
+      },
+    }),
+  ]);
+
+  const result = await registry.execute(
+    { id: "call_patch", name: "apply_patch", input: { patch: "diff" } },
+    testContext({ grantedCapabilities: ["write_workspace"] }),
+  );
+
+  assert.equal(executed, false);
+  assert.equal(result.permissionDecision.kind, "confirm");
+  assert.deepEqual(result.approvalDecision, {
+    status: "unavailable",
+    reason: "No approval handler is available.",
+  });
+  assert.deepEqual(result.observation, {
+    ok: false,
+    toolCallId: "call_patch",
+    toolName: "apply_patch",
+    summary: "Approval unavailable for apply_patch.",
+    error: {
+      code: "permission_denied",
+      message: "Approval unavailable for apply_patch.",
+    },
+    metadata: {},
+  });
+});
+
+test("ToolRegistry executes confirmed tool requests after injected approval", async () => {
+  let executed = false;
+  const registry = createToolRegistry(
+    [
+      testTool({
+        name: "run_command",
+        capability: "run_safe_command",
+        classify: (input, ctx) => ({
+          workflow: ctx.workflow,
+          toolName: "run_command",
+          capability: "run_safe_command",
+          riskTier: "medium",
+          input,
+          workspaceRoot: ctx.workspaceRoot,
+        }),
+        execute: async () => {
+          executed = true;
+          return {
+            ok: true,
+            summary: "Command exited 0.",
+            data: { content: "passed" },
+          };
+        },
+      }),
+    ],
+    {
+      approvalHandler: async () => ({
+        status: "approved",
+        reason: "Approved by test.",
+      }),
+    },
+  );
+
+  const result = await registry.execute(
+    { id: "call_test", name: "run_command", input: { command: "npm test" } },
+    testContext({ grantedCapabilities: ["run_safe_command"] }),
+  );
+
+  assert.equal(executed, true);
+  assert.deepEqual(result.approvalDecision, {
+    status: "approved",
+    reason: "Approved by test.",
+  });
+  assert.deepEqual(result.observation, {
+    ok: true,
+    toolCallId: "call_test",
+    toolName: "run_command",
+    summary: "Command exited 0.",
+    content: "passed",
+    error: undefined,
+    metadata: { preview: "passed" },
   });
 });
 

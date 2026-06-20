@@ -7,6 +7,7 @@ import "./config/config.test.js";
 import "./config/env.test.js";
 import "./models/deepSeekProvider.test.js";
 import "./sessions/sessionReadModel.test.js";
+import "./permissions/permissionPolicy.test.js";
 import "./tools/toolRegistry.test.js";
 
 await run();

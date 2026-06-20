@@ -133,6 +133,7 @@ export interface ToolDefinition {
   capability: Capability;
   description: string;
   inputSchema: JsonSchema;
+  classify?(input: unknown, ctx: ToolContext): ToolRequest | Promise<ToolRequest>;
   execute(input: unknown, ctx: ToolContext): Promise<ToolResult>;
 }
 
@@ -189,7 +190,25 @@ export interface ToolRequest {
   riskTier: RiskTier;
   input: unknown;
   workspaceRoot: string;
+  targets?: ToolTarget[];
 }
+
+export type ToolTarget =
+  | {
+      kind: "path";
+      path: string;
+      classification:
+        | "ordinary"
+        | "sensitive"
+        | "internal"
+        | "generated"
+        | "outside_workspace";
+    }
+  | {
+      kind: "command";
+      command: string;
+      classification: "safe_configured" | "unsafe";
+    };
 
 export type PermissionDecisionKind = "allow" | "confirm" | "deny";
 
@@ -199,6 +218,14 @@ export interface PermissionDecision {
   kind: PermissionDecisionKind;
   riskTier: RiskTier;
   reason: string;
+}
+
+export type ApprovalDecisionStatus = "approved" | "rejected" | "unavailable";
+
+export interface ApprovalDecision {
+  status: ApprovalDecisionStatus;
+  reason: string;
+  fullPatchShown?: boolean;
 }
 
 export interface PermissionPolicy {

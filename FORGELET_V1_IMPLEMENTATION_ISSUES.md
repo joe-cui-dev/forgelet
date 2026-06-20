@@ -40,6 +40,7 @@ Make the live DeepSeek-backed Session loop safe, observable, and useful for repo
 - `ToolRegistry.execute` returns both the model-facing observation and explicit permission decision metadata; the runner does not infer permission trace data from the observation.
 - Tool execution failures keep the prior authorization decision, such as `allow`, and return a failed tool observation rather than being converted into permission denials.
 - `ToolRegistry` does not write Trace directly; the Session runner appends `tool_call`, `permission_decision`, and `tool_result` events from registry outputs.
+- The next Permission Policy TDD slice should implement the policy and registry approval pipeline before adding `apply_patch` or `run_command`: policy unit tests for `low`, `medium`, `high`, and `forbidden`; registry tests for default low-risk classification, non-interactive confirmation denial, injected approval success, and trace-ready execution metadata; then one Session loop integration test proving existing read-only behavior still works through the real policy.
 - Tests cover context prompt rendering, `git_diff`, registry dispatch, grant denial, unknown tools, and metadata-only trace results.
 - `ToolRegistry` implementation uses focused registry unit tests plus at least one Session loop integration test that proves workflow-specific tool visibility and denial still work.
 
@@ -505,13 +506,23 @@ Dangerous commands include:
 
 Tool Providers classify risk for their own tool calls before `PermissionPolicy` decides whether to allow, confirm, or deny. A policy request includes the workflow, tool name, capability, risk tier, raw input, workspace root, and any extracted target metadata such as paths or commands.
 
+In V1, each actionable tool definition provides a classification step before execution; `PermissionPolicy` consumes that structured request and does not parse raw unified patches or command strings itself.
+
+Actionable tool classification should use a small shared target metadata shape, such as path targets and command targets. `PermissionPolicy` should rely on shared target classifications rather than tool-private metadata fields.
+
+The classification step also aggregates target risk into the overall `riskTier` for the tool call. For example, a patch touching both an ordinary source file and a sensitive file is classified as `forbidden`, with target metadata explaining why; `PermissionPolicy` does not recompute the highest target risk.
+
+All granted tool calls go through the policy pipeline. Existing read-only tools may use a default low-risk classification, while actionable tools such as `apply_patch` and `run_command` must provide explicit classification.
+
 Confirmation rules:
 
 - Low-risk actions are allowed automatically when the Workflow has the required Capability.
 - Medium-risk actions return `confirm` by default.
+- High-risk actions are denied in V1; V1 does not include a high-risk confirmation escape hatch.
 - Confirmation applies only to the concrete tool call being requested, not to a whole Capability for the remainder of the Session.
 - V1 does not reuse approvals across later tool calls; each medium-risk concrete tool call requires its own permission decision and approval decision.
 - `PermissionPolicy` only returns the decision; Session execution resolves `confirm` decisions through an approval handler before running the tool.
+- `ToolRegistry` owns approval resolution as part of the tool execution pipeline; the Session runner records the `permission_decision`, optional `approval_decision`, and `tool_result` returned by registry execution.
 - `permission_decision` records the policy result; `approval_decision` records the approval handler result for confirmed actions.
 - CLI execution asks interactively before a confirmed action runs.
 - Interactive CLI approval may let the user temporarily show the full patch for the current confirmation, but the full patch is not persisted to Trace.
@@ -540,6 +551,7 @@ Confirmation rules:
 - Decisions include a reason.
 - Permission decisions include risk tier.
 - Permission decisions are written to trace.
+- Workflow Capability Grant denial happens in `ToolRegistry` before provider classification; `PermissionPolicy` handles only concrete tool requests whose Capability is granted, while still receiving workflow and Capability as decision context.
 - Grant failures are written to trace as `permission_decision` events with `decision: "deny"`.
 - Unknown tool calls are written to trace as `permission_decision` events with `decision: "deny"` and a clear unknown-tool reason.
 - Unit tests cover grant denial, low/medium/high/forbidden tiers, safe, confirm, and deny cases.

@@ -1,12 +1,16 @@
 import type {
+  ApprovalDecision,
   Capability,
   ModelToolCall,
   PermissionDecision,
+  PermissionPolicy,
   ToolContext,
   ToolDefinition,
   ToolObservation,
+  ToolRequest,
   ToolSchema,
 } from "../types.js";
+import { createPermissionPolicy } from "../permissions/index.js";
 import {
   deniedToolObservation,
   toolResultToObservation,
@@ -21,15 +25,33 @@ export interface ToolRegistry {
   ): Promise<ToolRegistryExecution>;
 }
 
+export type ApprovalHandler = (
+  request: ApprovalRequest,
+) => Promise<ApprovalDecision>;
+
+export interface ApprovalRequest {
+  toolCall: ModelToolCall;
+  toolRequest: ToolRequest;
+  permissionDecision: PermissionDecision;
+}
+
+export interface ToolRegistryOptions {
+  permissionPolicy?: PermissionPolicy;
+  approvalHandler?: ApprovalHandler;
+}
+
 export interface ToolRegistryExecution {
   observation: ToolObservation;
   permissionDecision: PermissionDecision;
+  approvalDecision?: ApprovalDecision;
   capability?: Capability;
 }
 
 export const createToolRegistry = (
   tools: readonly ToolDefinition[],
+  options: ToolRegistryOptions = {},
 ): ToolRegistry => {
+  const permissionPolicy = options.permissionPolicy ?? createPermissionPolicy();
   const seen = new Set<string>();
   for (const tool of tools) {
     validateToolMetadata(tool);
@@ -71,11 +93,54 @@ export const createToolRegistry = (
           capability: tool.capability,
         };
       }
-      const permissionDecision: PermissionDecision = {
-        kind: "allow",
-        riskTier: "low",
-        reason: "Workflow capability grant allows tool.",
-      };
+      const request = tool.classify
+        ? await tool.classify(toolCall.input, ctx)
+        : {
+            workflow: ctx.workflow,
+            toolName: tool.name,
+            capability: tool.capability,
+            riskTier: "low" as const,
+            input: toolCall.input,
+            workspaceRoot: ctx.workspaceRoot,
+            targets: [],
+          };
+      const permissionDecision = await permissionPolicy.decide(request);
+      if (permissionDecision.kind === "deny") {
+        return {
+          observation: deniedToolObservation(
+            toolCall.id,
+            toolCall.name,
+            permissionDecision.reason,
+          ),
+          permissionDecision,
+          capability: tool.capability,
+        };
+      }
+      let approvalDecision: ApprovalDecision | undefined;
+      if (permissionDecision.kind === "confirm") {
+        approvalDecision = options.approvalHandler
+          ? await options.approvalHandler({
+              toolCall,
+              toolRequest: request,
+              permissionDecision,
+            })
+          : {
+              status: "unavailable" as const,
+              reason: "No approval handler is available.",
+            };
+        if (approvalDecision.status !== "approved") {
+          const message =
+            approvalDecision.status === "unavailable"
+              ? `Approval unavailable for ${toolCall.name}.`
+              : `Approval rejected for ${toolCall.name}.`;
+          return {
+            observation: deniedToolObservation(toolCall.id, toolCall.name, message),
+            permissionDecision,
+            approvalDecision,
+            capability: tool.capability,
+          };
+        }
+      }
       try {
         const result = await tool.execute(toolCall.input, ctx);
         return {
@@ -85,6 +150,7 @@ export const createToolRegistry = (
             toolCall.name,
           ),
           permissionDecision,
+          approvalDecision,
           capability: tool.capability,
         };
       } catch (error) {
@@ -99,6 +165,7 @@ export const createToolRegistry = (
             metadata: {},
           },
           permissionDecision,
+          approvalDecision,
           capability: tool.capability,
         };
       }
