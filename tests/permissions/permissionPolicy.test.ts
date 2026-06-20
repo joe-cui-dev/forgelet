@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import { test } from "../harness.js";
+import { expect, test } from "@jest/globals";
 import { createPermissionPolicy } from "../../src/permissions/index.js";
 import type { ToolRequest } from "../../src/types.js";
 
@@ -10,7 +9,7 @@ test("PermissionPolicy allows low-risk tool requests", async () => {
     testRequest({ riskTier: "low", toolName: "read_file" }),
   );
 
-  assert.deepEqual(decision, {
+  expect(decision).toEqual({
     kind: "allow",
     riskTier: "low",
     reason: "Low-risk tool request is allowed.",
@@ -28,7 +27,7 @@ test("PermissionPolicy confirms medium-risk tool requests", async () => {
     }),
   );
 
-  assert.deepEqual(decision, {
+  expect(decision).toEqual({
     kind: "confirm",
     riskTier: "medium",
     reason: "Medium-risk tool request requires confirmation.",
@@ -38,35 +37,29 @@ test("PermissionPolicy confirms medium-risk tool requests", async () => {
 test("PermissionPolicy denies high and forbidden risk tool requests", async () => {
   const policy = createPermissionPolicy();
 
-  assert.deepEqual(
-    await policy.decide(
+  expect(await policy.decide(
       testRequest({
         capability: "run_safe_command",
         riskTier: "high",
         toolName: "run_command",
       }),
-    ),
-    {
+    )).toEqual({
       kind: "deny",
       riskTier: "high",
       reason: "High-risk tool requests are denied in V1.",
-    },
-  );
+    });
 
-  assert.deepEqual(
-    await policy.decide(
+  expect(await policy.decide(
       testRequest({
         capability: "write_workspace",
         riskTier: "forbidden",
         toolName: "apply_patch",
       }),
-    ),
-    {
+    )).toEqual({
       kind: "deny",
       riskTier: "forbidden",
       reason: "Forbidden tool requests are denied.",
-    },
-  );
+    });
 });
 
 test("PermissionPolicy explains denied path targets when target metadata is present", async () => {
@@ -84,7 +77,7 @@ test("PermissionPolicy explains denied path targets when target metadata is pres
     }),
   );
 
-  assert.deepEqual(decision, {
+  expect(decision).toEqual({
     kind: "deny",
     riskTier: "forbidden",
     reason: "Forbidden tool requests are denied: .env is sensitive.",

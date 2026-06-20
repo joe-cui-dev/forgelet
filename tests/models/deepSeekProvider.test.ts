@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import { test } from "../harness.js";
+import { expect, test } from "@jest/globals";
 import { DeepSeekModelClient } from "../../src/models/providers/deepseek.js";
 
 test("DeepSeekModelClient converts Forgelet turns to chat completions with tools", async () => {
@@ -56,7 +55,7 @@ test("DeepSeekModelClient converts Forgelet turns to chat completions with tools
     ],
   });
 
-  assert.deepEqual(requestBody, {
+  expect(requestBody).toEqual({
     model: "deepseek-v4-pro",
     messages: [
       { role: "system", content: "Kernel rules" },
@@ -79,11 +78,11 @@ test("DeepSeekModelClient converts Forgelet turns to chat completions with tools
     ],
     stream: false,
   });
-  assert.equal(result.content, "I should inspect the file.");
-  assert.deepEqual(result.toolCalls, [
+  expect(result.content).toBe("I should inspect the file.");
+  expect(result.toolCalls).toEqual([
     { id: "call_1", name: "read_file", input: { path: "README.md" } },
   ]);
-  assert.deepEqual(result.usage, {
+  expect(result.usage).toEqual({
     inputTokens: 12,
     outputTokens: 5,
     estimatedCostUsd: 0.001,
@@ -111,12 +110,10 @@ test("DeepSeekModelClient estimates cost when the API returns token usage withou
     tools: [],
   });
 
-  assert.equal(result.usage?.inputTokens, 1000);
-  assert.equal(result.usage?.inputCacheHitTokens, 100);
-  assert.equal(result.usage?.inputCacheMissTokens, 900);
-  assert.equal(result.usage?.outputTokens, 200);
-  assert.ok(
-    Math.abs((result.usage?.estimatedCostUsd ?? 0) - 0.0005658625) <
-      Number.EPSILON,
-  );
+  expect(result.usage?.inputTokens).toBe(1000);
+  expect(result.usage?.inputCacheHitTokens).toBe(100);
+  expect(result.usage?.inputCacheMissTokens).toBe(900);
+  expect(result.usage?.outputTokens).toBe(200);
+  expect(Math.abs((result.usage?.estimatedCostUsd ?? 0) - 0.0005658625) <
+      Number.EPSILON).toBeTruthy();
 });

@@ -1,8 +1,7 @@
-import assert from "node:assert/strict";
+import { expect, test } from "@jest/globals";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { test } from "../harness.js";
 import { loadConfig } from "../../src/config/index.js";
 
 test("loads merged default, global, and project config", async () => {
@@ -26,9 +25,9 @@ test("loads merged default, global, and project config", async () => {
 
   const config = await loadConfig({ homeDir, workspaceRoot });
 
-  assert.equal(config.defaultModel, "deepseek-v4-pro");
-  assert.equal(config.fallbackModel, "gpt-5");
-  assert.equal(config.routing.coding.default, "deepseek-v4-pro");
-  assert.equal(config.routing.writing.default, "deepseek-v4-flash");
-  assert.deepEqual(config.safeCommands, ["npm test"]);
+  expect(config.defaultModel).toBe("deepseek-v4-pro");
+  expect(config.fallbackModel).toBe("gpt-5");
+  expect(config.routing.coding.default).toBe("deepseek-v4-pro");
+  expect(config.routing.writing.default).toBe("deepseek-v4-flash");
+  expect(config.safeCommands).toEqual(["npm test"]);
 });

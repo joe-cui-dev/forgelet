@@ -1,9 +1,8 @@
-import assert from "node:assert/strict";
+import { expect, test } from "@jest/globals";
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { test } from "../harness.js";
 import { runAgent } from "../../src/agent/runAgent.js";
 import { FakeModelClient } from "../../src/models/testing/index.js";
 
@@ -36,9 +35,9 @@ test("a coding Session can search, read, and finish through read-only tools", as
     modelClient,
   });
 
-  assert.equal(result.session.stage, "final");
-  assert.match(result.summary, /The answer is defined in example.ts/);
-  assert.equal(modelClient.turnInputs.length, 3);
+  expect(result.session.stage).toBe("final");
+  expect(result.summary).toMatch(/The answer is defined in example.ts/);
+  expect(modelClient.turnInputs.length).toBe(3);
 
   const trace = await readFile(result.tracePath ?? "", "utf8");
   const events = trace
@@ -46,9 +45,7 @@ test("a coding Session can search, read, and finish through read-only tools", as
     .split("\n")
     .map((line) => JSON.parse(line));
 
-  assert.deepEqual(
-    events.map((event) => event.type),
-    [
+  expect(events.map((event) => event.type)).toEqual([
       "session_started",
       "user_task",
       "routing_selected",
@@ -67,18 +64,17 @@ test("a coding Session can search, read, and finish through read-only tools", as
       "budget_update",
       "final_summary",
       "session_finished",
-    ],
-  );
+    ]);
 
   const readResult = events.find(
     (event) =>
       event.type === "tool_result" && event.payload.toolName === "read_file",
   );
-  assert.ok(readResult);
-  assert.equal(readResult.payload.ok, true);
-  assert.equal(readResult.payload.path, "example.ts");
-  assert.equal("content" in readResult.payload, false);
-  assert.match(String(readResult.payload.preview), /needle/);
+  expect(readResult).toBeTruthy();
+  expect(readResult.payload.ok).toBe(true);
+  expect(readResult.payload.path).toBe("example.ts");
+  expect("content" in readResult.payload).toBe(false);
+  expect(String(readResult.payload.preview)).toMatch(/needle/);
 });
 
 test("context attachments are rendered for the model without storing full content in the trace", async () => {
@@ -100,21 +96,18 @@ test("context attachments are rendered for the model without storing full conten
   const firstUserMessage = modelClient.turnInputs[0]?.messages.find(
     (message) => message.role === "user",
   )?.content;
-  assert.ok(firstUserMessage);
-  assert.match(firstUserMessage, /Context attachments:/);
-  assert.match(firstUserMessage, /id: ctx_1/);
-  assert.match(firstUserMessage, /source: file/);
-  assert.match(firstUserMessage, /title: issue\.md/);
-  assert.match(firstUserMessage, /contentHash:/);
-  assert.match(firstUserMessage, /contentBytes:/);
-  assert.match(firstUserMessage, /returnedBytes: 20480/);
-  assert.match(firstUserMessage, /truncated: true/);
-  assert.match(firstUserMessage, /Important issue context/);
-  assert.match(
-    firstUserMessage,
-    /\[truncated: showing 20480 of \d+ bytes\]/,
-  );
-  assert.doesNotMatch(firstUserMessage, /Hidden tail marker/);
+  expect(firstUserMessage).toBeTruthy();
+  expect(firstUserMessage).toMatch(/Context attachments:/);
+  expect(firstUserMessage).toMatch(/id: ctx_1/);
+  expect(firstUserMessage).toMatch(/source: file/);
+  expect(firstUserMessage).toMatch(/title: issue\.md/);
+  expect(firstUserMessage).toMatch(/contentHash:/);
+  expect(firstUserMessage).toMatch(/contentBytes:/);
+  expect(firstUserMessage).toMatch(/returnedBytes: 20480/);
+  expect(firstUserMessage).toMatch(/truncated: true/);
+  expect(firstUserMessage).toMatch(/Important issue context/);
+  expect(firstUserMessage).toMatch(/\[truncated: showing 20480 of \d+ bytes\]/);
+  expect(firstUserMessage).not.toMatch(/Hidden tail marker/);
 
   const trace = await readFile(result.tracePath ?? "", "utf8");
   const events = trace
@@ -124,9 +117,9 @@ test("context attachments are rendered for the model without storing full conten
   const contextEvent = events.find(
     (event) => event.type === "context_attachment",
   );
-  assert.ok(contextEvent);
-  assert.equal("content" in contextEvent.payload, false);
-  assert.doesNotMatch(JSON.stringify(contextEvent.payload), /Hidden tail marker/);
+  expect(contextEvent).toBeTruthy();
+  expect("content" in contextEvent.payload).toBe(false);
+  expect(JSON.stringify(contextEvent.payload)).not.toMatch(/Hidden tail marker/);
 });
 
 test("a coding Session can inspect a truncated git diff without storing the full diff in the trace", async () => {
@@ -149,25 +142,19 @@ test("a coding Session can inspect a truncated git diff without storing the full
     modelClient,
   });
 
-  assert.equal(
-    modelClient.turnInputs[0]?.tools.some((tool) => tool.name === "git_diff"),
-    true,
-  );
+  expect(modelClient.turnInputs[0]?.tools.some((tool) => tool.name === "git_diff")).toBe(true);
   const toolMessage = modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "";
   const observation = JSON.parse(toolMessage);
-  assert.equal(observation.ok, true);
-  assert.equal(observation.toolName, "git_diff");
-  assert.equal(observation.metadata.truncated, true);
-  assert.equal(observation.metadata.returnedBytes, 20 * 1024);
-  assert.match(observation.content, /Git diff stat:/);
-  assert.match(observation.content, /review\.txt/);
-  assert.match(observation.content, /Git diff:/);
-  assert.match(observation.content, /changed/);
-  assert.match(
-    observation.content,
-    /\[truncated: showing 20480 of \d+ bytes\]/,
-  );
-  assert.doesNotMatch(observation.content, /Hidden diff tail marker/);
+  expect(observation.ok).toBe(true);
+  expect(observation.toolName).toBe("git_diff");
+  expect(observation.metadata.truncated).toBe(true);
+  expect(observation.metadata.returnedBytes).toBe(20 * 1024);
+  expect(observation.content).toMatch(/Git diff stat:/);
+  expect(observation.content).toMatch(/review\.txt/);
+  expect(observation.content).toMatch(/Git diff:/);
+  expect(observation.content).toMatch(/changed/);
+  expect(observation.content).toMatch(/\[truncated: showing 20480 of \d+ bytes\]/);
+  expect(observation.content).not.toMatch(/Hidden diff tail marker/);
 
   const trace = await readFile(result.tracePath ?? "", "utf8");
   const events = trace
@@ -178,10 +165,10 @@ test("a coding Session can inspect a truncated git diff without storing the full
     (event) =>
       event.type === "tool_result" && event.payload.toolName === "git_diff",
   );
-  assert.ok(diffResult);
-  assert.equal("content" in diffResult.payload, false);
-  assert.equal(diffResult.payload.truncated, true);
-  assert.doesNotMatch(JSON.stringify(diffResult.payload), /Hidden diff tail marker/);
+  expect(diffResult).toBeTruthy();
+  expect("content" in diffResult.payload).toBe(false);
+  expect(diffResult.payload.truncated).toBe(true);
+  expect(JSON.stringify(diffResult.payload)).not.toMatch(/Hidden diff tail marker/);
 });
 
 test("a coding Session exposes only registry-projected tool schemas to the model", async () => {
@@ -199,20 +186,17 @@ test("a coding Session exposes only registry-projected tool schemas to the model
   });
 
   const tools = modelClient.turnInputs[0]?.tools ?? [];
-  assert.deepEqual(
-    tools.map((tool) => tool.name),
-    [
+  expect(tools.map((tool) => tool.name)).toEqual([
       "list_files",
       "search_text",
       "read_file",
       "git_status",
       "git_diff",
       "update_plan",
-    ],
-  );
-  assert.equal(tools.some((tool) => "execute" in tool), false);
-  assert.equal(tools.some((tool) => "providerId" in tool), false);
-  assert.equal(tools.some((tool) => "capability" in tool), false);
+    ]);
+  expect(tools.some((tool) => "execute" in tool)).toBe(false);
+  expect(tools.some((tool) => "providerId" in tool)).toBe(false);
+  expect(tools.some((tool) => "capability" in tool)).toBe(false);
 });
 
 test("a writing Session requesting git_diff receives a controlled registry denial", async () => {
@@ -230,15 +214,9 @@ test("a writing Session requesting git_diff receives a controlled registry denia
     modelClient,
   });
 
-  assert.match(result.summary, /cannot inspect git diffs/);
-  assert.equal(
-    modelClient.turnInputs[0]?.tools.some((tool) => tool.name === "git_diff"),
-    false,
-  );
-  assert.match(
-    modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "",
-    /permission_denied/,
-  );
+  expect(result.summary).toMatch(/cannot inspect git diffs/);
+  expect(modelClient.turnInputs[0]?.tools.some((tool) => tool.name === "git_diff")).toBe(false);
+  expect(modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "").toMatch(/permission_denied/);
 
   const trace = await readFile(result.tracePath ?? "", "utf8");
   const events = trace
@@ -250,9 +228,9 @@ test("a writing Session requesting git_diff receives a controlled registry denia
       event.type === "permission_decision" &&
       event.payload.toolName === "git_diff",
   );
-  assert.ok(denial);
-  assert.equal(denial.payload.decision, "deny");
-  assert.equal(denial.payload.reason, "Capability not granted: git_read");
+  expect(denial).toBeTruthy();
+  expect(denial.payload.decision).toBe("deny");
+  expect(denial.payload.reason).toBe("Capability not granted: git_read");
 });
 
 test("an ungranted tool call returns a denial observation and the Session can recover", async () => {
@@ -278,15 +256,9 @@ test("an ungranted tool call returns a denial observation and the Session can re
     modelClient,
   });
 
-  assert.match(result.summary, /I cannot read workspace files/);
-  assert.equal(
-    modelClient.turnInputs[0]?.tools.some((tool) => tool.name === "read_file"),
-    false,
-  );
-  assert.match(
-    modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "",
-    /permission_denied/,
-  );
+  expect(result.summary).toMatch(/I cannot read workspace files/);
+  expect(modelClient.turnInputs[0]?.tools.some((tool) => tool.name === "read_file")).toBe(false);
+  expect(modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "").toMatch(/permission_denied/);
 
   const trace = await readFile(result.tracePath ?? "", "utf8");
   const events = trace
@@ -298,10 +270,10 @@ test("an ungranted tool call returns a denial observation and the Session can re
       event.type === "permission_decision" &&
       event.payload.toolName === "read_file",
   );
-  assert.ok(denial);
-  assert.equal(denial.payload.decision, "deny");
+  expect(denial).toBeTruthy();
+  expect(denial.payload.decision).toBe("deny");
   const finished = events.find((event) => event.type === "session_finished");
-  assert.equal(finished.payload.status, "completed");
+  expect(finished.payload.status).toBe("completed");
 });
 
 test("a Session stops before the next model turn when the turn budget is exhausted", async () => {
@@ -328,8 +300,8 @@ test("a Session stops before the next model turn when the turn budget is exhaust
     modelClient,
   });
 
-  assert.equal(modelClient.turnInputs.length, 1);
-  assert.match(result.summary, /Reason: max_model_turns/);
+  expect(modelClient.turnInputs.length).toBe(1);
+  expect(result.summary).toMatch(/Reason: max_model_turns/);
 
   const trace = await readFile(result.tracePath ?? "", "utf8");
   const events = trace
@@ -337,10 +309,10 @@ test("a Session stops before the next model turn when the turn budget is exhaust
     .split("\n")
     .map((line) => JSON.parse(line));
   const budgetUpdate = events.find((event) => event.type === "budget_update");
-  assert.equal(budgetUpdate.payload.usage.modelTurns, 1);
+  expect(budgetUpdate.payload.usage.modelTurns).toBe(1);
   const finished = events.find((event) => event.type === "session_finished");
-  assert.equal(finished.payload.status, "stopped");
-  assert.equal(finished.payload.reason, "max_model_turns");
+  expect(finished.payload.status).toBe("stopped");
+  expect(finished.payload.reason).toBe("max_model_turns");
 });
 
 test("large read_file observations are truncated for the model and not stored fully in trace", async () => {
@@ -366,12 +338,9 @@ test("large read_file observations are truncated for the model and not stored fu
 
   const toolMessage = modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "";
   const observation = JSON.parse(toolMessage);
-  assert.equal(observation.metadata.truncated, true);
-  assert.equal(
-    observation.metadata.totalBytes,
-    Buffer.byteLength(largeContent, "utf8"),
-  );
-  assert.equal(observation.content.length, 20 * 1024);
+  expect(observation.metadata.truncated).toBe(true);
+  expect(observation.metadata.totalBytes).toBe(Buffer.byteLength(largeContent, "utf8"));
+  expect(observation.content.length).toBe(20 * 1024);
 
   const trace = await readFile(result.tracePath ?? "", "utf8");
   const events = trace
@@ -382,13 +351,10 @@ test("large read_file observations are truncated for the model and not stored fu
     (event) =>
       event.type === "tool_result" && event.payload.toolName === "read_file",
   );
-  assert.equal(readResult.payload.truncated, true);
-  assert.equal(
-    readResult.payload.totalBytes,
-    Buffer.byteLength(largeContent, "utf8"),
-  );
-  assert.equal("content" in readResult.payload, false);
-  assert.doesNotMatch(String(readResult.payload.preview), /needle-at-end/);
+  expect(readResult.payload.truncated).toBe(true);
+  expect(readResult.payload.totalBytes).toBe(Buffer.byteLength(largeContent, "utf8"));
+  expect("content" in readResult.payload).toBe(false);
+  expect(String(readResult.payload.preview)).not.toMatch(/needle-at-end/);
 });
 
 test("update_plan records the changed Session plan in the trace", async () => {
@@ -425,8 +391,8 @@ test("update_plan records the changed Session plan in the trace", async () => {
     .split("\n")
     .map((line) => JSON.parse(line));
   const planUpdates = events.filter((event) => event.type === "plan_update");
-  assert.equal(planUpdates.length, 2);
-  assert.deepEqual(planUpdates.at(-1)?.payload.plan.items, [
+  expect(planUpdates.length).toBe(2);
+  expect(planUpdates.at(-1)?.payload.plan.items).toEqual([
     { step: "Inspect workspace", status: "completed" },
     { step: "Answer user", status: "in_progress" },
   ]);
@@ -462,8 +428,8 @@ test("read-only tools do not follow workspace symlinks outside the workspace", a
   });
 
   const toolMessage = modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "";
-  assert.match(toolMessage, /outside workspace/);
-  assert.doesNotMatch(toolMessage, /outside secret/);
+  expect(toolMessage).toMatch(/outside workspace/);
+  expect(toolMessage).not.toMatch(/outside secret/);
 
   const trace = await readFile(result.tracePath ?? "", "utf8");
   const events = trace
@@ -474,8 +440,8 @@ test("read-only tools do not follow workspace symlinks outside the workspace", a
     (event) =>
       event.type === "tool_result" && event.payload.toolName === "read_file",
   );
-  assert.equal(readResult.payload.ok, false);
-  assert.equal(readResult.payload.error.code, "invalid_input");
+  expect(readResult.payload.ok).toBe(false);
+  expect(readResult.payload.error.code).toBe("invalid_input");
 });
 
 function execGit(workspaceRoot: string, args: string[]): Promise<void> {

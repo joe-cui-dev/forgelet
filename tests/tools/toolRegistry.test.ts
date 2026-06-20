@@ -1,36 +1,20 @@
-import assert from "node:assert/strict";
-import { test } from "../harness.js";
+import { expect, test } from "@jest/globals";
 import type { ToolContext, ToolDefinition } from "../../src/types.js";
 import { createToolRegistry } from "../../src/tools/toolRegistry.js";
 
 test("ToolRegistry rejects duplicate tool names during construction", () => {
-  assert.throws(
-    () =>
+  expect(() =>
       createToolRegistry([
         testTool({ name: "read_file" }),
         testTool({ name: "read_file" }),
-      ]),
-    /Duplicate tool name: read_file/,
-  );
+      ])).toThrow(/Duplicate tool name: read_file/);
 });
 
 test("ToolRegistry rejects tools with incomplete metadata during construction", () => {
-  assert.throws(
-    () => createToolRegistry([testTool({ providerId: "" })]),
-    /Tool test_tool is missing providerId/,
-  );
-  assert.throws(
-    () => createToolRegistry([testTool({ capability: undefined })]),
-    /Tool test_tool is missing capability/,
-  );
-  assert.throws(
-    () => createToolRegistry([testTool({ description: "" })]),
-    /Tool test_tool is missing description/,
-  );
-  assert.throws(
-    () => createToolRegistry([testTool({ inputSchema: undefined })]),
-    /Tool test_tool is missing inputSchema/,
-  );
+  expect(() => createToolRegistry([testTool({ providerId: "" })])).toThrow(/Tool test_tool is missing providerId/);
+  expect(() => createToolRegistry([testTool({ capability: undefined })])).toThrow(/Tool test_tool is missing capability/);
+  expect(() => createToolRegistry([testTool({ description: "" })])).toThrow(/Tool test_tool is missing description/);
+  expect(() => createToolRegistry([testTool({ inputSchema: undefined })])).toThrow(/Tool test_tool is missing inputSchema/);
 });
 
 test("ToolRegistry lists only model-facing schemas for granted capabilities", () => {
@@ -39,16 +23,16 @@ test("ToolRegistry lists only model-facing schemas for granted capabilities", ()
     testTool({ name: "git_diff", providerId: "git", capability: "git_read" }),
   ]);
 
-  assert.deepEqual(registry.listTools(["read_workspace"]), [
+  expect(registry.listTools(["read_workspace"])).toEqual([
     {
       name: "read_file",
       description: "Test tool",
       inputSchema: { type: "object", additionalProperties: false },
     },
   ]);
-  assert.equal("execute" in registry.listTools(["read_workspace"])[0], false);
-  assert.equal("providerId" in registry.listTools(["read_workspace"])[0], false);
-  assert.equal("capability" in registry.listTools(["read_workspace"])[0], false);
+  expect("execute" in registry.listTools(["read_workspace"])[0]).toBe(false);
+  expect("providerId" in registry.listTools(["read_workspace"])[0]).toBe(false);
+  expect("capability" in registry.listTools(["read_workspace"])[0]).toBe(false);
 });
 
 test("ToolRegistry executes a granted tool and returns an allow decision", async () => {
@@ -68,9 +52,9 @@ test("ToolRegistry executes a granted tool and returns an allow decision", async
     testContext({ grantedCapabilities: ["read_workspace"] }),
   );
 
-  assert.equal(result.permissionDecision.kind, "allow");
-  assert.equal(result.permissionDecision.reason, "Low-risk tool request is allowed.");
-  assert.deepEqual(result.observation, {
+  expect(result.permissionDecision.kind).toBe("allow");
+  expect(result.permissionDecision.reason).toBe("Low-risk tool request is allowed.");
+  expect(result.observation).toEqual({
     ok: true,
     toolCallId: "call_1",
     toolName: "read_file",
@@ -89,9 +73,9 @@ test("ToolRegistry returns a controlled denial for unknown tools", async () => {
     testContext({ grantedCapabilities: ["read_workspace"] }),
   );
 
-  assert.equal(result.permissionDecision.kind, "deny");
-  assert.equal(result.permissionDecision.reason, "Unknown tool: missing_tool");
-  assert.deepEqual(result.observation, {
+  expect(result.permissionDecision.kind).toBe("deny");
+  expect(result.permissionDecision.reason).toBe("Unknown tool: missing_tool");
+  expect(result.observation).toEqual({
     ok: false,
     toolCallId: "call_missing",
     toolName: "missing_tool",
@@ -114,9 +98,9 @@ test("ToolRegistry denies known tools without granted capability", async () => {
     testContext({ grantedCapabilities: ["read_workspace"] }),
   );
 
-  assert.equal(result.permissionDecision.kind, "deny");
-  assert.equal(result.permissionDecision.reason, "Capability not granted: git_read");
-  assert.deepEqual(result.observation, {
+  expect(result.permissionDecision.kind).toBe("deny");
+  expect(result.permissionDecision.reason).toBe("Capability not granted: git_read");
+  expect(result.observation).toEqual({
     ok: false,
     toolCallId: "call_git",
     toolName: "git_diff",
@@ -144,8 +128,8 @@ test("ToolRegistry keeps the allow decision when granted tool execution fails", 
     testContext({ grantedCapabilities: ["read_workspace"] }),
   );
 
-  assert.equal(result.permissionDecision.kind, "allow");
-  assert.deepEqual(result.observation, {
+  expect(result.permissionDecision.kind).toBe("allow");
+  expect(result.observation).toEqual({
     ok: false,
     toolCallId: "call_read",
     toolName: "read_file",
@@ -184,13 +168,13 @@ test("ToolRegistry denies confirmed tool requests when approval is unavailable",
     testContext({ grantedCapabilities: ["write_workspace"] }),
   );
 
-  assert.equal(executed, false);
-  assert.equal(result.permissionDecision.kind, "confirm");
-  assert.deepEqual(result.approvalDecision, {
+  expect(executed).toBe(false);
+  expect(result.permissionDecision.kind).toBe("confirm");
+  expect(result.approvalDecision).toEqual({
     status: "unavailable",
     reason: "No approval handler is available.",
   });
-  assert.deepEqual(result.observation, {
+  expect(result.observation).toEqual({
     ok: false,
     toolCallId: "call_patch",
     toolName: "apply_patch",
@@ -241,12 +225,12 @@ test("ToolRegistry executes confirmed tool requests after injected approval", as
     testContext({ grantedCapabilities: ["run_safe_command"] }),
   );
 
-  assert.equal(executed, true);
-  assert.deepEqual(result.approvalDecision, {
+  expect(executed).toBe(true);
+  expect(result.approvalDecision).toEqual({
     status: "approved",
     reason: "Approved by test.",
   });
-  assert.deepEqual(result.observation, {
+  expect(result.observation).toEqual({
     ok: true,
     toolCallId: "call_test",
     toolName: "run_command",

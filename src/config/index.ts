@@ -134,10 +134,18 @@ async function readOptionalJson(
   try {
     return JSON.parse(await readFile(path, "utf8")) as Partial<ForgeletConfig>;
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT")
-      return {};
+    if (hasErrorCode(error, "ENOENT")) return {};
     if (error instanceof SyntaxError)
       throw new Error(`Invalid JSON config: ${path}`);
     throw error;
   }
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === code
+  );
 }

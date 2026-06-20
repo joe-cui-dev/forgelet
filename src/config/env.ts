@@ -51,7 +51,12 @@ async function readOptionalEnvFile(path: string): Promise<string | undefined> {
   try {
     return await readFile(path, "utf8");
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT")
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ENOENT"
+    )
       return undefined;
     throw error;
   }

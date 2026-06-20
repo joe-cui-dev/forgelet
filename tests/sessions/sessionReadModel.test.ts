@@ -1,8 +1,7 @@
-import assert from "node:assert/strict";
+import { expect, test } from "@jest/globals";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { test } from "../harness.js";
 import { listSessions } from "../../src/sessions/index.js";
 import { showSession } from "../../src/sessions/index.js";
 import { runAgent } from "../../src/agent/runAgent.js";
@@ -28,13 +27,10 @@ test("lists completed and incomplete project sessions from traces", async () => 
 
   const sessions = await listSessions(workspaceRoot);
 
-  assert.deepEqual(
-    sessions.map((session) => ({ id: session.id, workflow: session.workflow, status: session.status, task: session.task })),
-    [
+  expect(sessions.map((session) => ({ id: session.id, workflow: session.workflow, status: session.status, task: session.task }))).toEqual([
       { id: "sess_incomplete", workflow: "writing", status: "incomplete", task: "" },
       { id: "sess_completed", workflow: "coding", status: "completed", task: "fix tests" }
-    ]
-  );
+    ]);
 });
 
 test("shows a session summary from its trace events", async () => {
@@ -49,12 +45,12 @@ test("shows a session summary from its trace events", async () => {
 
   const session = await showSession(workspaceRoot, result.session.id);
 
-  assert.equal(session.id, result.session.id);
-  assert.equal(session.workflow, "writing");
-  assert.equal(session.status, "completed");
-  assert.equal(session.task, "revise this");
-  assert.equal(session.contextAttachments.length, 1);
-  assert.equal(session.contextAttachments[0]?.title, "draft.md");
-  assert.equal(session.route?.model, "deepseek-v4-flash");
-  assert.match(session.finalSummary, /no model turn was run/);
+  expect(session.id).toBe(result.session.id);
+  expect(session.workflow).toBe("writing");
+  expect(session.status).toBe("completed");
+  expect(session.task).toBe("revise this");
+  expect(session.contextAttachments.length).toBe(1);
+  expect(session.contextAttachments[0]?.title).toBe("draft.md");
+  expect(session.route?.model).toBe("deepseek-v4-flash");
+  expect(session.finalSummary).toMatch(/no model turn was run/);
 });

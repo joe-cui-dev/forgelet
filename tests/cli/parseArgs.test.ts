@@ -1,9 +1,8 @@
-import assert from "node:assert/strict";
-import { test } from "../harness.js";
+import { expect, test } from "@jest/globals";
 import { parseArgs } from "../../src/cli/parseArgs.js";
 
 test("parses a simple run task", () => {
-  assert.deepEqual(parseArgs(["fix", "tests"]), {
+  expect(parseArgs(["fix", "tests"])).toEqual({
     kind: "run",
     workflow: "coding",
     task: "fix tests",
@@ -15,7 +14,7 @@ test("parses a simple run task", () => {
 });
 
 test("parses run options", () => {
-  assert.deepEqual(parseArgs(["--live", "--context", "issue.md", "--model", "deepseek-v4-pro", "--budget", "0.25", "fix bug"]), {
+  expect(parseArgs(["--live", "--context", "issue.md", "--model", "deepseek-v4-pro", "--budget", "0.25", "fix bug"])).toEqual({
     kind: "run",
     workflow: "coding",
     task: "fix bug",
@@ -27,7 +26,7 @@ test("parses run options", () => {
 });
 
 test("parses a writing workflow task", () => {
-  assert.deepEqual(parseArgs(["write", "--context", "draft.md", "revise this"]), {
+  expect(parseArgs(["write", "--context", "draft.md", "revise this"])).toEqual({
     kind: "run",
     workflow: "writing",
     task: "revise this",
@@ -39,7 +38,7 @@ test("parses a writing workflow task", () => {
 });
 
 test("parses non-model config set", () => {
-  assert.deepEqual(parseArgs(["config", "set", "memoryFile", ".forgelet/memory.md"]), {
+  expect(parseArgs(["config", "set", "memoryFile", ".forgelet/memory.md"])).toEqual({
     kind: "config-set",
     key: "memoryFile",
     value: ".forgelet/memory.md"
@@ -47,27 +46,21 @@ test("parses non-model config set", () => {
 });
 
 test("rejects config set for model defaults", () => {
-  assert.throws(
-    () => parseArgs(["config", "set", "defaultModel", "deepseek-v4-flash"]),
-    /Model defaults are defined in src\/config\/index\.ts/,
-  );
-  assert.throws(
-    () => parseArgs(["config", "set", "routing.coding.default", "deepseek-v4-flash"]),
-    /Model defaults are defined in src\/config\/index\.ts/,
-  );
+  expect(() => parseArgs(["config", "set", "defaultModel", "deepseek-v4-flash"])).toThrow(/Model defaults are defined in src\/config\/index\.ts/);
+  expect(() => parseArgs(["config", "set", "routing.coding.default", "deepseek-v4-flash"])).toThrow(/Model defaults are defined in src\/config\/index\.ts/);
 });
 
 test("parses memory commands", () => {
-  assert.deepEqual(parseArgs(["memory", "suggest", "sess_123"]), {
+  expect(parseArgs(["memory", "suggest", "sess_123"])).toEqual({
     kind: "memory-suggest",
     sessionId: "sess_123"
   });
-  assert.deepEqual(parseArgs(["memory", "accept", "mem_123"]), {
+  expect(parseArgs(["memory", "accept", "mem_123"])).toEqual({
     kind: "memory-accept",
     suggestionId: "mem_123"
   });
 });
 
 test("rejects missing task", () => {
-  assert.throws(() => parseArgs(["--model", "deepseek-v4-pro"]), /Usage: forge/);
+  expect(() => parseArgs(["--model", "deepseek-v4-pro"])).toThrow(/Usage: forge/);
 });

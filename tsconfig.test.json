@@ -1,8 +1,10 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
+    "isolatedModules": true,
     "rootDir": ".",
-    "outDir": "dist-test"
+    "outDir": "dist-test",
+    "types": ["node", "jest"]
   },
   "include": ["src/**/*.ts", "tests/**/*.ts"]
 }

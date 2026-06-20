@@ -1,8 +1,7 @@
-import assert from "node:assert/strict";
+import { expect, test } from "@jest/globals";
 import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { test } from "../harness.js";
 import { runAgent } from "../../src/agent/runAgent.js";
 
 test("creates a project session trace for a coding workflow", async () => {
@@ -17,23 +16,23 @@ test("creates a project session trace for a coding workflow", async () => {
     workspaceRoot
   });
 
-  assert.equal(result.session.task, "fix tests");
-  assert.equal(result.session.workflow, "coding");
-  assert.equal(result.session.stage, "final");
-  assert.match(result.summary, /Forgelet session created/);
-  assert.match(result.summary, /Workflow: coding/);
-  assert.match(result.summary, /Trace:/);
+  expect(result.session.task).toBe("fix tests");
+  expect(result.session.workflow).toBe("coding");
+  expect(result.session.stage).toBe("final");
+  expect(result.summary).toMatch(/Forgelet session created/);
+  expect(result.summary).toMatch(/Workflow: coding/);
+  expect(result.summary).toMatch(/Trace:/);
 
   const traceDir = join(workspaceRoot, ".forgelet", "sessions");
   const traceFiles = await readdir(traceDir);
-  assert.equal(traceFiles.length, 1);
+  expect(traceFiles.length).toBe(1);
 
   const trace = await readFile(join(traceDir, traceFiles[0] ?? ""), "utf8");
   const events = trace.trim().split("\n").map((line) => JSON.parse(line));
-  assert.deepEqual(events.map((event) => event.type), ["session_started", "user_task", "routing_selected", "plan_update", "final_summary", "session_finished"]);
-  assert.equal(events[0].sessionId, result.session.id);
-  assert.equal(events[0].payload.workflow, "coding");
-  assert.equal(events[2].payload.model, "deepseek-v4-pro");
+  expect(events.map((event) => event.type)).toEqual(["session_started", "user_task", "routing_selected", "plan_update", "final_summary", "session_finished"]);
+  expect(events[0].sessionId).toBe(result.session.id);
+  expect(events[0].payload.workflow).toBe("coding");
+  expect(events[2].payload.model).toBe("deepseek-v4-pro");
 });
 
 test("records context attachment evidence without storing full content in the trace", async () => {
@@ -52,14 +51,14 @@ test("records context attachment evidence without storing full content in the tr
   const events = trace.trim().split("\n").map((line) => JSON.parse(line));
   const attachmentEvent = events.find((event) => event.type === "context_attachment");
 
-  assert.ok(attachmentEvent);
-  assert.equal(attachmentEvent.payload.title, "issue.md");
-  assert.equal(attachmentEvent.payload.mimeType, "text/markdown");
-  assert.equal(attachmentEvent.payload.contentBytes, Buffer.byteLength(contextContent, "utf8"));
-  assert.match(String(attachmentEvent.payload.contentHash), /^[a-f0-9]{64}$/);
-  assert.equal("content" in attachmentEvent.payload, false);
-  assert.notEqual(attachmentEvent.payload.preview, contextContent);
-  assert.match(result.summary, /Context attachments: issue.md/);
+  expect(attachmentEvent).toBeTruthy();
+  expect(attachmentEvent.payload.title).toBe("issue.md");
+  expect(attachmentEvent.payload.mimeType).toBe("text/markdown");
+  expect(attachmentEvent.payload.contentBytes).toBe(Buffer.byteLength(contextContent, "utf8"));
+  expect(String(attachmentEvent.payload.contentHash)).toMatch(/^[a-f0-9]{64}$/);
+  expect("content" in attachmentEvent.payload).toBe(false);
+  expect(attachmentEvent.payload.preview).not.toBe(contextContent);
+  expect(result.summary).toMatch(/Context attachments: issue.md/);
 });
 
 test("selects the built-in model route when project config tries to override defaults", async () => {
@@ -81,6 +80,6 @@ test("selects the built-in model route when project config tries to override def
   const trace = await readFile(result.tracePath ?? "", "utf8");
   const events = trace.trim().split("\n").map((line) => JSON.parse(line));
   const routing = events.find((event) => event.type === "routing_selected");
-  assert.equal(routing.payload.model, "deepseek-v4-flash");
-  assert.match(result.summary, /Route: deepseek-v4-flash/);
+  expect(routing.payload.model).toBe("deepseek-v4-flash");
+  expect(result.summary).toMatch(/Route: deepseek-v4-flash/);
 });

@@ -1,8 +1,7 @@
-import assert from "node:assert/strict";
+import { expect, test } from "@jest/globals";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { test } from "../harness.js";
 import { loadDotEnv } from "../../src/config/env.js";
 
 test("loads local .env values without overriding existing environment", async () => {
@@ -22,10 +21,10 @@ test("loads local .env values without overriding existing environment", async ()
 
   await loadDotEnv({ workspaceRoot, env });
 
-  assert.equal(env.DEEPSEEK_API_KEY, "from-shell");
-  assert.equal(env.DEEPSEEK_MODEL, "deepseek-v4-flash");
-  assert.equal(env.QUOTED, "hello\nworld");
-  assert.equal(env.SINGLE, "literal value");
+  expect(env.DEEPSEEK_API_KEY).toBe("from-shell");
+  expect(env.DEEPSEEK_MODEL).toBe("deepseek-v4-flash");
+  expect(env.QUOTED).toBe("hello\nworld");
+  expect(env.SINGLE).toBe("literal value");
 });
 
 test("missing .env files are ignored", async () => {
@@ -34,5 +33,5 @@ test("missing .env files are ignored", async () => {
 
   await loadDotEnv({ workspaceRoot, env });
 
-  assert.deepEqual(env, {});
+  expect(env).toEqual({});
 });

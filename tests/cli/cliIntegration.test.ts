@@ -1,9 +1,8 @@
-import assert from "node:assert/strict";
+import { expect, test } from "@jest/globals";
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { test } from "../harness.js";
 import { runAgent } from "../../src/agent/runAgent.js";
 import { runCli } from "../../src/cli/index.js";
 import { FakeModelClient } from "../../src/models/testing/index.js";
@@ -18,17 +17,17 @@ test("CLI lists and shows project sessions", async () => {
   });
 
   const list = await runCli(["sessions", "list"], { workspaceRoot });
-  assert.equal(list.exitCode, 0);
-  assert.match(list.stdout, new RegExp(run.session.id));
-  assert.match(list.stdout, /completed/);
+  expect(list.exitCode).toBe(0);
+  expect(list.stdout).toMatch(new RegExp(run.session.id));
+  expect(list.stdout).toMatch(/completed/);
 
   const show = await runCli(["sessions", "show", run.session.id], {
     workspaceRoot,
   });
-  assert.equal(show.exitCode, 0);
-  assert.match(show.stdout, /Workflow: coding/);
-  assert.match(show.stdout, /Task: fix tests/);
-  assert.match(show.stdout, /Execution is scaffolded/);
+  expect(show.exitCode).toBe(0);
+  expect(show.stdout).toMatch(/Workflow: coding/);
+  expect(show.stdout).toMatch(/Task: fix tests/);
+  expect(show.stdout).toMatch(/Execution is scaffolded/);
 });
 
 test("CLI entrypoint runs when invoked through an npm-link style symlink", async () => {
@@ -38,9 +37,9 @@ test("CLI entrypoint runs when invoked through an npm-link style symlink", async
 
   const result = await execNode([linkedBin, "--help"], workspaceRoot);
 
-  assert.equal(result.stderr, "");
-  assert.match(result.stdout, /Forgelet/);
-  assert.match(result.stdout, /--live/);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toMatch(/Forgelet/);
+  expect(result.stdout).toMatch(/--live/);
 });
 
 function execNode(
@@ -71,9 +70,9 @@ test("CLI prints merged config", async () => {
   const result = await runCli(["config", "get"], { homeDir, workspaceRoot });
   const config = JSON.parse(result.stdout);
 
-  assert.equal(result.exitCode, 0);
-  assert.equal(config.defaultModel, "deepseek-v4-pro");
-  assert.equal(config.routing.coding.default, "deepseek-v4-pro");
+  expect(result.exitCode).toBe(0);
+  expect(config.defaultModel).toBe("deepseek-v4-pro");
+  expect(config.routing.coding.default).toBe("deepseek-v4-pro");
 });
 
 test("CLI --live runs a read-only Session with an injected live model client", async () => {
@@ -96,16 +95,16 @@ test("CLI --live runs a read-only Session with an injected live model client", a
     workspaceRoot,
     env: {},
     createLiveModelClient: async (input) => {
-      assert.equal(input.workflow, "coding");
-      assert.equal(input.modelOverride, undefined);
+      expect(input.workflow).toBe("coding");
+      expect(input.modelOverride).toBe(undefined);
       return modelClient;
     },
   });
 
-  assert.equal(result.exitCode, 0);
-  assert.match(result.stdout, /Forgelet session completed/);
-  assert.match(result.stdout, /Found needle in example.ts/);
-  assert.equal(modelClient.turnInputs.length, 2);
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toMatch(/Forgelet session completed/);
+  expect(result.stdout).toMatch(/Found needle in example.ts/);
+  expect(modelClient.turnInputs.length).toBe(2);
 });
 
 test("CLI --live requires a DeepSeek API key", async () => {
@@ -116,11 +115,8 @@ test("CLI --live requires a DeepSeek API key", async () => {
     env: {},
   });
 
-  assert.equal(result.exitCode, 1);
-  assert.match(
-    result.stderr,
-    /DEEPSEEK_API_KEY is required for --live DeepSeek execution/,
-  );
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toMatch(/DEEPSEEK_API_KEY is required for --live DeepSeek execution/);
 });
 
 test("CLI --live rejects non-DeepSeek routes", async () => {
@@ -133,9 +129,6 @@ test("CLI --live rejects non-DeepSeek routes", async () => {
     env: { DEEPSEEK_API_KEY: "test-key" },
   });
 
-  assert.equal(result.exitCode, 1);
-  assert.match(
-    result.stderr,
-    /Live execution currently supports DeepSeek models only/,
-  );
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toMatch(/Live execution currently supports DeepSeek models only/);
 });
