@@ -7,6 +7,7 @@ V1 starts with a TypeScript/Node.js CLI scaffold and grows toward permissioned w
 ## Local Development
 
 ```bash
+nvm use
 npm install
 npm run build
 npm test
