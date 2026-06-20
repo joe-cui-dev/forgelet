@@ -10,7 +10,7 @@ import { loadConfig, routeModel } from "../config/index.js";
 import { loadDotEnv } from "../config/env.js";
 import { DeepSeekModelClient } from "../models/providers/deepseek.js";
 import { listSessions, showSession } from "../sessions/index.js";
-import type { ModelClient, WorkflowKind } from "../types.js";
+import type { ModelClient, SessionAudit, WorkflowKind } from "../types.js";
 import type { ApprovalHandler, ApprovalRequest } from "../tools/toolRegistry.js";
 
 export interface RunCliOptions {
@@ -216,8 +216,34 @@ function formatSessionDetail(session: Awaited<ReturnType<typeof showSession>>): 
     `Context attachments: ${context}`,
     `Route: ${route}`,
     `Final summary: ${session.finalSummary}`,
+    ...formatSessionAuditHighlights(session.audit),
     `Trace: ${session.tracePath}`
   ].join("\n");
+}
+
+function formatSessionAuditHighlights(audit: SessionAudit | undefined): string[] {
+  if (!audit) return [];
+  return [
+    "Audit:",
+    `Forgelet changed: ${formatList(audit.changeGroups.forgeletChanged)}`,
+    `Pre-existing at Session start: ${formatList(audit.changeGroups.preExistingAtSessionStart)}`,
+    `Other current workspace changes: ${formatList(audit.changeGroups.otherCurrentWorkspaceChanges)}`,
+    audit.verificationCommands.length > 0
+      ? "Verification commands:"
+      : "Verification commands: none",
+    ...audit.verificationCommands.map(
+      (command) =>
+        `- ${command.command} (${command.timedOut ? "timed out" : `exit ${command.exitCode}`})`,
+    ),
+    audit.kernelObservedRisks.length > 0
+      ? "Kernel-observed risks:"
+      : "Kernel-observed risks: none",
+    ...audit.kernelObservedRisks.map((risk) => `- ${risk.message}`),
+  ];
+}
+
+function formatList(items: string[]): string {
+  return items.length > 0 ? items.join(", ") : "none";
 }
 
 async function main(): Promise<void> {

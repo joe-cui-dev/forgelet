@@ -212,6 +212,8 @@ test("an actionable coding Session can patch, run a configured command, inspect 
     JSON.stringify({ safeCommands: [command], commandTimeoutMs: 1_000 }),
     "utf8",
   );
+  await execGit(workspaceRoot, ["add", ".forgelet/config.json"]);
+  await execGit(workspaceRoot, ["commit", "-m", "configure safe commands"]);
   const patch = [
     "diff --git a/example.txt b/example.txt",
     "--- a/example.txt",
@@ -265,7 +267,7 @@ test("an actionable coding Session can patch, run a configured command, inspect 
   );
   expect(result.summary).toMatch(/Changed example\.txt and verified/);
   expect(result.summary).toMatch(/Audit/);
-  expect(result.summary).toMatch(/Changed files: example\.txt/);
+  expect(result.summary).toMatch(/Forgelet changed: example\.txt/);
   expect(result.summary).toMatch(new RegExp(`Command: ${escapeRegExp(command)} \\(exit 0\\)`));
   expect(result.summary).toMatch(/Trace:/);
 
@@ -282,6 +284,21 @@ test("an actionable coding Session can patch, run a configured command, inspect 
         event.type === "tool_result" && event.payload.toolName === "run_command",
     ),
   ).toBe(true);
+  const finalSummary = events.find((event) => event.type === "final_summary");
+  expect(finalSummary?.payload.audit).toEqual({
+    changeGroups: {
+      forgeletChanged: ["example.txt"],
+      preExistingAtSessionStart: [],
+      otherCurrentWorkspaceChanges: [],
+    },
+    verificationCommands: [
+      { command, exitCode: 0, timedOut: false },
+    ],
+    kernelObservedRisks: [],
+    modelTurns: 5,
+    estimatedCostUsd: 0,
+    tracePath: result.tracePath,
+  });
 });
 
 function escapeRegExp(value: string): string {

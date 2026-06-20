@@ -10,6 +10,7 @@ import type {
   ModelToolCall,
   SessionFinishStatus,
   SessionStopReason,
+  SessionAudit,
   ToolObservation,
   TraceEvent,
   WorkflowKind,
@@ -64,6 +65,7 @@ interface RunReadOnlyLoopInput {
   maxPatchBytes: number;
   act: boolean;
   baselineDirtyPaths: Set<string>;
+  tracePath: string;
   approvalHandler?: ApprovalHandler;
   appendTrace(type: string, payload: Record<string, unknown>): Promise<void>;
 }
@@ -72,6 +74,7 @@ interface RunReadOnlyLoopResult {
   status: SessionFinishStatus;
   reason?: SessionStopReason;
   summary: string;
+  audit?: SessionAudit;
 }
 
 interface RunAuditState {
@@ -175,6 +178,7 @@ export const runWorkflowSession = async (
       maxPatchBytes: config.maxPatchBytes,
       act: input.act === true && input.workflow === "coding",
       baselineDirtyPaths,
+      tracePath: traceWriter.tracePath,
       approvalHandler: input.approvalHandler,
       appendTrace: (type, payload) =>
         traceWriter.append(
@@ -185,6 +189,7 @@ export const runWorkflowSession = async (
     await traceWriter.append(
       createTraceEvent(sessionId, "final_summary", new Date().toISOString(), {
         summary: withTracePath(execution.summary, traceWriter.tracePath),
+        ...(execution.audit ? { audit: execution.audit } : {}),
       }),
     );
     await traceWriter.append(
@@ -361,15 +366,19 @@ const runReadOnlyLoop = async (
         status: "completed",
       }));
       input.session.stage = "final";
+      const sessionAudit = input.act
+        ? await buildSessionAudit(input, usage, audit)
+        : undefined;
       return {
         status: "completed",
-          summary: formatCompletedSummary(
-            input.session,
-            input.route,
-            finalContent,
-            usage,
-            audit,
-          ),
+        summary: formatCompletedSummary(
+          input.session,
+          input.route,
+          finalContent,
+          usage,
+          sessionAudit,
+        ),
+        audit: sessionAudit,
       };
     }
 
@@ -411,6 +420,81 @@ const recordAuditObservation = (
       exitCode: observation.metadata.exitCode ?? null,
       timedOut: observation.metadata.timedOut === true,
     });
+};
+
+const buildSessionAudit = async (
+  input: RunReadOnlyLoopInput,
+  usage: BudgetUsage,
+  audit: RunAuditState,
+): Promise<SessionAudit> => {
+  const finalDirtyPaths = await gitStatusPaths(input.workspaceRoot);
+  const forgeletChanged = [...audit.changedFiles].sort();
+  const preExistingAtSessionStart = [...input.baselineDirtyPaths].sort();
+  const otherCurrentWorkspaceChanges = [...finalDirtyPaths]
+    .filter(
+      (path) =>
+        !audit.changedFiles.has(path) && !input.baselineDirtyPaths.has(path),
+    )
+    .sort();
+  const verificationCommands = audit.commands.map((command) => ({
+    command: command.command,
+    exitCode: command.exitCode,
+    timedOut: command.timedOut,
+  }));
+
+  return {
+    changeGroups: {
+      forgeletChanged,
+      preExistingAtSessionStart,
+      otherCurrentWorkspaceChanges,
+    },
+    verificationCommands,
+    kernelObservedRisks: [
+      ...verificationCommands
+        .filter((command) => command.timedOut || command.exitCode !== 0)
+        .map((command) => ({
+          kind: "verification_failed" as const,
+          message: command.timedOut
+            ? `Verification command timed out: ${command.command}.`
+            : `Verification command failed: ${command.command} (exit ${command.exitCode}).`,
+          command: command.command,
+          exitCode: command.exitCode,
+          timedOut: command.timedOut,
+        })),
+      ...(forgeletChanged.length > 0 && verificationCommands.length === 0
+        ? [
+            {
+              kind: "verification_missing" as const,
+              message:
+                "No verification command was run for the Forgelet changes.",
+            },
+          ]
+        : []),
+      ...(preExistingAtSessionStart.length > 0
+        ? [
+            {
+              kind: "pre_existing_workspace_changes" as const,
+              message:
+                "Pre-existing workspace changes were present at Session start.",
+              paths: preExistingAtSessionStart,
+            },
+          ]
+        : []),
+      ...(otherCurrentWorkspaceChanges.length > 0
+        ? [
+            {
+              kind: "other_workspace_changes" as const,
+              message:
+                "Workspace has current changes not attributed to Forgelet.",
+              paths: otherCurrentWorkspaceChanges,
+            },
+          ]
+        : []),
+    ],
+    modelTurns: usage.modelTurns,
+    estimatedCostUsd: usage.estimatedCostUsd,
+    tracePath: input.tracePath,
+  };
 };
 
 /** The tool execution flow enforces capability grants and appends trace events
@@ -494,6 +578,7 @@ const gitStatusPaths = (workspaceRoot: string): Promise<Set<string>> => {
             stdout
               .split("\n")
               .map((line) => line.slice(3).trim())
+              .filter((path) => !isInternalSessionTracePath(path))
               .filter(Boolean),
           ),
         );
@@ -501,6 +586,9 @@ const gitStatusPaths = (workspaceRoot: string): Promise<Set<string>> => {
     );
   });
 };
+
+const isInternalSessionTracePath = (path: string): boolean =>
+  path === ".forgelet/sessions" || path.startsWith(".forgelet/sessions/");
 
 const budgetStopReason = (
   usage: BudgetUsage,
@@ -654,7 +742,7 @@ const formatCompletedSummary = (
   route: ActLoopRoute,
   finalContent: string,
   usage: BudgetUsage,
-  audit: RunAuditState,
+  audit?: SessionAudit,
 ): string => {
   return [
     `Forgelet session completed: ${session.id}`,
@@ -663,24 +751,33 @@ const formatCompletedSummary = (
     `Route: ${route.model} (${route.reason})`,
     `Model turns: ${usage.modelTurns}`,
     finalContent,
-    formatAuditFooter(audit),
+    ...(audit ? [formatAuditFooter(audit)] : []),
   ].join("\n");
 };
 
-const formatAuditFooter = (audit: RunAuditState): string => {
+const formatAuditFooter = (audit: SessionAudit): string => {
   return [
     "",
     "Audit:",
-    `Changed files: ${audit.changedFiles.size > 0 ? [...audit.changedFiles].join(", ") : "none"}`,
-    audit.commands.length > 0
+    `Forgelet changed: ${formatList(audit.changeGroups.forgeletChanged)}`,
+    `Pre-existing at Session start: ${formatList(audit.changeGroups.preExistingAtSessionStart)}`,
+    `Other current workspace changes: ${formatList(audit.changeGroups.otherCurrentWorkspaceChanges)}`,
+    audit.verificationCommands.length > 0
       ? "Verification commands:"
       : "Verification commands: none",
-    ...audit.commands.map(
+    ...audit.verificationCommands.map(
       (command) =>
         `- Command: ${command.command} (${command.timedOut ? "timed out" : `exit ${command.exitCode}`})`,
     ),
+    audit.kernelObservedRisks.length > 0
+      ? "Remaining risks:"
+      : "Remaining risks: none",
+    ...audit.kernelObservedRisks.map((risk) => `- ${risk.message}`),
   ].join("\n");
 };
+
+const formatList = (items: string[]): string =>
+  items.length > 0 ? items.join(", ") : "none";
 
 const withTracePath = (summary: string, tracePath: string): string => {
   return summary.includes("\nTrace: ")

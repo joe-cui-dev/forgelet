@@ -50,6 +50,66 @@ Make the live DeepSeek-backed Session loop safe, observable, and useful for repo
 
 Let a Coding Workflow complete a small repository task by patching ordinary workspace files, running approved verification commands, reviewing the diff, and producing an auditable final summary.
 
+**Next slice**
+
+Make the minimal actionable path trustworthy before widening the V1 surface. The next implementation slice should finish the auditable action-kernel boundary: deterministic final audit facts, Session-start dirty baseline separation, Forgelet-touched file tracking, stronger patch preflight, and interactive approval prompts suitable for a real `forge --live --act` dogfood run.
+
+Start with the final audit summary. This slice should make the Session result trustworthy before adding more patch mechanics: the runner-authored audit footer must state what Forgelet changed, which verification commands ran and how they exited, what dirty paths already existed at Session start, which remaining workspace changes were not attributed to Forgelet, the model turn count, estimated cost, remaining risks when known, and the trace path.
+
+For V1, `remaining risks` in the runner-authored audit footer must be derived only from kernel-observed facts. Examples include failed verification commands, no verification command executed after changes, pre-existing dirty paths, workspace changes not attributed to Forgelet, or a Session stopped by budget or turn limits. Model-authored risk commentary can appear in the natural-language final answer, but it must not be mixed into the deterministic audit footer.
+
+The full audit footer is required only for actionable Coding Workflow Sessions, such as `forge --live --act`. Read-only Sessions should keep their final summary lightweight and rely on the Trace for detailed review evidence.
+
+Actionable audit summaries should classify workspace changes into three groups: `Forgelet changed`, `Pre-existing at Session start`, and `Other current workspace changes`. The implementation should derive these from the Session-start git status baseline, the Session-local Forgelet-touched file set, and final git status rather than from model-authored text.
+
+Any `Other current workspace changes` entry must also produce a kernel-observed remaining risk because the final workspace state contains changes that the Session cannot attribute to Forgelet.
+
+If an actionable Session has `Forgelet changed` files but no verification command ran after those changes, the audit footer must include a remaining risk that there is no verification evidence for the Forgelet changes. This is not a claim that the changes are wrong; it is a statement about missing kernel-observed verification.
+
+For V1, verification evidence is Session-level rather than file-level or patch-level. If an actionable Session changes files and runs at least one configured verification command during the Session, the audit footer may report that verification was attempted for the Session; it does not claim per-file coverage.
+
+Every failed or timed-out verification command must appear as its own kernel-observed remaining risk, including the exact command and exit status or timeout.
+
+Pre-existing dirty paths at Session start must appear as a context risk in the audit footer. This does not attribute those changes to Forgelet; it tells the user that the actionable Session did not start from a clean workspace baseline.
+
+The final actionable audit must also be written to Trace as structured data, not only as human-readable text. The `final_summary` event should keep the display summary and include an `audit` payload with change groups, verification commands, kernel-observed risks, model turn count, estimated cost, and trace path so `forge sessions show`, `forge explain`, and future review surfaces do not need to parse prose.
+
+For V1, store this structured audit only under `final_summary.audit`; do not add a separate `session_audit` Trace event unless a later review surface needs independent audit indexing.
+
+`forge sessions show <sessionId>` should display the most important structured audit fields when `final_summary.audit` is present: change groups, verification command statuses, and kernel-observed risks. It should remain a concise review entrypoint rather than becoming the full `forge explain` surface.
+
+Implement this final-audit slice test-first from the evidence layer outward: first lock the `final_summary.audit` Trace/read-model contract, then make the Session runner produce the structured audit and matching human-readable footer, then teach `forge sessions show <sessionId>` to display the concise audit highlights. Do not parse the human-readable summary as the source of audit truth.
+
+Use domain-facing field names in `final_summary.audit`, such as `changeGroups.forgeletChanged`, `changeGroups.preExistingAtSessionStart`, `changeGroups.otherCurrentWorkspaceChanges`, `verificationCommands`, and `kernelObservedRisks`. The final audit payload should describe derived audit facts, not leak implementation intermediates such as raw baseline or touched-file sets.
+
+Add formal shared types for this audit contract in `src/types.ts`, such as `SessionAudit`, `AuditChangeGroups`, and `AuditRisk`. The Session runner, Session read model, and CLI display should depend on the same typed shape so the audit payload does not drift across implementation layers.
+
+Represent `kernelObservedRisks` as structured risk objects rather than strings. Each risk should include a stable `kind`, a user-facing `message`, and relevant evidence fields such as `command`, `exitCode`, `timedOut`, or `paths` when applicable.
+
+Do not add a risk `severity` field in V1. Risk `kind` and evidence fields are enough for the audit contract; severity can be introduced later by a review surface if Forgelet needs a formal display policy.
+
+Implementation checklist:
+
+1. Add shared audit types in `src/types.ts`: `SessionAudit`, `AuditChangeGroups`, `AuditVerificationCommand`, and `AuditRisk`.
+2. Add or update Session read-model tests that prove `final_summary.audit` is read as structured data rather than parsed from prose.
+3. Extend actionable Session runner audit state so it can derive:
+   - `changeGroups.forgeletChanged`
+   - `changeGroups.preExistingAtSessionStart`
+   - `changeGroups.otherCurrentWorkspaceChanges`
+   - `verificationCommands`
+   - `kernelObservedRisks`
+4. Keep the full audit footer actionable-only; read-only Sessions keep a lightweight final summary.
+5. Write `final_summary` Trace events with both `summary` and `audit` when an actionable audit exists.
+6. Render the human-readable actionable audit footer from the same `SessionAudit` object.
+7. Update `forge sessions show <sessionId>` to display concise audit highlights when `final_summary.audit` exists.
+8. Keep risk derivation kernel-observed only:
+   - failed or timed-out verification commands
+   - no Session-level verification evidence after Forgelet changes
+   - pre-existing dirty paths as context risk
+   - other current workspace changes as attribution risk
+   - stopped Sessions caused by budget or turn limits when applicable
+9. Verify with focused tests first, then `npm test` and `npm run typecheck` once the local Jest/`ts-jest` environment resolves.
+
 **Scope**
 
 - Add an explicit `--act` CLI switch for actionable Coding Workflow runs; `--live` selects a real model, while `--act` allows the model to request medium-risk coding actions.

@@ -46,6 +46,44 @@ export interface AgentSession {
 export type SessionFinishStatus = "completed" | "stopped" | "failed";
 export type SessionStopReason = "budget_exceeded" | "max_model_turns";
 
+export interface SessionAudit {
+  changeGroups: AuditChangeGroups;
+  verificationCommands: AuditVerificationCommand[];
+  kernelObservedRisks: AuditRisk[];
+  modelTurns: number;
+  estimatedCostUsd: number;
+  tracePath: string;
+}
+
+export interface AuditChangeGroups {
+  forgeletChanged: string[];
+  preExistingAtSessionStart: string[];
+  otherCurrentWorkspaceChanges: string[];
+}
+
+export interface AuditVerificationCommand {
+  command: string;
+  exitCode: number | null;
+  timedOut: boolean;
+}
+
+export type AuditRiskKind =
+  | "verification_failed"
+  | "verification_missing"
+  | "pre_existing_workspace_changes"
+  | "other_workspace_changes"
+  | "session_stopped";
+
+export interface AuditRisk {
+  kind: AuditRiskKind;
+  message: string;
+  command?: string;
+  exitCode?: number | null;
+  timedOut?: boolean;
+  paths?: string[];
+  reason?: SessionStopReason;
+}
+
 export interface ContextAttachment {
   id: string;
   source: "user" | "file" | "browser" | "clipboard" | "issue";

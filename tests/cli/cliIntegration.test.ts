@@ -30,6 +30,82 @@ test("CLI lists and shows project sessions", async () => {
   expect(show.stdout).toMatch(/Execution is scaffolded/);
 });
 
+test("CLI shows concise audit highlights for an actionable session", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-audit-"));
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(sessionDir, "sess_audit.jsonl"),
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-06-20T00:00:00.000Z",
+        sessionId: "sess_audit",
+        payload: {
+          workflow: "coding",
+          startedAt: "2026-06-20T00:00:00.000Z",
+        },
+      }),
+      JSON.stringify({
+        type: "user_task",
+        ts: "2026-06-20T00:00:00.000Z",
+        sessionId: "sess_audit",
+        payload: { task: "change the greeting" },
+      }),
+      JSON.stringify({
+        type: "final_summary",
+        ts: "2026-06-20T00:00:01.000Z",
+        sessionId: "sess_audit",
+        payload: {
+          summary: "Changed src/greeting.ts.",
+          audit: {
+            changeGroups: {
+              forgeletChanged: ["src/greeting.ts"],
+              preExistingAtSessionStart: ["README.md"],
+              otherCurrentWorkspaceChanges: ["package.json"],
+            },
+            verificationCommands: [
+              { command: "npm test", exitCode: 1, timedOut: false },
+            ],
+            kernelObservedRisks: [
+              {
+                kind: "verification_failed",
+                message: "Verification command failed: npm test (exit 1).",
+                command: "npm test",
+                exitCode: 1,
+              },
+            ],
+            modelTurns: 4,
+            estimatedCostUsd: 0.0123,
+            tracePath: ".forgelet/sessions/sess_audit.jsonl",
+          },
+        },
+      }),
+      JSON.stringify({
+        type: "session_finished",
+        ts: "2026-06-20T00:00:02.000Z",
+        sessionId: "sess_audit",
+        payload: { status: "completed" },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+
+  const result = await runCli(["sessions", "show", "sess_audit"], {
+    workspaceRoot,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toMatch(/Audit:/);
+  expect(result.stdout).toMatch(/Forgelet changed: src\/greeting\.ts/);
+  expect(result.stdout).toMatch(/Pre-existing at Session start: README\.md/);
+  expect(result.stdout).toMatch(/Other current workspace changes: package\.json/);
+  expect(result.stdout).toMatch(/Verification commands:/);
+  expect(result.stdout).toMatch(/- npm test \(exit 1\)/);
+  expect(result.stdout).toMatch(/Kernel-observed risks:/);
+  expect(result.stdout).toMatch(/- Verification command failed: npm test \(exit 1\)\./);
+});
+
 test("CLI entrypoint runs when invoked through an npm-link style symlink", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-link-"));
   const linkedBin = join(workspaceRoot, "forge");

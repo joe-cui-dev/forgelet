@@ -1,5 +1,5 @@
 import { basename } from "node:path";
-import type { ContextAttachment, WorkflowKind } from "../types.js";
+import type { ContextAttachment, SessionAudit, WorkflowKind } from "../types.js";
 import { listSessionTraceFiles, readTraceFile, sessionTracePath } from "../trace/index.js";
 
 export type SessionStatus = "completed" | "incomplete" | "malformed";
@@ -22,6 +22,7 @@ export interface SessionDetail extends SessionSummary {
   contextAttachments: ContextAttachment[];
   route?: SessionRouteSummary;
   finalSummary: string;
+  audit?: SessionAudit;
 }
 
 export async function listSessions(workspaceRoot: string): Promise<SessionSummary[]> {
@@ -86,6 +87,26 @@ export async function showSession(workspaceRoot: string, sessionId: string): Pro
     tracePath,
     contextAttachments,
     route: route ? { model: String(route.payload.model ?? ""), reason: String(route.payload.reason ?? "") } : undefined,
-    finalSummary: typeof finalSummary?.payload.summary === "string" ? finalSummary.payload.summary : ""
+    finalSummary: typeof finalSummary?.payload.summary === "string" ? finalSummary.payload.summary : "",
+    audit: asSessionAudit(finalSummary?.payload.audit)
   };
+}
+
+function asSessionAudit(value: unknown): SessionAudit | undefined {
+  return isRecord(value) &&
+    isRecord(value.changeGroups) &&
+    Array.isArray(value.changeGroups.forgeletChanged) &&
+    Array.isArray(value.changeGroups.preExistingAtSessionStart) &&
+    Array.isArray(value.changeGroups.otherCurrentWorkspaceChanges) &&
+    Array.isArray(value.verificationCommands) &&
+    Array.isArray(value.kernelObservedRisks) &&
+    typeof value.modelTurns === "number" &&
+    typeof value.estimatedCostUsd === "number" &&
+    typeof value.tracePath === "string"
+    ? value as unknown as SessionAudit
+    : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
