@@ -9,6 +9,7 @@ import { runAgent } from "../agent/runAgent.js";
 import { loadConfig, routeModel } from "../config/index.js";
 import { loadDotEnv } from "../config/env.js";
 import { DeepSeekModelClient } from "../models/providers/deepseek.js";
+import { explainSession, type SessionExplanation } from "../explain/index.js";
 import { listSessions, showSession } from "../sessions/index.js";
 import type { ModelClient, SessionAudit, WorkflowKind } from "../types.js";
 import type { ApprovalHandler, ApprovalRequest } from "../tools/toolRegistry.js";
@@ -82,7 +83,7 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
       case "sessions-show":
         return ok(formatSessionDetail(await showSession(workspaceRoot, command.sessionId)));
       case "explain":
-        return ok(`Explain mode is scaffolded for ${command.sessionId}.`);
+        return ok(formatSessionExplanation(await explainSession(workspaceRoot, command.sessionId)));
       case "memory-suggest":
         return ok(`Memory suggestion is scaffolded for session ${command.sessionId}.`);
       case "memory-accept":
@@ -228,6 +229,87 @@ function formatSessionAuditHighlights(audit: SessionAudit | undefined): string[]
     `Forgelet changed: ${formatList(audit.changeGroups.forgeletChanged)}`,
     `Pre-existing at Session start: ${formatList(audit.changeGroups.preExistingAtSessionStart)}`,
     `Other current workspace changes: ${formatList(audit.changeGroups.otherCurrentWorkspaceChanges)}`,
+    audit.verificationCommands.length > 0
+      ? "Verification commands:"
+      : "Verification commands: none",
+    ...audit.verificationCommands.map(
+      (command) =>
+        `- ${command.command} (${command.timedOut ? "timed out" : `exit ${command.exitCode}`})`,
+    ),
+    audit.kernelObservedRisks.length > 0
+      ? "Kernel-observed risks:"
+      : "Kernel-observed risks: none",
+    ...audit.kernelObservedRisks.map((risk) => `- ${risk.message}`),
+  ];
+}
+
+function formatSessionExplanation(explanation: SessionExplanation): string {
+  return [
+    `Session explanation: ${explanation.sessionId}`,
+    "",
+    "What happened",
+    `Status: ${explanation.status}`,
+    `Workflow: ${explanation.workflow}`,
+    `Task: ${explanation.task || "none"}`,
+    explanation.route
+      ? `Route: ${explanation.route.model} (${explanation.route.reason})`
+      : "Route: none",
+    `Model turns: ${explanation.modelTurns}`,
+    ...formatEstimatedCost(explanation.audit),
+    ...formatMissingEvidence(explanation.missingEvidence),
+    "",
+    "Tool use",
+    ...formatToolResults(explanation.toolResults),
+    "",
+    "Permissions and approvals",
+    ...formatPermissions(explanation),
+    "",
+    "Verification and risks",
+    ...formatExplanationAudit(explanation.audit),
+    "",
+    "Agent Kernel takeaways",
+    "- Trace records the model turns, tool calls, permission decisions, results, and final audit.",
+    "- The explanation is deterministic: it only uses recorded Session evidence.",
+  ].join("\n");
+}
+
+function formatMissingEvidence(missingEvidence: string[]): string[] {
+  return missingEvidence.length > 0
+    ? [`Missing evidence: ${missingEvidence.join(", ")}`]
+    : [];
+}
+
+function formatEstimatedCost(audit: SessionAudit | undefined): string[] {
+  return audit ? [`Estimated cost: $${audit.estimatedCostUsd.toFixed(4)}`] : [];
+}
+
+function formatToolResults(
+  toolResults: SessionExplanation["toolResults"],
+): string[] {
+  if (toolResults.length === 0) return ["- none"];
+  return toolResults.map(
+    (tool) =>
+      `- ${tool.toolName}: ${tool.summary || (tool.ok ? "ok" : "failed")}`,
+  );
+}
+
+function formatPermissions(explanation: SessionExplanation): string[] {
+  const lines = explanation.permissionDecisions.map(
+    (decision) =>
+      `- ${decision.toolName} requested ${decision.capability} at ${decision.riskTier} risk: ${decision.decision}`,
+  );
+  lines.push(
+    ...explanation.approvalDecisions.map(
+      (approval) => `- ${approval.toolName} approval: ${approval.status}`,
+    ),
+  );
+  return lines.length > 0 ? lines : ["- none"];
+}
+
+function formatExplanationAudit(audit: SessionAudit | undefined): string[] {
+  if (!audit) return ["No final audit was recorded."];
+  return [
+    `Forgelet changed: ${formatList(audit.changeGroups.forgeletChanged)}`,
     audit.verificationCommands.length > 0
       ? "Verification commands:"
       : "Verification commands: none",

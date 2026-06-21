@@ -947,6 +947,28 @@ Forgelet helps the user understand agent principles, not just get work done.
 
 **Scope**
 
+V1 `forge explain` should use a two-layer deterministic output shape: first
+explain what happened in the Session from Trace evidence, then explain what
+those facts illustrate about Forgelet's Agent Kernel design. It should not
+invent events or infer hidden intent beyond the saved Trace.
+
+`forge sessions show <sessionId>` remains the concise review entrypoint.
+`forge explain <sessionId>` should not dump every Trace event by default.
+Instead, it should group Trace evidence by concept: routing, context,
+planning, model turns, tool use, permissions and approvals, verification,
+final audit, risks, and Agent Kernel takeaways. A timeline/detail flag can be
+added later if direct event expansion becomes useful.
+
+`forge explain` should work for completed, stopped, failed, and incomplete
+traces. When key events such as `final_summary` or `session_finished` are
+missing, the explanation should say which evidence is missing and limit itself
+to the events that were actually recorded.
+
+Implementation should keep CLI rendering thin. Add a dedicated
+`src/explain/index.ts` read model that converts Trace events into a structured
+`SessionExplanation`, then let the CLI format that explanation for the
+terminal. Do not put Trace interpretation directly in `src/cli/index.ts`.
+
 Explain:
 
 - Stages traversed

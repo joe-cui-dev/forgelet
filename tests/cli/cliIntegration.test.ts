@@ -106,6 +106,224 @@ test("CLI shows concise audit highlights for an actionable session", async () =>
   expect(result.stdout).toMatch(/- Verification command failed: npm test \(exit 1\)\./);
 });
 
+test("CLI explains an actionable session from grouped trace evidence", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-explain-"));
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(sessionDir, "sess_explain.jsonl"),
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-06-20T00:00:00.000Z",
+        sessionId: "sess_explain",
+        payload: {
+          workflow: "coding",
+          startedAt: "2026-06-20T00:00:00.000Z",
+        },
+      }),
+      JSON.stringify({
+        type: "user_task",
+        ts: "2026-06-20T00:00:00.000Z",
+        sessionId: "sess_explain",
+        payload: { task: "change the greeting" },
+      }),
+      JSON.stringify({
+        type: "routing_selected",
+        ts: "2026-06-20T00:00:00.000Z",
+        sessionId: "sess_explain",
+        payload: {
+          workflow: "coding",
+          stage: "act_loop",
+          model: "deepseek-v4-pro",
+          reason: "default route for coding workflow",
+        },
+      }),
+      JSON.stringify({
+        type: "model_turn",
+        ts: "2026-06-20T00:00:01.000Z",
+        sessionId: "sess_explain",
+        payload: {
+          turnIndex: 0,
+          model: "deepseek-v4-pro",
+          toolCalls: [{ id: "call_patch", name: "apply_patch" }],
+          usage: { inputTokens: 100, outputTokens: 30, estimatedCostUsd: 0.01 },
+        },
+      }),
+      JSON.stringify({
+        type: "tool_call",
+        ts: "2026-06-20T00:00:02.000Z",
+        sessionId: "sess_explain",
+        payload: {
+          id: "call_patch",
+          name: "apply_patch",
+          input: { patch: "(redacted in test)" },
+        },
+      }),
+      JSON.stringify({
+        type: "permission_decision",
+        ts: "2026-06-20T00:00:02.000Z",
+        sessionId: "sess_explain",
+        payload: {
+          toolCallId: "call_patch",
+          toolName: "apply_patch",
+          capability: "write_workspace",
+          decision: "confirm",
+          riskTier: "medium",
+          reason: "Medium risk requires approval.",
+        },
+      }),
+      JSON.stringify({
+        type: "approval_decision",
+        ts: "2026-06-20T00:00:03.000Z",
+        sessionId: "sess_explain",
+        payload: {
+          toolCallId: "call_patch",
+          toolName: "apply_patch",
+          status: "approved",
+          reason: "Approved by user.",
+        },
+      }),
+      JSON.stringify({
+        type: "tool_result",
+        ts: "2026-06-20T00:00:04.000Z",
+        sessionId: "sess_explain",
+        payload: {
+          ok: true,
+          toolCallId: "call_patch",
+          toolName: "apply_patch",
+          summary: "Applied patch to 1 file(s).",
+          changedFiles: ["src/greeting.ts"],
+        },
+      }),
+      JSON.stringify({
+        type: "tool_result",
+        ts: "2026-06-20T00:00:05.000Z",
+        sessionId: "sess_explain",
+        payload: {
+          ok: true,
+          toolCallId: "call_test",
+          toolName: "run_command",
+          summary: "Command exited 0.",
+          command: "npm test",
+          exitCode: 0,
+          timedOut: false,
+        },
+      }),
+      JSON.stringify({
+        type: "final_summary",
+        ts: "2026-06-20T00:00:06.000Z",
+        sessionId: "sess_explain",
+        payload: {
+          summary: "Changed src/greeting.ts.",
+          audit: {
+            changeGroups: {
+              forgeletChanged: ["src/greeting.ts"],
+              preExistingAtSessionStart: [],
+              otherCurrentWorkspaceChanges: [],
+            },
+            verificationCommands: [
+              { command: "npm test", exitCode: 0, timedOut: false },
+            ],
+            kernelObservedRisks: [],
+            modelTurns: 1,
+            estimatedCostUsd: 0.01,
+            tracePath: ".forgelet/sessions/sess_explain.jsonl",
+          },
+        },
+      }),
+      JSON.stringify({
+        type: "session_finished",
+        ts: "2026-06-20T00:00:07.000Z",
+        sessionId: "sess_explain",
+        payload: { status: "completed" },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+
+  const result = await runCli(["explain", "sess_explain"], {
+    workspaceRoot,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toMatch(/Session explanation: sess_explain/);
+  expect(result.stdout).toMatch(/What happened/);
+  expect(result.stdout).toMatch(/Task: change the greeting/);
+  expect(result.stdout).toMatch(/Route: deepseek-v4-pro \(default route for coding workflow\)/);
+  expect(result.stdout).toMatch(/Estimated cost: \$0\.0100/);
+  expect(result.stdout).toMatch(/Tool use/);
+  expect(result.stdout).toMatch(/- apply_patch: Applied patch to 1 file\(s\)\./);
+  expect(result.stdout).toMatch(/Permissions and approvals/);
+  expect(result.stdout).toMatch(/- apply_patch requested write_workspace at medium risk: confirm/);
+  expect(result.stdout).toMatch(/- apply_patch approval: approved/);
+  expect(result.stdout).toMatch(/Verification and risks/);
+  expect(result.stdout).toMatch(/- npm test \(exit 0\)/);
+  expect(result.stdout).toMatch(/Forgelet changed: src\/greeting\.ts/);
+  expect(result.stdout).toMatch(/Agent Kernel takeaways/);
+  expect(result.stdout).toMatch(/Trace records the model turns, tool calls, permission decisions, results, and final audit/);
+});
+
+test("CLI explains an incomplete session without inventing missing evidence", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-explain-incomplete-"));
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(sessionDir, "sess_incomplete_explain.jsonl"),
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-06-20T00:00:00.000Z",
+        sessionId: "sess_incomplete_explain",
+        payload: {
+          workflow: "coding",
+          startedAt: "2026-06-20T00:00:00.000Z",
+        },
+      }),
+      JSON.stringify({
+        type: "user_task",
+        ts: "2026-06-20T00:00:00.000Z",
+        sessionId: "sess_incomplete_explain",
+        payload: { task: "inspect the repo" },
+      }),
+      JSON.stringify({
+        type: "model_turn",
+        ts: "2026-06-20T00:00:01.000Z",
+        sessionId: "sess_incomplete_explain",
+        payload: {
+          turnIndex: 0,
+          model: "deepseek-v4-flash",
+          toolCalls: [{ id: "call_status", name: "git_status" }],
+        },
+      }),
+      JSON.stringify({
+        type: "tool_result",
+        ts: "2026-06-20T00:00:02.000Z",
+        sessionId: "sess_incomplete_explain",
+        payload: {
+          ok: true,
+          toolCallId: "call_status",
+          toolName: "git_status",
+          summary: "Workspace has no changes.",
+        },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+
+  const result = await runCli(["explain", "sess_incomplete_explain"], {
+    workspaceRoot,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toMatch(/Session explanation: sess_incomplete_explain/);
+  expect(result.stdout).toMatch(/Status: incomplete/);
+  expect(result.stdout).toMatch(/Missing evidence: final_summary, session_finished/);
+  expect(result.stdout).toMatch(/- git_status: Workspace has no changes\./);
+  expect(result.stdout).toMatch(/No final audit was recorded\./);
+  expect(result.stdout).toMatch(/only uses recorded Session evidence/);
+});
+
 test("CLI entrypoint runs when invoked through an npm-link style symlink", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-link-"));
   const linkedBin = join(workspaceRoot, "forge");
