@@ -10,8 +10,9 @@ import { loadConfig, routeModel } from "../config/index.js";
 import { loadDotEnv } from "../config/env.js";
 import { DeepSeekModelClient } from "../models/providers/deepseek.js";
 import { explainSession, type SessionExplanation } from "../explain/index.js";
+import { acceptMemorySuggestion, suggestMemoryFromSession } from "../memory/index.js";
 import { listSessions, showSession } from "../sessions/index.js";
-import type { ModelClient, SessionAudit, WorkflowKind } from "../types.js";
+import type { MemorySuggestion, ModelClient, SessionAudit, WorkflowKind } from "../types.js";
 import type { ApprovalHandler, ApprovalRequest } from "../tools/toolRegistry.js";
 
 export interface RunCliOptions {
@@ -85,9 +86,9 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
       case "explain":
         return ok(formatSessionExplanation(await explainSession(workspaceRoot, command.sessionId)));
       case "memory-suggest":
-        return ok(`Memory suggestion is scaffolded for session ${command.sessionId}.`);
+        return ok(formatMemorySuggestion(await suggestMemoryFromSession(workspaceRoot, command.sessionId)));
       case "memory-accept":
-        return ok(`Memory acceptance is scaffolded for suggestion ${command.suggestionId}.`);
+        return ok(formatAcceptedMemory(await acceptMemorySuggestion(workspaceRoot, command.suggestionId)));
       default: {
         const exhaustive: never = command;
         throw new Error(`Unhandled command: ${JSON.stringify(exhaustive)}`);
@@ -270,6 +271,23 @@ function formatSessionExplanation(explanation: SessionExplanation): string {
     "Agent Kernel takeaways",
     "- Trace records the model turns, tool calls, permission decisions, results, and final audit.",
     "- The explanation is deterministic: it only uses recorded Session evidence.",
+  ].join("\n");
+}
+
+function formatMemorySuggestion(suggestion: MemorySuggestion): string {
+  return [
+    `Memory suggestion: ${suggestion.id}`,
+    `Source Session: ${suggestion.sourceSessionId}`,
+    `Status: ${suggestion.status}`,
+    `Reason: ${suggestion.reason}`,
+    suggestion.text,
+  ].join("\n");
+}
+
+function formatAcceptedMemory(suggestion: MemorySuggestion): string {
+  return [
+    `Memory accepted: ${suggestion.id}`,
+    `Source Session: ${suggestion.sourceSessionId}`,
   ].join("\n");
 }
 

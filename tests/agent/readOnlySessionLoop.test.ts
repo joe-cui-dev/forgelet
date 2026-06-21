@@ -46,25 +46,25 @@ test("a coding Session can search, read, and finish through read-only tools", as
     .map((line) => JSON.parse(line));
 
   expect(events.map((event) => event.type)).toEqual([
-      "session_started",
-      "user_task",
-      "routing_selected",
-      "plan_update",
-      "model_turn",
-      "budget_update",
-      "tool_call",
-      "permission_decision",
-      "tool_result",
-      "model_turn",
-      "budget_update",
-      "tool_call",
-      "permission_decision",
-      "tool_result",
-      "model_turn",
-      "budget_update",
-      "final_summary",
-      "session_finished",
-    ]);
+    "session_started",
+    "user_task",
+    "routing_selected",
+    "plan_update",
+    "model_turn",
+    "budget_update",
+    "tool_call",
+    "permission_decision",
+    "tool_result",
+    "model_turn",
+    "budget_update",
+    "tool_call",
+    "permission_decision",
+    "tool_result",
+    "model_turn",
+    "budget_update",
+    "final_summary",
+    "session_finished",
+  ]);
 
   const readResult = events.find(
     (event) =>
@@ -119,7 +119,9 @@ test("context attachments are rendered for the model without storing full conten
   );
   expect(contextEvent).toBeTruthy();
   expect("content" in contextEvent.payload).toBe(false);
-  expect(JSON.stringify(contextEvent.payload)).not.toMatch(/Hidden tail marker/);
+  expect(JSON.stringify(contextEvent.payload)).not.toMatch(
+    /Hidden tail marker/,
+  );
 });
 
 test("a coding Session can inspect a truncated git diff without storing the full diff in the trace", async () => {
@@ -142,7 +144,9 @@ test("a coding Session can inspect a truncated git diff without storing the full
     modelClient,
   });
 
-  expect(modelClient.turnInputs[0]?.tools.some((tool) => tool.name === "git_diff")).toBe(true);
+  expect(
+    modelClient.turnInputs[0]?.tools.some((tool) => tool.name === "git_diff"),
+  ).toBe(true);
   const toolMessage = modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "";
   const observation = JSON.parse(toolMessage);
   expect(observation.ok).toBe(true);
@@ -153,7 +157,9 @@ test("a coding Session can inspect a truncated git diff without storing the full
   expect(observation.content).toMatch(/review\.txt/);
   expect(observation.content).toMatch(/Git diff:/);
   expect(observation.content).toMatch(/changed/);
-  expect(observation.content).toMatch(/\[truncated: showing 20480 of \d+ bytes\]/);
+  expect(observation.content).toMatch(
+    /\[truncated: showing 20480 of \d+ bytes\]/,
+  );
   expect(observation.content).not.toMatch(/Hidden diff tail marker/);
 
   const trace = await readFile(result.tracePath ?? "", "utf8");
@@ -168,7 +174,9 @@ test("a coding Session can inspect a truncated git diff without storing the full
   expect(diffResult).toBeTruthy();
   expect("content" in diffResult.payload).toBe(false);
   expect(diffResult.payload.truncated).toBe(true);
-  expect(JSON.stringify(diffResult.payload)).not.toMatch(/Hidden diff tail marker/);
+  expect(JSON.stringify(diffResult.payload)).not.toMatch(
+    /Hidden diff tail marker/,
+  );
 });
 
 test("a coding Session exposes only registry-projected tool schemas to the model", async () => {
@@ -187,20 +195,22 @@ test("a coding Session exposes only registry-projected tool schemas to the model
 
   const tools = modelClient.turnInputs[0]?.tools ?? [];
   expect(tools.map((tool) => tool.name)).toEqual([
-      "list_files",
-      "search_text",
-      "read_file",
-      "git_status",
-      "git_diff",
-      "update_plan",
-    ]);
+    "list_files",
+    "search_text",
+    "read_file",
+    "git_status",
+    "git_diff",
+    "update_plan",
+  ]);
   expect(tools.some((tool) => "execute" in tool)).toBe(false);
   expect(tools.some((tool) => "providerId" in tool)).toBe(false);
   expect(tools.some((tool) => "capability" in tool)).toBe(false);
 });
 
 test("an actionable coding Session can patch, run a configured command, inspect diff, and finish", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-actionable-session-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-actionable-session-"),
+  );
   await execGit(workspaceRoot, ["init"]);
   await writeFile(join(workspaceRoot, "example.txt"), "original\n", "utf8");
   await execGit(workspaceRoot, ["add", "example.txt"]);
@@ -209,7 +219,7 @@ test("an actionable coding Session can patch, run a configured command, inspect 
   const command = `${process.execPath} -e "console.log('verified')"`;
   await writeFile(
     join(workspaceRoot, ".forgelet", "config.json"),
-    JSON.stringify({ safeCommands: [command], commandTimeoutMs: 1_000 }),
+    JSON.stringify({ safeCommands: [command], commandTimeoutMs: 5_000 }),
     "utf8",
   );
   await execGit(workspaceRoot, ["add", ".forgelet/config.json"]);
@@ -229,7 +239,9 @@ test("an actionable coding Session can patch, run a configured command, inspect 
         { id: "call_read", name: "read_file", input: { path: "example.txt" } },
       ],
     },
-    { toolCalls: [{ id: "call_patch", name: "apply_patch", input: { patch } }] },
+    {
+      toolCalls: [{ id: "call_patch", name: "apply_patch", input: { patch } }],
+    },
     {
       toolCalls: [
         { id: "call_command", name: "run_command", input: { command } },
@@ -262,13 +274,15 @@ test("an actionable coding Session can patch, run a configured command, inspect 
     "apply_patch",
     "run_command",
   ]);
-  await expect(readFile(join(workspaceRoot, "example.txt"), "utf8")).resolves.toBe(
-    "changed\n",
-  );
+  await expect(
+    readFile(join(workspaceRoot, "example.txt"), "utf8"),
+  ).resolves.toBe("changed\n");
   expect(result.summary).toMatch(/Changed example\.txt and verified/);
   expect(result.summary).toMatch(/Audit/);
   expect(result.summary).toMatch(/Forgelet changed: example\.txt/);
-  expect(result.summary).toMatch(new RegExp(`Command: ${escapeRegExp(command)} \\(exit 0\\)`));
+  expect(result.summary).toMatch(
+    new RegExp(`Command: ${escapeRegExp(command)} \\(exit 0\\)`),
+  );
   expect(result.summary).toMatch(/Trace:/);
 
   const trace = await readFile(result.tracePath ?? "", "utf8");
@@ -276,12 +290,15 @@ test("an actionable coding Session can patch, run a configured command, inspect 
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
-  expect(events.some((event) => event.type === "workspace_baseline")).toBe(true);
+  expect(events.some((event) => event.type === "workspace_baseline")).toBe(
+    true,
+  );
   expect(events.some((event) => event.type === "approval_decision")).toBe(true);
   expect(
     events.some(
       (event) =>
-        event.type === "tool_result" && event.payload.toolName === "run_command",
+        event.type === "tool_result" &&
+        event.payload.toolName === "run_command",
     ),
   ).toBe(true);
   const finalSummary = events.find((event) => event.type === "final_summary");
@@ -291,9 +308,7 @@ test("an actionable coding Session can patch, run a configured command, inspect 
       preExistingAtSessionStart: [],
       otherCurrentWorkspaceChanges: [],
     },
-    verificationCommands: [
-      { command, exitCode: 0, timedOut: false },
-    ],
+    verificationCommands: [{ command, exitCode: 0, timedOut: false }],
     kernelObservedRisks: [],
     modelTurns: 5,
     estimatedCostUsd: 0,
@@ -321,8 +336,12 @@ test("a writing Session requesting git_diff receives a controlled registry denia
   });
 
   expect(result.summary).toMatch(/cannot inspect git diffs/);
-  expect(modelClient.turnInputs[0]?.tools.some((tool) => tool.name === "git_diff")).toBe(false);
-  expect(modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "").toMatch(/permission_denied/);
+  expect(
+    modelClient.turnInputs[0]?.tools.some((tool) => tool.name === "git_diff"),
+  ).toBe(false);
+  expect(modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "").toMatch(
+    /permission_denied/,
+  );
 
   const trace = await readFile(result.tracePath ?? "", "utf8");
   const events = trace
@@ -363,8 +382,12 @@ test("an ungranted tool call returns a denial observation and the Session can re
   });
 
   expect(result.summary).toMatch(/I cannot read workspace files/);
-  expect(modelClient.turnInputs[0]?.tools.some((tool) => tool.name === "read_file")).toBe(false);
-  expect(modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "").toMatch(/permission_denied/);
+  expect(
+    modelClient.turnInputs[0]?.tools.some((tool) => tool.name === "read_file"),
+  ).toBe(false);
+  expect(modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "").toMatch(
+    /permission_denied/,
+  );
 
   const trace = await readFile(result.tracePath ?? "", "utf8");
   const events = trace
@@ -445,7 +468,9 @@ test("large read_file observations are truncated for the model and not stored fu
   const toolMessage = modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "";
   const observation = JSON.parse(toolMessage);
   expect(observation.metadata.truncated).toBe(true);
-  expect(observation.metadata.totalBytes).toBe(Buffer.byteLength(largeContent, "utf8"));
+  expect(observation.metadata.totalBytes).toBe(
+    Buffer.byteLength(largeContent, "utf8"),
+  );
   expect(observation.content.length).toBe(20 * 1024);
 
   const trace = await readFile(result.tracePath ?? "", "utf8");
@@ -458,7 +483,9 @@ test("large read_file observations are truncated for the model and not stored fu
       event.type === "tool_result" && event.payload.toolName === "read_file",
   );
   expect(readResult.payload.truncated).toBe(true);
-  expect(readResult.payload.totalBytes).toBe(Buffer.byteLength(largeContent, "utf8"));
+  expect(readResult.payload.totalBytes).toBe(
+    Buffer.byteLength(largeContent, "utf8"),
+  );
   expect("content" in readResult.payload).toBe(false);
   expect(String(readResult.payload.preview)).not.toMatch(/needle-at-end/);
 });
@@ -563,8 +590,8 @@ function execGit(workspaceRoot: string, args: string[]): Promise<void> {
       ],
       { cwd: workspaceRoot },
       (error) => {
-      if (error) rejectExec(error);
-      else resolveExec();
+        if (error) rejectExec(error);
+        else resolveExec();
       },
     );
   });

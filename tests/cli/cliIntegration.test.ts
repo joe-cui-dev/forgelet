@@ -324,6 +324,120 @@ test("CLI explains an incomplete session without inventing missing evidence", as
   expect(result.stdout).toMatch(/only uses recorded Session evidence/);
 });
 
+test("CLI creates a pending Memory Suggestion from actionable Session audit evidence", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-memory-suggest-"));
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(sessionDir, "sess_memory.jsonl"),
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-06-20T00:00:00.000Z",
+        sessionId: "sess_memory",
+        payload: {
+          workflow: "coding",
+          startedAt: "2026-06-20T00:00:00.000Z",
+        },
+      }),
+      JSON.stringify({
+        type: "user_task",
+        ts: "2026-06-20T00:00:00.000Z",
+        sessionId: "sess_memory",
+        payload: { task: "change the greeting" },
+      }),
+      JSON.stringify({
+        type: "final_summary",
+        ts: "2026-06-20T00:00:01.000Z",
+        sessionId: "sess_memory",
+        payload: {
+          summary: "Changed src/greeting.ts.",
+          audit: {
+            changeGroups: {
+              forgeletChanged: ["src/greeting.ts"],
+              preExistingAtSessionStart: [],
+              otherCurrentWorkspaceChanges: [],
+            },
+            verificationCommands: [
+              { command: "npm test", exitCode: 0, timedOut: false },
+            ],
+            kernelObservedRisks: [],
+            modelTurns: 1,
+            estimatedCostUsd: 0.01,
+            tracePath: ".forgelet/sessions/sess_memory.jsonl",
+          },
+        },
+      }),
+      JSON.stringify({
+        type: "session_finished",
+        ts: "2026-06-20T00:00:02.000Z",
+        sessionId: "sess_memory",
+        payload: { status: "completed" },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+
+  const result = await runCli(["memory", "suggest", "sess_memory"], {
+    workspaceRoot,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toMatch(/Memory suggestion: mem_/);
+  expect(result.stdout).toMatch(/Source Session: sess_memory/);
+  expect(result.stdout).toMatch(/npm test/);
+
+  const store = await readFile(
+    join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"),
+    "utf8",
+  );
+  const suggestion = JSON.parse(store.trim());
+  expect(suggestion).toMatchObject({
+    sourceSessionId: "sess_memory",
+    status: "proposed",
+  });
+  expect(suggestion.text).toMatch(/npm test/);
+});
+
+test("CLI accepts a pending Memory Suggestion into Durable Memory", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-memory-accept-"));
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"),
+    `${JSON.stringify({
+      id: "mem_accept",
+      sourceSessionId: "sess_memory",
+      text: "In this workspace, use npm test as verification.",
+      reason: "Derived deterministically from actionable Session audit evidence.",
+      status: "proposed",
+    })}\n`,
+    "utf8",
+  );
+
+  const result = await runCli(["memory", "accept", "mem_accept"], {
+    workspaceRoot,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toMatch(/Memory accepted: mem_accept/);
+
+  const memory = await readFile(
+    join(workspaceRoot, ".forgelet", "memory.md"),
+    "utf8",
+  );
+  expect(memory).toMatch(/In this workspace, use npm test as verification\./);
+  expect(memory).toMatch(/Source Session: sess_memory/);
+
+  const store = await readFile(
+    join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"),
+    "utf8",
+  );
+  expect(JSON.parse(store.trim())).toMatchObject({
+    id: "mem_accept",
+    status: "accepted",
+  });
+});
+
 test("CLI entrypoint runs when invoked through an npm-link style symlink", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-link-"));
   const linkedBin = join(workspaceRoot, "forge");
@@ -419,6 +533,37 @@ test("CLI --live runs a read-only Session with an injected live model client", a
   expect(result.stdout).toMatch(/Forgelet session completed/);
   expect(result.stdout).toMatch(/Found needle in example.ts/);
   expect(modelClient.turnInputs.length).toBe(2);
+});
+
+test("CLI --live loads Durable Memory with trace provenance", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-live-memory-"));
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "memory.md"),
+    "Remember to prefer npm test for verification in this workspace.\n",
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([
+    { content: "I used the accepted memory.", toolCalls: [] },
+  ]);
+
+  const result = await runCli(["--live", "inspect memory"], {
+    workspaceRoot,
+    env: {},
+    createLiveModelClient: async () => modelClient,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(modelClient.turnInputs[0]?.messages[1]?.content).toMatch(/Accepted Durable Memory/);
+  expect(modelClient.turnInputs[0]?.messages[1]?.content).toMatch(/prefer npm test/);
+
+  const tracePath = result.stdout.match(/Trace: (.+)$/m)?.[1];
+  expect(tracePath).toBeTruthy();
+  const trace = await readFile(tracePath ?? "", "utf8");
+  expect(trace).toMatch(/"type":"memory_loaded"/);
+  expect(trace).toMatch(/"path":".forgelet\/memory.md"/);
+  expect(trace).toMatch(/"preview":"Remember to prefer npm test/);
+  expect(trace).not.toMatch(/"content":"Remember to prefer npm test/);
 });
 
 test("CLI --live --act runs an actionable coding Session with injected approval", async () => {

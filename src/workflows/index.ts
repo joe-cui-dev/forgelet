@@ -18,6 +18,7 @@ import type {
 import { execFile } from "node:child_process";
 import { loadConfig, routeModel } from "../config/index.js";
 import { loadContextAttachments } from "../context/index.js";
+import { loadDurableMemory, type LoadedDurableMemory } from "../memory/index.js";
 import { createTraceWriter } from "../trace/index.js";
 import { createActionableCodingTools } from "../tools/actionable.js";
 import { createReadOnlyTools } from "../tools/readOnly.js";
@@ -56,6 +57,7 @@ interface RunReadOnlyLoopInput {
   modelClient: ModelClient;
   session: AgentSession;
   contextAttachments: LoadedContextAttachment[];
+  durableMemory?: LoadedDurableMemory;
   workspaceRoot: string;
   route: ActLoopRoute;
   plan: AgentPlan;
@@ -106,6 +108,9 @@ export const runWorkflowSession = async (
     input.workspaceRoot,
     input.contextFiles,
   );
+  const durableMemory = input.modelClient
+    ? await loadDurableMemory(input.workspaceRoot)
+    : undefined;
   const route = selectRoute(
     input.workflow,
     routeModel(config, input.workflow, input.model),
@@ -145,6 +150,17 @@ export const runWorkflowSession = async (
       ),
     );
   }
+  if (durableMemory)
+    await traceWriter.append(
+      createTraceEvent(sessionId, "memory_loaded", now, {
+        path: durableMemory.path,
+        contentBytes: durableMemory.contentBytes,
+        returnedBytes: durableMemory.returnedBytes,
+        contentHash: durableMemory.contentHash,
+        preview: durableMemory.preview,
+        truncated: durableMemory.truncated,
+      }),
+    );
   await traceWriter.append(
     createTraceEvent(sessionId, "routing_selected", now, { ...route }),
   );
@@ -165,6 +181,7 @@ export const runWorkflowSession = async (
       modelClient: input.modelClient,
       session,
       contextAttachments,
+      durableMemory,
       workspaceRoot: input.workspaceRoot,
       route,
       plan,
@@ -333,6 +350,7 @@ const runReadOnlyLoop = async (
         input.plan,
         input.route,
         input.contextAttachments,
+        input.durableMemory,
         usage,
         input.limits,
         conversation,
@@ -608,12 +626,14 @@ const buildMessages = (
   plan: AgentPlan,
   route: ActLoopRoute,
   contextAttachments: LoadedContextAttachment[],
+  durableMemory: LoadedDurableMemory | undefined,
   usage: BudgetUsage,
   limits: BudgetLimits,
   conversation: ModelMessage[],
 ): ModelMessage[] => {
   const contextAttachmentLines =
     formatContextAttachmentsForPrompt(contextAttachments);
+  const durableMemoryLines = formatDurableMemoryForPrompt(durableMemory);
   const messages: ModelMessage[] = [
     {
       role: "system",
@@ -634,6 +654,8 @@ const buildMessages = (
         "",
         ...contextAttachmentLines,
         ...(contextAttachmentLines.length > 0 ? [""] : []),
+        ...durableMemoryLines,
+        ...(durableMemoryLines.length > 0 ? [""] : []),
         "Current plan:",
         ...plan.items.map((item) => `- ${item.status}: ${item.step}`),
         "",
@@ -644,6 +666,28 @@ const buildMessages = (
 
   messages.push(...conversation);
   return messages;
+};
+
+const formatDurableMemoryForPrompt = (
+  durableMemory: LoadedDurableMemory | undefined,
+): string[] => {
+  if (!durableMemory) return [];
+  return [
+    "Accepted Durable Memory:",
+    `- path: ${durableMemory.path}`,
+    `  contentHash: ${durableMemory.contentHash}`,
+    `  contentBytes: ${durableMemory.contentBytes}`,
+    `  returnedBytes: ${durableMemory.returnedBytes}`,
+    `  truncated: ${durableMemory.truncated}`,
+    "  content:",
+    "  ```",
+    indentPromptContent(
+      durableMemory.truncated
+        ? `${durableMemory.content}\n[truncated: showing ${durableMemory.returnedBytes} of ${durableMemory.contentBytes} bytes]`
+        : durableMemory.content,
+    ),
+    "  ```",
+  ];
 };
 
 const formatContextAttachmentsForPrompt = (
