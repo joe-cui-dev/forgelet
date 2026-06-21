@@ -17,5 +17,8 @@ Usage:
   forge memory suggest <sessionId>
   forge memory accept <suggestionId>
 
-Forgelet V1 runs scaffolded Sessions by default. Use --live to run a read-only Session with the built-in DeepSeek route. Add --act for coding runs that may request confirmed file edits and configured commands.`;
+Forgelet V1 runs scaffolded Sessions by default. Use --live to run a real DeepSeek-backed Session. Add --act for coding runs that may request confirmed file edits and configured commands.
+
+Writing runs return Critique, Revision, and Notes.
+V1 config set supports memoryFile and provider API key env vars only.`;
 }

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "./parseArgs.js";
 import { helpText } from "./help.js";
 import { runAgent } from "../agent/runAgent.js";
-import { loadConfig, routeModel } from "../config/index.js";
+import { loadConfig, routeModel, setGlobalConfigValue } from "../config/index.js";
 import { loadDotEnv } from "../config/env.js";
 import { DeepSeekModelClient } from "../models/providers/deepseek.js";
 import { explainSession, type SessionExplanation } from "../explain/index.js";
@@ -78,7 +78,12 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
       case "config-get":
         return ok(JSON.stringify(await loadConfig({ homeDir: options.homeDir, workspaceRoot }), null, 2));
       case "config-set":
-        return ok(`Config set is scaffolded: ${command.key}=${command.value}`);
+        await setGlobalConfigValue({
+          homeDir: options.homeDir,
+          key: command.key,
+          value: command.value,
+        });
+        return ok(`Config set: ${command.key}=${command.value}`);
       case "sessions-list":
         return ok(formatSessionList(await listSessions(workspaceRoot)));
       case "sessions-show":

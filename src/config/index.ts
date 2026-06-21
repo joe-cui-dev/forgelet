@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import type { WorkflowKind } from "../types.js";
 
@@ -40,6 +40,14 @@ export interface ForgeletConfig {
   memoryFile: string;
 }
 
+type WritableConfig = Partial<Omit<ForgeletConfig, "providers">> & {
+  providers?: {
+    deepseek?: Partial<ProviderSettings>;
+    openai?: Partial<ProviderSettings>;
+    anthropic?: Partial<ProviderSettings>;
+  };
+};
+
 export const defaultConfig: ForgeletConfig = {
   defaultModel: "deepseek-v4-pro",
   fallbackModel: "gpt-5",
@@ -77,16 +85,30 @@ export interface LoadConfigInput {
   workspaceRoot: string;
 }
 
+export interface SetConfigValueInput {
+  homeDir?: string;
+  key: string;
+  value: string;
+}
+
 export async function loadConfig(
   input: LoadConfigInput,
 ): Promise<ForgeletConfig> {
-  const homeConfig = await readOptionalJson(
-    join(input.homeDir ?? homedir(), ".forgelet", "config.json"),
-  );
+  const homeConfig = await readOptionalJson(globalConfigPath(input.homeDir));
   const projectConfig = await readOptionalJson(
     join(input.workspaceRoot, ".forgelet", "config.json"),
   );
   return mergeConfig(mergeConfig(defaultConfig, homeConfig), projectConfig);
+}
+
+export async function setGlobalConfigValue(
+  input: SetConfigValueInput,
+): Promise<void> {
+  const path = globalConfigPath(input.homeDir);
+  const current = await readOptionalJson(path);
+  const next = applySupportedConfigValue(current, input.key, input.value);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(next, null, 2)}\n`, "utf8");
 }
 
 export function routeModel(
@@ -102,9 +124,47 @@ export function routeModel(
   };
 }
 
+function applySupportedConfigValue(
+  config: WritableConfig,
+  key: string,
+  value: string,
+): WritableConfig {
+  if (key === "memoryFile") return { ...config, memoryFile: value };
+  if (key === "providers.deepseek.apiKeyEnv")
+    return {
+      ...config,
+      providers: {
+        ...config.providers,
+        deepseek: { ...config.providers?.deepseek, apiKeyEnv: value },
+      },
+    };
+  if (key === "providers.openai.apiKeyEnv")
+    return {
+      ...config,
+      providers: {
+        ...config.providers,
+        openai: { ...config.providers?.openai, apiKeyEnv: value },
+      },
+    };
+  if (key === "providers.anthropic.apiKeyEnv")
+    return {
+      ...config,
+      providers: {
+        ...config.providers,
+        anthropic: { ...config.providers?.anthropic, apiKeyEnv: value },
+      },
+    };
+  throw new Error(
+    [
+      `Unsupported config key for V1: ${key}`,
+      "Supported keys: memoryFile, providers.deepseek.apiKeyEnv, providers.openai.apiKeyEnv, providers.anthropic.apiKeyEnv",
+    ].join("\n"),
+  );
+}
+
 function mergeConfig(
   base: ForgeletConfig,
-  override: Partial<ForgeletConfig>,
+  override: WritableConfig,
 ): ForgeletConfig {
   return {
     ...base,
@@ -136,9 +196,9 @@ function mergeConfig(
 
 async function readOptionalJson(
   path: string,
-): Promise<Partial<ForgeletConfig>> {
+): Promise<WritableConfig> {
   try {
-    return JSON.parse(await readFile(path, "utf8")) as Partial<ForgeletConfig>;
+    return JSON.parse(await readFile(path, "utf8")) as WritableConfig;
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) return {};
     if (error instanceof SyntaxError)
@@ -154,4 +214,8 @@ function hasErrorCode(error: unknown, code: string): boolean {
     "code" in error &&
     error.code === code
   );
+}
+
+function globalConfigPath(homeDir?: string): string {
+  return join(homeDir ?? homedir(), ".forgelet", "config.json");
 }

@@ -316,6 +316,31 @@ test("an actionable coding Session can patch, run a configured command, inspect 
   });
 });
 
+test("an actionable coding Session prompts the model with action and approval boundaries", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-action-prompt-"));
+  const modelClient = new FakeModelClient([
+    { content: "I will use approved tools only.", toolCalls: [] },
+  ]);
+
+  await runAgent({
+    workflow: "coding",
+    task: "make a safe edit",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+    act: true,
+  });
+
+  const systemPrompt = modelClient.turnInputs[0]?.messages.find(
+    (message) => message.role === "system",
+  )?.content ?? "";
+
+  expect(systemPrompt).toMatch(/apply_patch/);
+  expect(systemPrompt).toMatch(/run_command/);
+  expect(systemPrompt).toMatch(/permission and approval/);
+  expect(systemPrompt).not.toMatch(/do not claim to write files or run commands/);
+});
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -356,6 +381,32 @@ test("a writing Session requesting git_diff receives a controlled registry denia
   expect(denial).toBeTruthy();
   expect(denial.payload.decision).toBe("deny");
   expect(denial.payload.reason).toBe("Capability not granted: git_read");
+});
+
+test("a writing Session returns the V1 Critique Revision Notes shape", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-writing-shape-"));
+  await writeFile(join(workspaceRoot, "draft.md"), "This draft is wordy.\n", "utf8");
+  const modelClient = new FakeModelClient([
+    { content: "Make it shorter.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "writing",
+    task: "revise for clarity",
+    contextFiles: ["draft.md"],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const systemPrompt = modelClient.turnInputs[0]?.messages.find(
+    (message) => message.role === "system",
+  )?.content ?? "";
+
+  expect(systemPrompt).toMatch(/Critique, Revision, Notes/);
+  expect(systemPrompt).toMatch(/do not request workspace, git, shell, patch, or command tools/);
+  expect(result.summary).toMatch(/Critique\n/);
+  expect(result.summary).toMatch(/Revision\nMake it shorter\./);
+  expect(result.summary).toMatch(/Notes\n/);
 });
 
 test("an ungranted tool call returns a denial observation and the Session can recover", async () => {

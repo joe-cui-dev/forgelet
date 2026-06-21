@@ -503,6 +503,43 @@ test("CLI prints merged config", async () => {
   expect(config.routing.coding.default).toBe("deepseek-v4-pro");
 });
 
+test("CLI sets narrow user config values", async () => {
+  const homeDir = await mkdtemp(join(tmpdir(), "forgelet-cli-config-set-home-"));
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-config-set-"));
+
+  const setMemory = await runCli(
+    ["config", "set", "memoryFile", ".forgelet/custom-memory.md"],
+    { homeDir, workspaceRoot },
+  );
+  const setProvider = await runCli(
+    ["config", "set", "providers.deepseek.apiKeyEnv", "CUSTOM_DEEPSEEK_KEY"],
+    { homeDir, workspaceRoot },
+  );
+  const get = await runCli(["config", "get"], { homeDir, workspaceRoot });
+  const config = JSON.parse(get.stdout);
+
+  expect(setMemory.exitCode).toBe(0);
+  expect(setMemory.stdout).toMatch(/Config set: memoryFile=.forgelet\/custom-memory\.md/);
+  expect(setProvider.exitCode).toBe(0);
+  expect(setProvider.stdout).toMatch(/Config set: providers\.deepseek\.apiKeyEnv=CUSTOM_DEEPSEEK_KEY/);
+  expect(config.memoryFile).toBe(".forgelet/custom-memory.md");
+  expect(config.providers.deepseek.apiKeyEnv).toBe("CUSTOM_DEEPSEEK_KEY");
+});
+
+test("CLI rejects unsupported V1 config set keys", async () => {
+  const homeDir = await mkdtemp(join(tmpdir(), "forgelet-cli-config-reject-home-"));
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-config-reject-"));
+
+  const result = await runCli(
+    ["config", "set", "safeCommands", "npm test"],
+    { homeDir, workspaceRoot },
+  );
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toMatch(/Unsupported config key for V1: safeCommands/);
+  expect(result.stderr).toMatch(/Supported keys: memoryFile/);
+});
+
 test("CLI --live runs a read-only Session with an injected live model client", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-live-"));
   await writeFile(

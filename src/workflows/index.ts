@@ -354,6 +354,7 @@ const runReadOnlyLoop = async (
         usage,
         input.limits,
         conversation,
+        input.act,
       ),
       tools,
     });
@@ -378,7 +379,10 @@ const runReadOnlyLoop = async (
     // No tool calls is the loop exit condition: model content becomes the
     // Session's final answer.
     if (output.toolCalls.length === 0) {
-      finalContent = output.content ?? "";
+      finalContent = normalizeFinalContentForWorkflow(
+        input.session.workflow,
+        output.content ?? "",
+      );
       input.plan.items = input.plan.items.map((item) => ({
         ...item,
         status: "completed",
@@ -630,6 +634,7 @@ const buildMessages = (
   usage: BudgetUsage,
   limits: BudgetLimits,
   conversation: ModelMessage[],
+  act: boolean,
 ): ModelMessage[] => {
   const contextAttachmentLines =
     formatContextAttachmentsForPrompt(contextAttachments);
@@ -637,13 +642,7 @@ const buildMessages = (
   const messages: ModelMessage[] = [
     {
       role: "system",
-      content: [
-        "You are running inside the Forgelet Agent Kernel.",
-        "Use only the tools provided in this turn.",
-        "Read-only tools may inspect workspace content; do not claim to write files or run commands.",
-        "If a tool call is denied or fails, use the observation to self-correct.",
-        "When you can answer the task, return final content with no tool calls.",
-      ].join("\n"),
+      content: systemPromptFor(session.workflow, act),
     },
     {
       role: "user",
@@ -666,6 +665,64 @@ const buildMessages = (
 
   messages.push(...conversation);
   return messages;
+};
+
+const normalizeFinalContentForWorkflow = (
+  workflow: WorkflowKind,
+  content: string,
+): string => {
+  if (workflow !== "writing") return content;
+  if (
+    hasMarkdownHeading(content, "Critique") &&
+    hasMarkdownHeading(content, "Revision") &&
+    hasMarkdownHeading(content, "Notes")
+  )
+    return content;
+  return [
+    "Critique",
+    "No separate critique was provided by the model.",
+    "",
+    "Revision",
+    content.trim() || "(empty)",
+    "",
+    "Notes",
+    "No additional notes were provided.",
+  ].join("\n");
+};
+
+const hasMarkdownHeading = (content: string, heading: string): boolean => {
+  return new RegExp(`(^|\\n)#{0,6}\\s*${heading}\\s*(\\n|$)`, "i").test(
+    content,
+  );
+};
+
+const systemPromptFor = (workflow: WorkflowKind, act: boolean): string => {
+  const common = [
+    "You are running inside the Forgelet Agent Kernel.",
+    "Use only the tools provided in this turn.",
+    "If a tool call is denied or fails, use the observation to self-correct.",
+    "When you can answer the task, return final content with no tool calls.",
+  ];
+  if (workflow === "coding" && act)
+    return [
+      ...common,
+      "This is an actionable Coding Workflow Session.",
+      "You may request apply_patch and run_command only when those tools are provided.",
+      "Every file edit or command must pass Forgelet permission and approval boundaries before it runs.",
+      "Do not claim verification succeeded unless a run_command observation shows the command ran successfully.",
+    ].join("\n");
+  if (workflow === "coding")
+    return [
+      ...common,
+      "This is a read-only Coding Workflow Session.",
+      "Read-only tools may inspect workspace content; do not claim to write files or run commands.",
+    ].join("\n");
+  return [
+    ...common,
+    "This is a Writing Workflow Session.",
+    "Use the provided context and Durable Memory, but do not request workspace, git, shell, patch, or command tools.",
+    "Return the final answer with these headings: Critique, Revision, Notes.",
+  ].join("\n");
 };
 
 const formatDurableMemoryForPrompt = (
