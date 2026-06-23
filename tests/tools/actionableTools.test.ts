@@ -1,8 +1,8 @@
 import { expect, test } from "@jest/globals";
-import { execFile } from "node:child_process";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { execFile } from "child_process";
+import { mkdtemp, readFile, writeFile } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 import { createActionableCodingTools } from "../../src/tools/actionable.js";
 import { createToolRegistry } from "../../src/tools/toolRegistry.js";
 import type { ToolContext } from "../../src/types.js";

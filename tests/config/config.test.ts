@@ -1,7 +1,7 @@
 import { expect, test } from "@jest/globals";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { mkdir, mkdtemp, writeFile } from "fs/promises";
+import { join } from "path";
+import { tmpdir } from "os";
 import { loadConfig } from "../../src/config/index.js";
 
 test("loads merged default, global, and project config", async () => {

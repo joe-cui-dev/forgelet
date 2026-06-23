@@ -1,7 +1,7 @@
 import { expect, test } from "@jest/globals";
-import { mkdtemp, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { mkdtemp, writeFile } from "fs/promises";
+import { join } from "path";
+import { tmpdir } from "os";
 import { loadDotEnv } from "../../src/config/env.js";
 
 test("loads local .env values without overriding existing environment", async () => {

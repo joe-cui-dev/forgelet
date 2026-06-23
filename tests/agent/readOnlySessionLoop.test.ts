@@ -1,8 +1,8 @@
 import { expect, test } from "@jest/globals";
-import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { execFile } from "child_process";
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from "fs/promises";
+import { join } from "path";
+import { tmpdir } from "os";
 import { runAgent } from "../../src/agent/runAgent.js";
 import { FakeModelClient } from "../../src/models/testing/index.js";
 

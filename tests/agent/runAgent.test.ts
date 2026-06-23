@@ -1,7 +1,7 @@
 import { expect, test } from "@jest/globals";
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from "fs/promises";
+import { join } from "path";
+import { tmpdir } from "os";
 import { runAgent } from "../../src/agent/runAgent.js";
 
 test("creates a project session trace for a coding workflow", async () => {
