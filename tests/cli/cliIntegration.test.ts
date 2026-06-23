@@ -99,11 +99,15 @@ test("CLI shows concise audit highlights for an actionable session", async () =>
   expect(result.stdout).toMatch(/Audit:/);
   expect(result.stdout).toMatch(/Forgelet changed: src\/greeting\.ts/);
   expect(result.stdout).toMatch(/Pre-existing at Session start: README\.md/);
-  expect(result.stdout).toMatch(/Other current workspace changes: package\.json/);
+  expect(result.stdout).toMatch(
+    /Other current workspace changes: package\.json/,
+  );
   expect(result.stdout).toMatch(/Verification commands:/);
   expect(result.stdout).toMatch(/- npm test \(exit 1\)/);
   expect(result.stdout).toMatch(/Kernel-observed risks:/);
-  expect(result.stdout).toMatch(/- Verification command failed: npm test \(exit 1\)\./);
+  expect(result.stdout).toMatch(
+    /- Verification command failed: npm test \(exit 1\)\./,
+  );
 });
 
 test("CLI explains an actionable session from grouped trace evidence", async () => {
@@ -135,7 +139,7 @@ test("CLI explains an actionable session from grouped trace evidence", async () 
         payload: {
           workflow: "coding",
           stage: "act_loop",
-          model: "deepseek-v4-pro",
+          model: "deepseek-v4-flash",
           reason: "default route for coding workflow",
         },
       }),
@@ -145,7 +149,7 @@ test("CLI explains an actionable session from grouped trace evidence", async () 
         sessionId: "sess_explain",
         payload: {
           turnIndex: 0,
-          model: "deepseek-v4-pro",
+          model: "deepseek-v4-flash",
           toolCalls: [{ id: "call_patch", name: "apply_patch" }],
           usage: { inputTokens: 100, outputTokens: 30, estimatedCostUsd: 0.01 },
         },
@@ -250,22 +254,32 @@ test("CLI explains an actionable session from grouped trace evidence", async () 
   expect(result.stdout).toMatch(/Session explanation: sess_explain/);
   expect(result.stdout).toMatch(/What happened/);
   expect(result.stdout).toMatch(/Task: change the greeting/);
-  expect(result.stdout).toMatch(/Route: deepseek-v4-pro \(default route for coding workflow\)/);
+  expect(result.stdout).toMatch(
+    /Route: deepseek-v4-flash \(default route for coding workflow\)/,
+  );
   expect(result.stdout).toMatch(/Estimated cost: \$0\.0100/);
   expect(result.stdout).toMatch(/Tool use/);
-  expect(result.stdout).toMatch(/- apply_patch: Applied patch to 1 file\(s\)\./);
+  expect(result.stdout).toMatch(
+    /- apply_patch: Applied patch to 1 file\(s\)\./,
+  );
   expect(result.stdout).toMatch(/Permissions and approvals/);
-  expect(result.stdout).toMatch(/- apply_patch requested write_workspace at medium risk: confirm/);
+  expect(result.stdout).toMatch(
+    /- apply_patch requested write_workspace at medium risk: confirm/,
+  );
   expect(result.stdout).toMatch(/- apply_patch approval: approved/);
   expect(result.stdout).toMatch(/Verification and risks/);
   expect(result.stdout).toMatch(/- npm test \(exit 0\)/);
   expect(result.stdout).toMatch(/Forgelet changed: src\/greeting\.ts/);
   expect(result.stdout).toMatch(/Agent Kernel takeaways/);
-  expect(result.stdout).toMatch(/Trace records the model turns, tool calls, permission decisions, results, and final audit/);
+  expect(result.stdout).toMatch(
+    /Trace records the model turns, tool calls, permission decisions, results, and final audit/,
+  );
 });
 
 test("CLI explains an incomplete session without inventing missing evidence", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-explain-incomplete-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-explain-incomplete-"),
+  );
   const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
   await mkdir(sessionDir, { recursive: true });
   await writeFile(
@@ -318,14 +332,18 @@ test("CLI explains an incomplete session without inventing missing evidence", as
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toMatch(/Session explanation: sess_incomplete_explain/);
   expect(result.stdout).toMatch(/Status: incomplete/);
-  expect(result.stdout).toMatch(/Missing evidence: final_summary, session_finished/);
+  expect(result.stdout).toMatch(
+    /Missing evidence: final_summary, session_finished/,
+  );
   expect(result.stdout).toMatch(/- git_status: Workspace has no changes\./);
   expect(result.stdout).toMatch(/No final audit was recorded\./);
   expect(result.stdout).toMatch(/only uses recorded Session evidence/);
 });
 
 test("CLI creates a pending Memory Suggestion from actionable Session audit evidence", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-memory-suggest-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-memory-suggest-"),
+  );
   const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
   await mkdir(sessionDir, { recursive: true });
   await writeFile(
@@ -400,7 +418,9 @@ test("CLI creates a pending Memory Suggestion from actionable Session audit evid
 });
 
 test("CLI accepts a pending Memory Suggestion into Durable Memory", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-memory-accept-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-memory-accept-"),
+  );
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
   await writeFile(
     join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"),
@@ -408,7 +428,8 @@ test("CLI accepts a pending Memory Suggestion into Durable Memory", async () => 
       id: "mem_accept",
       sourceSessionId: "sess_memory",
       text: "In this workspace, use npm test as verification.",
-      reason: "Derived deterministically from actionable Session audit evidence.",
+      reason:
+        "Derived deterministically from actionable Session audit evidence.",
       status: "proposed",
     })}\n`,
     "utf8",
@@ -499,13 +520,17 @@ test("CLI prints merged config", async () => {
   const config = JSON.parse(result.stdout);
 
   expect(result.exitCode).toBe(0);
-  expect(config.defaultModel).toBe("deepseek-v4-pro");
-  expect(config.routing.coding.default).toBe("deepseek-v4-pro");
+  expect(config.defaultModel).toBe("deepseek-v4-flash");
+  expect(config.routing.coding.default).toBe("deepseek-v4-flash");
 });
 
 test("CLI sets narrow user config values", async () => {
-  const homeDir = await mkdtemp(join(tmpdir(), "forgelet-cli-config-set-home-"));
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-config-set-"));
+  const homeDir = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-config-set-home-"),
+  );
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-config-set-"),
+  );
 
   const setMemory = await runCli(
     ["config", "set", "memoryFile", ".forgelet/custom-memory.md"],
@@ -519,21 +544,29 @@ test("CLI sets narrow user config values", async () => {
   const config = JSON.parse(get.stdout);
 
   expect(setMemory.exitCode).toBe(0);
-  expect(setMemory.stdout).toMatch(/Config set: memoryFile=.forgelet\/custom-memory\.md/);
+  expect(setMemory.stdout).toMatch(
+    /Config set: memoryFile=.forgelet\/custom-memory\.md/,
+  );
   expect(setProvider.exitCode).toBe(0);
-  expect(setProvider.stdout).toMatch(/Config set: providers\.deepseek\.apiKeyEnv=CUSTOM_DEEPSEEK_KEY/);
+  expect(setProvider.stdout).toMatch(
+    /Config set: providers\.deepseek\.apiKeyEnv=CUSTOM_DEEPSEEK_KEY/,
+  );
   expect(config.memoryFile).toBe(".forgelet/custom-memory.md");
   expect(config.providers.deepseek.apiKeyEnv).toBe("CUSTOM_DEEPSEEK_KEY");
 });
 
 test("CLI rejects unsupported V1 config set keys", async () => {
-  const homeDir = await mkdtemp(join(tmpdir(), "forgelet-cli-config-reject-home-"));
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-config-reject-"));
-
-  const result = await runCli(
-    ["config", "set", "safeCommands", "npm test"],
-    { homeDir, workspaceRoot },
+  const homeDir = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-config-reject-home-"),
   );
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-config-reject-"),
+  );
+
+  const result = await runCli(["config", "set", "safeCommands", "npm test"], {
+    homeDir,
+    workspaceRoot,
+  });
 
   expect(result.exitCode).toBe(1);
   expect(result.stderr).toMatch(/Unsupported config key for V1: safeCommands/);
@@ -573,7 +606,9 @@ test("CLI --live runs a read-only Session with an injected live model client", a
 });
 
 test("CLI --live loads Durable Memory with trace provenance", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-live-memory-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-live-memory-"),
+  );
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
   await writeFile(
     join(workspaceRoot, ".forgelet", "memory.md"),
@@ -591,8 +626,12 @@ test("CLI --live loads Durable Memory with trace provenance", async () => {
   });
 
   expect(result.exitCode).toBe(0);
-  expect(modelClient.turnInputs[0]?.messages[1]?.content).toMatch(/Accepted Durable Memory/);
-  expect(modelClient.turnInputs[0]?.messages[1]?.content).toMatch(/prefer npm test/);
+  expect(modelClient.turnInputs[0]?.messages[1]?.content).toMatch(
+    /Accepted Durable Memory/,
+  );
+  expect(modelClient.turnInputs[0]?.messages[1]?.content).toMatch(
+    /prefer npm test/,
+  );
 
   const tracePath = result.stdout.match(/Trace: (.+)$/m)?.[1];
   expect(tracePath).toBeTruthy();
@@ -626,7 +665,9 @@ test("CLI --live --act runs an actionable coding Session with injected approval"
     "",
   ].join("\n");
   const modelClient = new FakeModelClient([
-    { toolCalls: [{ id: "call_patch", name: "apply_patch", input: { patch } }] },
+    {
+      toolCalls: [{ id: "call_patch", name: "apply_patch", input: { patch } }],
+    },
     {
       toolCalls: [
         { id: "call_command", name: "run_command", input: { command } },
@@ -646,9 +687,9 @@ test("CLI --live --act runs an actionable coding Session with injected approval"
   });
 
   expect(result.exitCode).toBe(0);
-  await expect(readFile(join(workspaceRoot, "example.txt"), "utf8")).resolves.toBe(
-    "changed\n",
-  );
+  await expect(
+    readFile(join(workspaceRoot, "example.txt"), "utf8"),
+  ).resolves.toBe("changed\n");
   expect(result.stdout).toMatch(/Changed example\.txt/);
 });
 
@@ -661,7 +702,9 @@ test("CLI --live requires a DeepSeek API key", async () => {
   });
 
   expect(result.exitCode).toBe(1);
-  expect(result.stderr).toMatch(/DEEPSEEK_API_KEY is required for --live DeepSeek execution/);
+  expect(result.stderr).toMatch(
+    /DEEPSEEK_API_KEY is required for --live DeepSeek execution/,
+  );
 });
 
 test("CLI --live rejects non-DeepSeek routes", async () => {
@@ -675,5 +718,7 @@ test("CLI --live rejects non-DeepSeek routes", async () => {
   });
 
   expect(result.exitCode).toBe(1);
-  expect(result.stderr).toMatch(/Live execution currently supports DeepSeek models only/);
+  expect(result.stderr).toMatch(
+    /Live execution currently supports DeepSeek models only/,
+  );
 });

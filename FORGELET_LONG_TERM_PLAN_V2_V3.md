@@ -131,7 +131,29 @@ forge sessions prune
 
 Resume should not blindly continue destructive actions. It should summarize previous state and ask for confirmation before executing risky follow-up actions.
 
-### 3. Writing and Knowledge Workbench
+### 3. Conversation Compaction and Context Budgeting
+
+**Goal**
+
+Keep long-running and resumed Sessions useful without carrying every large tool observation into every later model turn.
+
+**Problem**
+
+V1 dogfood showed that repeated `read_file` observations can make active model context grow quickly. Trace payloads correctly store only metadata and previews, but the live conversation can still carry full returned file chunks from earlier turns. That makes `budget_exceeded` likely even when estimated dollar cost is still low.
+
+**Capabilities**
+
+- Compact older tool observations into summary, path, content hash, byte range, truncation state, and short preview.
+- Preserve full observation content only while it is still recent or explicitly pinned as relevant.
+- Track active conversation token pressure separately from persisted Trace evidence.
+- Make compaction decisions traceable without storing the full compacted content.
+- Work with `forge resume <sessionId>` so resumed Sessions rebuild a compact, reviewable state rather than replaying every large observation verbatim.
+
+**Design rule**
+
+Compaction is a model-context optimization, not a Trace rewrite. The Trace remains the immutable evidence log; the compacted conversation is the current working set sent to the model.
+
+### 4. Writing and Knowledge Workbench
 
 **Goal**
 
@@ -168,7 +190,7 @@ forge notes search --scope project "workflow graph design"
 - Notes and learning outputs should keep source provenance.
 - The Knowledge Library is separate from Durable Memory.
 
-### 4. Project Memory Review and Curation
+### 5. Project Memory Review and Curation
 
 **Goal**
 
@@ -202,7 +224,7 @@ forge memory edit
 
 Forgelet should suggest memory updates but not silently write long-term memory without user approval.
 
-### 5. Diagnose Mode
+### 6. Diagnose Mode
 
 **Goal**
 
@@ -234,7 +256,7 @@ Given a failing test command, Forgelet should:
 5. Apply minimal fix.
 6. Run targeted regression.
 
-### 6. Better Code Context
+### 7. Better Code Context
 
 **Goal**
 
@@ -271,7 +293,7 @@ Use cheap static analysis first:
 
 Avoid vector database indexing until there is a clear need.
 
-### 7. Richer Plan and Review Loop
+### 8. Richer Plan and Review Loop
 
 **Goal**
 
@@ -297,7 +319,7 @@ forge --dry-run "show the patch but do not apply it"
 
 Keep low-risk reads and analysis automatic. Require plan approval or confirmation for broad refactors, durable writes, model escalation, or high-risk file sets.
 
-### 8. Provider and Cost Improvements
+### 9. Provider and Cost Improvements
 
 **Goal**
 
@@ -416,7 +438,19 @@ Acceptance criteria:
 - User sees previous task, status, changed files, and last summary.
 - Continued session writes a linked trace event.
 
-### V2 Issue 4: Add project memory workflow
+### V2 Issue 4: Add conversation compaction
+
+Keep active model context bounded across multi-turn and resumed Sessions.
+
+Acceptance criteria:
+
+- Older large `read_file` and `git_diff` observations are compacted before later model turns.
+- Compacted observations retain summary, path, content hash, byte range, truncation state, and short preview.
+- Trace remains immutable and metadata-first; compaction does not rewrite saved Trace evidence.
+- Budget updates distinguish active conversation pressure from persisted Trace size.
+- Tests prove repeated large file reads do not cause unbounded growth in later model inputs.
+
+### V2 Issue 5: Add project memory workflow
 
 Add memory show/suggest/accept commands.
 
@@ -426,7 +460,7 @@ Acceptance criteria:
 - User approval is required before writing memory.
 - Memory entries are concise and editable.
 
-### V2 Issue 5: Add diagnose mode
+### V2 Issue 6: Add diagnose mode
 
 Add a structured debugging workflow.
 
@@ -436,7 +470,7 @@ Acceptance criteria:
 - Final summary includes root cause.
 - Tests verify the diagnose state machine with mock tools.
 
-### V2 Issue 6: Add test discovery and workspace summary tools
+### V2 Issue 7: Add test discovery and workspace summary tools
 
 Improve repo awareness with static discovery tools.
 
@@ -446,7 +480,7 @@ Acceptance criteria:
 - Forgelet can suggest targeted test commands.
 - Forgelet can summarize project layout.
 
-### V2 Issue 7: Add model pricing registry and model list/test commands
+### V2 Issue 8: Add model pricing registry and model list/test commands
 
 Make provider setup and cost more visible.
 
@@ -456,7 +490,7 @@ Acceptance criteria:
 - `forge models test <modelId>` runs a minimal smoke test.
 - Final summaries include model IDs and estimated cost.
 
-### V2 Issue 8: Add local review UI
+### V2 Issue 9: Add local review UI
 
 Add a local web UI for inspecting Forgelet state after the core V2 workflows exist.
 
@@ -856,11 +890,12 @@ Forgelet V3 succeeds when it can support this cross-domain workflow:
 3. Writing workflow hardening
 4. Source-linked learning and notes workflow
 5. Session resume
-6. Project memory review workflow
-7. Diagnose mode
-8. Workspace summary and test discovery tools
-9. Model pricing registry and model diagnostics
-10. Local review UI for traces, memory, and knowledge
+6. Conversation compaction and active context budgeting
+7. Project memory review workflow
+8. Diagnose mode
+9. Workspace summary and test discovery tools
+10. Model pricing registry and model diagnostics
+11. Local review UI for traces, memory, and knowledge
 
 ### After V2, build V3 in this order
 

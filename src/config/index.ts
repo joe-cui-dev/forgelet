@@ -49,13 +49,13 @@ type WritableConfig = Partial<Omit<ForgeletConfig, "providers">> & {
 };
 
 export const defaultConfig: ForgeletConfig = {
-  defaultModel: "deepseek-v4-pro",
+  defaultModel: "deepseek-v4-flash",
   fallbackModel: "gpt-5",
   cheapModel: "deepseek-v4-flash",
   routing: {
     coding: {
-      default: "deepseek-v4-pro",
-      review: "deepseek-v4-pro",
+      default: "deepseek-v4-flash",
+      review: "deepseek-v4-flash",
     },
     writing: {
       default: "deepseek-v4-flash",
@@ -194,9 +194,7 @@ function mergeConfig(
   };
 }
 
-async function readOptionalJson(
-  path: string,
-): Promise<WritableConfig> {
+async function readOptionalJson(path: string): Promise<WritableConfig> {
   try {
     return JSON.parse(await readFile(path, "utf8")) as WritableConfig;
   } catch (error) {
