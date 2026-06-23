@@ -8,6 +8,7 @@ export interface SessionSummary {
   id: string;
   workflow: WorkflowKind;
   task: string;
+  taskHash: string;
   startedAt: string;
   status: SessionStatus;
   tracePath: string;
@@ -41,6 +42,7 @@ export async function listSessions(workspaceRoot: string): Promise<SessionSummar
         id: started.sessionId,
         workflow: asWorkflow(started.payload.workflow),
         task: typeof task?.payload.task === "string" ? task.payload.task : "",
+        taskHash: asTaskHash(started.payload.taskHash),
         startedAt: typeof started.payload.startedAt === "string" ? started.payload.startedAt : started.ts,
         status: finished ? "completed" : "incomplete",
         tracePath
@@ -50,6 +52,7 @@ export async function listSessions(workspaceRoot: string): Promise<SessionSummar
         id: basename(tracePath, ".jsonl"),
         workflow: "coding",
         task: "",
+        taskHash: "",
         startedAt: "",
         status: "malformed",
         tracePath
@@ -82,6 +85,7 @@ export async function showSession(workspaceRoot: string, sessionId: string): Pro
     id: started.sessionId,
     workflow: asWorkflow(started.payload.workflow),
     task: typeof task?.payload.task === "string" ? task.payload.task : "",
+    taskHash: asTaskHash(started.payload.taskHash),
     startedAt: typeof started.payload.startedAt === "string" ? started.payload.startedAt : started.ts,
     status: finished ? "completed" : "incomplete",
     tracePath,
@@ -90,6 +94,10 @@ export async function showSession(workspaceRoot: string, sessionId: string): Pro
     finalSummary: typeof finalSummary?.payload.summary === "string" ? finalSummary.payload.summary : "",
     audit: asSessionAudit(finalSummary?.payload.audit)
   };
+}
+
+function asTaskHash(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
 
 function asSessionAudit(value: unknown): SessionAudit | undefined {

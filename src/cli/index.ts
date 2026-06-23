@@ -208,7 +208,7 @@ function ok(stdout: string): RunCliResult {
 
 function formatSessionList(sessions: Awaited<ReturnType<typeof listSessions>>): string {
   if (sessions.length === 0) return "No Forgelet sessions found.";
-  return sessions.map((session) => `${session.id}\t${session.workflow}\t${session.status}\t${session.startedAt}\t${session.task}`).join("\n");
+  return sessions.map((session) => `${session.id}\t${session.workflow}\t${session.status}\t${session.startedAt}\t${session.taskHash || "none"}\t${session.task}`).join("\n");
 }
 
 function formatSessionDetail(session: Awaited<ReturnType<typeof showSession>>): string {
@@ -219,6 +219,7 @@ function formatSessionDetail(session: Awaited<ReturnType<typeof showSession>>): 
     `Status: ${session.status}`,
     `Workflow: ${session.workflow}`,
     `Task: ${session.task}`,
+    `Task hash: ${session.taskHash || "none"}`,
     `Started: ${session.startedAt}`,
     `Context attachments: ${context}`,
     `Route: ${route}`,

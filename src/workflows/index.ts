@@ -16,6 +16,7 @@ import type {
   WorkflowKind,
 } from "../types.js";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { loadConfig, routeModel } from "../config/index.js";
 import { loadContextAttachments } from "../context/index.js";
 import { loadDurableMemory, type LoadedDurableMemory } from "../memory/index.js";
@@ -79,6 +80,11 @@ interface RunReadOnlyLoopResult {
   audit?: SessionAudit;
 }
 
+interface BudgetBlockedToolCalls {
+  reason: SessionStopReason;
+  skippedCount: number;
+}
+
 interface RunAuditState {
   changedFiles: Set<string>;
   commands: { command: string; exitCode: number | null; timedOut: boolean }[];
@@ -98,6 +104,7 @@ export const runWorkflowSession = async (
 ): Promise<RunWorkflowResult> => {
   const now = new Date().toISOString();
   const sessionId = `sess_${Date.now().toString(36)}`;
+  const taskHash = hashTask(input.task);
   const traceWriter = await createTraceWriter(input.workspaceRoot, sessionId);
   const config = await loadConfig({ workspaceRoot: input.workspaceRoot });
   const baselineDirtyPaths =
@@ -126,6 +133,7 @@ export const runWorkflowSession = async (
     id: sessionId,
     workflow: input.workflow,
     task: input.task,
+    taskHash,
     stage: "final",
     plan,
     createdAt: now,
@@ -135,6 +143,7 @@ export const runWorkflowSession = async (
     createTraceEvent(sessionId, "session_started", now, {
       workflow: input.workflow,
       startedAt: now,
+      taskHash,
     }),
   );
   await traceWriter.append(
@@ -245,6 +254,7 @@ export const runWorkflowSession = async (
     `Forgelet session created: ${sessionId}`,
     `Workflow: ${input.workflow}`,
     `Task: ${input.task}`,
+    `Task hash: ${taskHash}`,
     input.contextFiles.length > 0
       ? `Context attachments: ${input.contextFiles.join(", ")}`
       : "Context attachments: none",
@@ -258,6 +268,11 @@ export const runWorkflowSession = async (
     summary: details.join("\n"),
     tracePath: traceWriter.tracePath,
   };
+};
+
+const hashTask = (task: string): string => {
+  const normalized = task.trim().replace(/\s+/g, " ");
+  return createHash("sha256").update(normalized).digest("hex").slice(0, 8);
 };
 
 /**
@@ -338,6 +353,7 @@ const runReadOnlyLoop = async (
         input.route,
         usage,
         stopReason,
+        input.limits,
       );
       input.session.stage = "final";
       return { status: "stopped", reason: stopReason, summary };
@@ -375,6 +391,32 @@ const runReadOnlyLoop = async (
       usage: output.usage,
     });
     await input.appendTrace("budget_update", { usage, limits: input.limits });
+
+    const hardBudgetStopReason = tokenOrCostBudgetStopReason(
+      usage,
+      input.limits,
+    );
+    if (hardBudgetStopReason && output.toolCalls.length > 0) {
+      await input.appendTrace("budget_blocked_tool_calls", {
+        reason: hardBudgetStopReason,
+        skippedCount: output.toolCalls.length,
+        toolNames: output.toolCalls.map((toolCall) => toolCall.name),
+      });
+      const summary = formatStoppedSummary(
+        input.session,
+        input.route,
+        usage,
+        hardBudgetStopReason,
+        input.limits,
+        { reason: hardBudgetStopReason, skippedCount: output.toolCalls.length },
+      );
+      input.session.stage = "final";
+      return {
+        status: "stopped",
+        reason: hardBudgetStopReason,
+        summary,
+      };
+    }
 
     // No tool calls is the loop exit condition: model content becomes the
     // Session's final answer.
@@ -617,11 +659,17 @@ const budgetStopReason = (
   limits: BudgetLimits,
 ): SessionStopReason | undefined => {
   if (usage.modelTurns >= limits.maxModelTurns) return "max_model_turns";
-  if (
-    usage.inputTokens >= limits.maxInputTokens ||
-    usage.estimatedCostUsd >= limits.maxEstimatedCostUsd
-  )
-    return "budget_exceeded";
+  return tokenOrCostBudgetStopReason(usage, limits);
+};
+
+const tokenOrCostBudgetStopReason = (
+  usage: BudgetUsage,
+  limits: BudgetLimits,
+): SessionStopReason | undefined => {
+  if (usage.inputTokens >= limits.maxInputTokens)
+    return "input_token_limit_exceeded";
+  if (usage.estimatedCostUsd >= limits.maxEstimatedCostUsd)
+    return "estimated_cost_budget_exceeded";
   return undefined;
 };
 
@@ -849,6 +897,7 @@ const formatCompletedSummary = (
     `Forgelet session completed: ${session.id}`,
     `Workflow: ${session.workflow}`,
     `Task: ${session.task}`,
+    `Task hash: ${session.taskHash}`,
     `Route: ${route.model} (${route.reason})`,
     `Model turns: ${usage.modelTurns}`,
     finalContent,
@@ -891,13 +940,24 @@ const formatStoppedSummary = (
   route: ActLoopRoute,
   usage: BudgetUsage,
   reason: SessionStopReason,
+  limits: BudgetLimits,
+  blockedToolCalls?: BudgetBlockedToolCalls,
 ): string => {
   return [
     `Forgelet session stopped: ${session.id}`,
     `Workflow: ${session.workflow}`,
     `Task: ${session.task}`,
+    `Task hash: ${session.taskHash}`,
     `Route: ${route.model} (${route.reason})`,
     `Reason: ${reason}`,
-    `Model turns: ${usage.modelTurns}`,
+    `Model turns: ${usage.modelTurns}/${limits.maxModelTurns}`,
+    `Input tokens: ${usage.inputTokens}/${limits.maxInputTokens}`,
+    `Output tokens: ${usage.outputTokens}`,
+    `Estimated cost: $${usage.estimatedCostUsd.toFixed(4)}/$${limits.maxEstimatedCostUsd.toFixed(4)}`,
+    ...(blockedToolCalls
+      ? [
+          `Skipped ${blockedToolCalls.skippedCount} tool call${blockedToolCalls.skippedCount === 1 ? "" : "s"} because ${blockedToolCalls.reason} was reached.`,
+        ]
+      : []),
   ].join("\n");
 };

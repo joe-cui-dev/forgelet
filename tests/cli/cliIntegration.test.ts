@@ -20,6 +20,16 @@ test("CLI lists and shows project sessions", async () => {
   expect(list.exitCode).toBe(0);
   expect(list.stdout).toMatch(new RegExp(run.session.id));
   expect(list.stdout).toMatch(/completed/);
+  const trace = await readFile(run.tracePath ?? "", "utf8");
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const started = events.find((event) => event.type === "session_started");
+  const taskHash = started?.payload.taskHash;
+  expect(taskHash).toMatch(/^[0-9a-f]{8}$/);
+  expect(list.stdout).toMatch(new RegExp(`\\b${taskHash}\\b`));
+  expect(run.summary).toMatch(new RegExp(`Task hash: ${taskHash}`));
 
   const show = await runCli(["sessions", "show", run.session.id], {
     workspaceRoot,
@@ -27,6 +37,7 @@ test("CLI lists and shows project sessions", async () => {
   expect(show.exitCode).toBe(0);
   expect(show.stdout).toMatch(/Workflow: coding/);
   expect(show.stdout).toMatch(/Task: fix tests/);
+  expect(show.stdout).toMatch(new RegExp(`Task hash: ${taskHash}`));
   expect(show.stdout).toMatch(/Execution is scaffolded/);
 });
 

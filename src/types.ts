@@ -38,13 +38,17 @@ export interface AgentSession {
   id: string;
   workflow: WorkflowKind;
   task: string;
+  taskHash: string;
   stage: AgentStage;
   plan: AgentPlan;
   createdAt: string;
 }
 
 export type SessionFinishStatus = "completed" | "stopped" | "failed";
-export type SessionStopReason = "budget_exceeded" | "max_model_turns";
+export type SessionStopReason =
+  | "input_token_limit_exceeded"
+  | "estimated_cost_budget_exceeded"
+  | "max_model_turns";
 
 export interface SessionAudit {
   changeGroups: AuditChangeGroups;

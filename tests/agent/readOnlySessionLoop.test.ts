@@ -495,6 +495,136 @@ test("a Session stops before the next model turn when the turn budget is exhaust
   expect(finished.payload.reason).toBe("max_model_turns");
 });
 
+test("a Session stopped by input token limit reports the precise stop reason and budget details", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-input-budget-"));
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "config.json"),
+    JSON.stringify({
+      budgets: {
+        maxModelTurns: 8,
+        maxInputTokens: 100,
+        maxEstimatedCostUsd: 0.25,
+      },
+    }),
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([
+    {
+      usage: { inputTokens: 101, outputTokens: 7, estimatedCostUsd: 0.01 },
+      content: "I need another turn.",
+      toolCalls: [{ id: "call_list", name: "list_files", input: {} }],
+    },
+    { content: "This should not be called.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "inspect files within a tiny token limit",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  expect(modelClient.turnInputs.length).toBe(1);
+  expect(result.summary).toMatch(/Reason: input_token_limit_exceeded/);
+  expect(result.summary).toMatch(/Model turns: 1\/8/);
+  expect(result.summary).toMatch(/Input tokens: 101\/100/);
+  expect(result.summary).toMatch(/Output tokens: 7/);
+  expect(result.summary).toMatch(/Estimated cost: \$0\.0100\/\$0\.2500/);
+
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const finished = events.find((event) => event.type === "session_finished");
+  expect(finished.payload.status).toBe("stopped");
+  expect(finished.payload.reason).toBe("input_token_limit_exceeded");
+});
+
+test("an over-budget actionable turn records budget-blocked tool calls without approval or execution", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-budget-block-tool-"),
+  );
+  await execGit(workspaceRoot, ["init"]);
+  await writeFile(join(workspaceRoot, "example.txt"), "original\n", "utf8");
+  await execGit(workspaceRoot, ["add", "example.txt"]);
+  await execGit(workspaceRoot, ["commit", "-m", "baseline"]);
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "config.json"),
+    JSON.stringify({
+      budgets: {
+        maxModelTurns: 8,
+        maxInputTokens: 100,
+        maxEstimatedCostUsd: 0.25,
+      },
+    }),
+    "utf8",
+  );
+  const patch = [
+    "diff --git a/example.txt b/example.txt",
+    "--- a/example.txt",
+    "+++ b/example.txt",
+    "@@ -1 +1 @@",
+    "-original",
+    "+changed",
+    "",
+  ].join("\n");
+  const modelClient = new FakeModelClient([
+    {
+      usage: { inputTokens: 101, outputTokens: 7, estimatedCostUsd: 0.01 },
+      content: "I will patch this file.",
+      toolCalls: [{ id: "call_patch", name: "apply_patch", input: { patch } }],
+    },
+    { content: "This should not be called.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "change example within a tiny token limit",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+    act: true,
+    approvalHandler: async () => ({
+      status: "approved",
+      reason: "Approved by test.",
+    }),
+  });
+
+  expect(modelClient.turnInputs.length).toBe(1);
+  await expect(
+    readFile(join(workspaceRoot, "example.txt"), "utf8"),
+  ).resolves.toBe("original\n");
+  expect(result.summary).toMatch(/Reason: input_token_limit_exceeded/);
+  expect(result.summary).toMatch(
+    /Skipped 1 tool call because input_token_limit_exceeded was reached\./,
+  );
+
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(events.some((event) => event.type === "tool_call")).toBe(false);
+  expect(events.some((event) => event.type === "permission_decision")).toBe(
+    false,
+  );
+  expect(events.some((event) => event.type === "approval_decision")).toBe(
+    false,
+  );
+  const blocked = events.find(
+    (event) => event.type === "budget_blocked_tool_calls",
+  );
+  expect(blocked?.payload).toEqual({
+    reason: "input_token_limit_exceeded",
+    skippedCount: 1,
+    toolNames: ["apply_patch"],
+  });
+});
+
 test("large read_file observations are truncated for the model and not stored fully in trace", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-truncate-"));
   const largeContent = `start\n${"x".repeat(25 * 1024)}\nneedle-at-end\n`;

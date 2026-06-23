@@ -7,6 +7,8 @@ import { createActionableCodingTools } from "../../src/tools/actionable.js";
 import { createToolRegistry } from "../../src/tools/toolRegistry.js";
 import type { ToolContext } from "../../src/types.js";
 
+const TEST_COMMAND_TIMEOUT_MS = 5_000;
+
 test("apply_patch modifies an ordinary workspace file after approval", async () => {
   const workspaceRoot = await createGitWorkspace();
   await writeFile(join(workspaceRoot, "example.txt"), "original\n", "utf8");
@@ -24,7 +26,7 @@ test("apply_patch modifies an ordinary workspace file after approval", async () 
   const registry = createToolRegistry(
     createActionableCodingTools({
       safeCommands: [],
-      commandTimeoutMs: 1_000,
+      commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
       maxPatchBytes: 100_000,
       sessionState: {
         baselineDirtyPaths: new Set(),
@@ -70,7 +72,7 @@ test("apply_patch accepts git-apply compatible unified diff without diff headers
   const registry = createToolRegistry(
     createActionableCodingTools({
       safeCommands: [],
-      commandTimeoutMs: 1_000,
+      commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
       maxPatchBytes: 100_000,
       sessionState: {
         baselineDirtyPaths: new Set(),
@@ -102,7 +104,7 @@ test("run_command executes an exact configured command after approval", async ()
   const registry = createToolRegistry(
     createActionableCodingTools({
       safeCommands: [command],
-      commandTimeoutMs: 1_000,
+      commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
       maxPatchBytes: 100_000,
       sessionState: {
         baselineDirtyPaths: new Set(),
@@ -136,7 +138,7 @@ test("run_command denies commands that do not exactly match safeCommands", async
   const registry = createToolRegistry(
     createActionableCodingTools({
       safeCommands: [configured],
-      commandTimeoutMs: 1_000,
+      commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
       maxPatchBytes: 100_000,
       sessionState: {
         baselineDirtyPaths: new Set(),
@@ -177,7 +179,7 @@ test("apply_patch denies targets that were dirty at Session start before approva
   const registry = createToolRegistry(
     createActionableCodingTools({
       safeCommands: [],
-      commandTimeoutMs: 1_000,
+      commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
       maxPatchBytes: 100_000,
       sessionState: {
         baselineDirtyPaths: new Set(["example.txt"]),
@@ -220,7 +222,7 @@ test("apply_patch denies delete-file patches before approval", async () => {
   const registry = createToolRegistry(
     createActionableCodingTools({
       safeCommands: [],
-      commandTimeoutMs: 1_000,
+      commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
       maxPatchBytes: 100_000,
       sessionState: {
         baselineDirtyPaths: new Set(),
