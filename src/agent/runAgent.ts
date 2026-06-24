@@ -8,6 +8,7 @@ export interface RunAgentInput {
   contextFiles: string[];
   model?: string;
   budgetUsd?: number;
+  homeDir?: string;
   workspaceRoot: string;
   modelClient?: ModelClient;
   act?: boolean;
@@ -27,6 +28,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     contextFiles: input.contextFiles,
     model: input.model,
     budgetUsd: input.budgetUsd,
+    homeDir: input.homeDir,
     workspaceRoot: input.workspaceRoot,
     modelClient: input.modelClient,
     act: input.act,

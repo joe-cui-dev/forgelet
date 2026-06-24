@@ -1,0 +1,171 @@
+import { expect, test } from "@jest/globals";
+import { compactConversationInPlace } from "../../src/conversation/compaction.js";
+import type { ModelMessage } from "../../src/types.js";
+
+test("compacts an old large file observation while preserving the newest tool turn", () => {
+  const conversation: ModelMessage[] = [
+    assistantToolCall("call_old", "read_file"),
+    toolObservation("call_old", "read_file", "old.txt", "a".repeat(6_000)),
+    assistantToolCall("call_new", "read_file"),
+    toolObservation("call_new", "read_file", "new.txt", "b".repeat(6_000)),
+  ];
+  const newestContent = conversation[3]?.content ?? "";
+
+  const result = compactConversationInPlace(conversation, {
+    maxObservationBytes: Buffer.byteLength(newestContent, "utf8") + 1_000,
+  });
+
+  expect(result.compactedCount).toBe(1);
+  expect(conversation).toHaveLength(4);
+  expect(conversation[0]?.toolCalls?.[0]?.id).toBe("call_old");
+  expect(conversation[1]?.toolCallId).toBe("call_old");
+  expect(JSON.parse(conversation[1]?.content ?? "{}")).toMatchObject({
+    toolCallId: "call_old",
+    toolName: "read_file",
+    compacted: true,
+    metadata: { path: "old.txt" },
+  });
+  expect(conversation[3]?.content).toBe(newestContent);
+});
+
+test("an oversized newest tool turn preserves its newest and last failed observations", () => {
+  const conversation: ModelMessage[] = [
+    {
+      role: "assistant",
+      content: "",
+      toolCalls: [
+        { id: "call_first", name: "read_file", input: { path: "first.txt" } },
+        { id: "call_failed", name: "read_file", input: { path: "failed.txt" } },
+        { id: "call_last", name: "read_file", input: { path: "last.txt" } },
+      ],
+    },
+    toolObservation("call_first", "read_file", "first.txt", "a".repeat(6_000)),
+    failedToolObservation("call_failed", "read_file", "failed.txt"),
+    toolObservation("call_last", "read_file", "last.txt", "c".repeat(6_000)),
+  ];
+  const failedContent = conversation[2]?.content;
+  const lastContent = conversation[3]?.content;
+
+  const result = compactConversationInPlace(conversation, {
+    maxObservationBytes: 4_096,
+  });
+
+  expect(result.compactedCount).toBe(1);
+  expect(JSON.parse(conversation[1]?.content ?? "{}").compacted).toBe(true);
+  expect(conversation[2]?.content).toBe(failedContent);
+  expect(conversation[3]?.content).toBe(lastContent);
+  expect(result.residualOverageBytes).toBeGreaterThan(0);
+});
+
+test("prioritizes content-heavy tools before other old observations", () => {
+  const conversation: ModelMessage[] = [
+    assistantToolCall("call_list", "list_files"),
+    toolObservation("call_list", "list_files", ".", "l".repeat(4_000)),
+    assistantToolCall("call_read", "read_file"),
+    toolObservation("call_read", "read_file", "large.ts", "r".repeat(6_000)),
+    assistantToolCall("call_new", "read_file"),
+    toolObservation("call_new", "read_file", "new.ts", "n".repeat(500)),
+  ];
+  const listContent = conversation[1]?.content;
+
+  compactConversationInPlace(conversation, {
+    maxObservationBytes: 7_000,
+  });
+
+  expect(conversation[1]?.content).toBe(listContent);
+  expect(JSON.parse(conversation[3]?.content ?? "{}").compacted).toBe(true);
+});
+
+test("keeps unknown tool message payloads and reports residual overage", () => {
+  const conversation: ModelMessage[] = [
+    assistantToolCall("call_unknown", "read_file"),
+    {
+      role: "tool",
+      toolCallId: "call_unknown",
+      content: "not-json ".repeat(1_000),
+    },
+    assistantToolCall("call_new", "read_file"),
+    toolObservation("call_new", "read_file", "new.ts", "new"),
+  ];
+  const unknownContent = conversation[1]?.content;
+
+  const result = compactConversationInPlace(conversation, {
+    maxObservationBytes: 4_096,
+  });
+
+  expect(conversation[1]?.content).toBe(unknownContent);
+  expect(result.compactedCount).toBe(0);
+  expect(result.uncompactableCount).toBe(1);
+  expect(result.residualOverageBytes).toBeGreaterThan(0);
+});
+
+test("does not compact an already compacted observation again", () => {
+  const conversation: ModelMessage[] = [
+    assistantToolCall("call_old", "read_file"),
+    toolObservation("call_old", "read_file", "old.ts", "o".repeat(6_000)),
+    assistantToolCall("call_new", "read_file"),
+    toolObservation("call_new", "read_file", "new.ts", "n".repeat(6_000)),
+  ];
+
+  compactConversationInPlace(conversation, { maxObservationBytes: 4_096 });
+  const compactedContent = conversation[1]?.content;
+  const second = compactConversationInPlace(conversation, {
+    maxObservationBytes: 4_096,
+  });
+
+  expect(conversation[1]?.content).toBe(compactedContent);
+  expect(second.compactedCount).toBe(0);
+});
+
+function assistantToolCall(id: string, name: string): ModelMessage {
+  return {
+    role: "assistant",
+    content: "",
+    toolCalls: [{ id, name, input: { path: `${id}.txt` } }],
+  };
+}
+
+function toolObservation(
+  toolCallId: string,
+  toolName: string,
+  path: string,
+  content: string,
+): ModelMessage {
+  return {
+    role: "tool",
+    toolCallId,
+    content: JSON.stringify({
+      ok: true,
+      toolCallId,
+      toolName,
+      summary: `Read ${path}.`,
+      content,
+      metadata: {
+        path,
+        contentHash: `${path}-hash`,
+        returnedBytes: Buffer.byteLength(content, "utf8"),
+        preview: content.slice(0, 500),
+      },
+    }),
+  };
+}
+
+function failedToolObservation(
+  toolCallId: string,
+  toolName: string,
+  path: string,
+): ModelMessage {
+  return {
+    role: "tool",
+    toolCallId,
+    content: JSON.stringify({
+      ok: false,
+      toolCallId,
+      toolName,
+      summary: `Could not read ${path}.`,
+      content: "failure details ".repeat(400),
+      error: { code: "tool_failed", message: `Could not read ${path}.` },
+      metadata: { path },
+    }),
+  };
+}

@@ -287,6 +287,59 @@ test("CLI explains an actionable session from grouped trace evidence", async () 
   );
 });
 
+test("CLI explain shows conversation compaction evidence", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-explain-compaction-"),
+  );
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(sessionDir, "sess_compaction.jsonl"),
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-06-24T00:00:00.000Z",
+        sessionId: "sess_compaction",
+        payload: { workflow: "coding" },
+      }),
+      JSON.stringify({
+        type: "user_task",
+        ts: "2026-06-24T00:00:00.000Z",
+        sessionId: "sess_compaction",
+        payload: { task: "inspect files" },
+      }),
+      JSON.stringify({
+        type: "conversation_compacted",
+        ts: "2026-06-24T00:00:01.000Z",
+        sessionId: "sess_compaction",
+        payload: {
+          compactedCount: 3,
+          beforeObservationBytes: 30_000,
+          afterObservationBytes: 10_000,
+          residualOverageBytes: 1_000,
+        },
+      }),
+      JSON.stringify({
+        type: "session_finished",
+        ts: "2026-06-24T00:00:02.000Z",
+        sessionId: "sess_compaction",
+        payload: { status: "completed" },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+
+  const result = await runCli(["explain", "sess_compaction"], {
+    workspaceRoot,
+  });
+
+  expect(result.stdout).toMatch(/Conversation compaction:/);
+  expect(result.stdout).toMatch(/Passes: 1/);
+  expect(result.stdout).toMatch(/Compacted observations: 3/);
+  expect(result.stdout).toMatch(/Bytes removed: 20000/);
+  expect(result.stdout).toMatch(/Maximum residual overage: 1000 bytes/);
+});
+
 test("CLI explains an incomplete session without inventing missing evidence", async () => {
   const workspaceRoot = await mkdtemp(
     join(tmpdir(), "forgelet-cli-explain-incomplete-"),
@@ -584,6 +637,54 @@ test("CLI rejects unsupported V1 config set keys", async () => {
   expect(result.stderr).toMatch(/Supported keys: memoryFile/);
 });
 
+test("CLI sets the global active observation working-set target", async () => {
+  const homeDir = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-active-context-home-"),
+  );
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-active-context-"),
+  );
+
+  const set = await runCli(
+    ["config", "set", "activeContext.maxObservationBytes", "65536"],
+    { homeDir, workspaceRoot },
+  );
+  const get = await runCli(["config", "get"], { homeDir, workspaceRoot });
+
+  expect(set.exitCode).toBe(0);
+  expect(JSON.parse(get.stdout).activeContext.maxObservationBytes).toBe(65_536);
+});
+
+test("CLI help documents the active observation config key", async () => {
+  const result = await runCli(["--help"]);
+
+  expect(result.stdout).toMatch(
+    /forge config set activeContext\.maxObservationBytes 16384/,
+  );
+  expect(result.stdout).toMatch(
+    /config set supports memoryFile, activeContext\.maxObservationBytes, and provider API key env vars/,
+  );
+});
+
+test("CLI rejects an invalid active observation working-set target", async () => {
+  const homeDir = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-active-context-invalid-home-"),
+  );
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-active-context-invalid-"),
+  );
+
+  const result = await runCli(
+    ["config", "set", "activeContext.maxObservationBytes", "4095"],
+    { homeDir, workspaceRoot },
+  );
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toMatch(
+    /activeContext\.maxObservationBytes.*at least 4096/,
+  );
+});
+
 test("CLI --live runs a read-only Session with an injected live model client", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-live-"));
   await writeFile(
@@ -614,6 +715,48 @@ test("CLI --live runs a read-only Session with an injected live model client", a
   expect(result.stdout).toMatch(/Forgelet session completed/);
   expect(result.stdout).toMatch(/Found needle in example.ts/);
   expect(modelClient.turnInputs.length).toBe(2);
+});
+
+test("CLI live Sessions use the global active observation target", async () => {
+  const homeDir = await mkdtemp(join(tmpdir(), "forgelet-cli-live-home-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-live-compaction-"),
+  );
+  await mkdir(join(homeDir, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(homeDir, ".forgelet", "config.json"),
+    JSON.stringify({ activeContext: { maxObservationBytes: 4_096 } }),
+    "utf8",
+  );
+  await writeFile(join(workspaceRoot, "first.txt"), "a".repeat(8_000), "utf8");
+  await writeFile(join(workspaceRoot, "second.txt"), "b".repeat(8_000), "utf8");
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        { id: "call_first", name: "read_file", input: { path: "first.txt" } },
+      ],
+    },
+    {
+      toolCalls: [
+        { id: "call_second", name: "read_file", input: { path: "second.txt" } },
+      ],
+    },
+    { content: "Both files inspected.", toolCalls: [] },
+  ]);
+
+  await runCli(["--live", "inspect both files"], {
+    homeDir,
+    workspaceRoot,
+    env: {},
+    createLiveModelClient: async () => modelClient,
+  });
+
+  const oldObservation = JSON.parse(
+    modelClient.turnInputs[2]?.messages.filter(
+      (message) => message.role === "tool",
+    )[0]?.content ?? "{}",
+  );
+  expect(oldObservation.compacted).toBe(true);
 });
 
 test("CLI --live loads Durable Memory with trace provenance", async () => {

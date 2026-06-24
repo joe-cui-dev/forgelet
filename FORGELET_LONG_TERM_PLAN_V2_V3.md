@@ -141,11 +141,14 @@ Keep long-running and resumed Sessions useful without carrying every large tool 
 
 V1 dogfood showed that repeated `read_file` observations can make active model context grow quickly. Trace payloads correctly store only metadata and previews, but the live conversation can still carry full returned file chunks from earlier turns. That makes `budget_exceeded` likely even when estimated dollar cost is still low.
 
+V1 now plans a deterministic, observation-only compaction guardrail: old model-visible tool observations are compacted against a configurable UTF-8 byte target while recent results and structured execution facts are preserved. This bounds the largest demonstrated source of growth, but it is not complete prompt or semantic context management.
+
 **Capabilities**
 
-- Compact older tool observations into summary, path, content hash, byte range, truncation state, and short preview.
-- Preserve full observation content only while it is still recent or explicitly pinned as relevant.
-- Track active conversation token pressure separately from persisted Trace evidence.
+- Build on V1 deterministic observation compaction rather than replacing it.
+- Add semantic relevance and explicit pinning for observations that should remain available in full.
+- Account for other prompt contributors, including historical tool-call arguments, without conflating byte guards with provider token usage.
+- Track complete active conversation token pressure separately from persisted Trace evidence.
 - Make compaction decisions traceable without storing the full compacted content.
 - Work with `forge resume <sessionId>` so resumed Sessions rebuild a compact, reviewable state rather than replaying every large observation verbatim.
 
@@ -440,15 +443,17 @@ Acceptance criteria:
 
 ### V2 Issue 4: Add conversation compaction
 
-Keep active model context bounded across multi-turn and resumed Sessions.
+Extend the deterministic V1 observation compactor into semantic context management across multi-turn and resumed Sessions.
 
 Acceptance criteria:
 
-- Older large `read_file` and `git_diff` observations are compacted before later model turns.
-- Compacted observations retain summary, path, content hash, byte range, truncation state, and short preview.
+- V1 compact observation facts remain usable as the deterministic baseline.
+- Relevant observations can be explicitly pinned or retained through a traceable semantic policy.
+- Historical tool-call arguments, including large patch inputs, are handled without breaking provider assistant/tool message contracts.
+- Resumed Sessions reconstruct a compact working set rather than replaying every prior observation and tool argument verbatim.
 - Trace remains immutable and metadata-first; compaction does not rewrite saved Trace evidence.
-- Budget updates distinguish active conversation pressure from persisted Trace size.
-- Tests prove repeated large file reads do not cause unbounded growth in later model inputs.
+- Budget updates distinguish complete active conversation pressure from persisted Trace size and from the V1 observation byte target.
+- Tests cover semantic retention, tool-argument handling, and resumed Session reconstruction.
 
 ### V2 Issue 5: Add project memory workflow
 

@@ -14,8 +14,16 @@ export interface SessionExplanation {
   toolResults: ToolResultExplanation[];
   permissionDecisions: PermissionExplanation[];
   approvalDecisions: ApprovalExplanation[];
+  compaction?: ConversationCompactionExplanation;
   audit?: SessionAudit;
   missingEvidence: string[];
+}
+
+export interface ConversationCompactionExplanation {
+  passCount: number;
+  compactedObservations: number;
+  bytesRemoved: number;
+  maxResidualOverageBytes: number;
 }
 
 export interface ToolResultExplanation {
@@ -76,6 +84,7 @@ export async function explainSession(
     approvalDecisions: events
       .filter((event) => event.type === "approval_decision")
       .map(toApprovalExplanation),
+    compaction: explainConversationCompaction(events),
     audit: asSessionAudit(finalSummary?.payload.audit),
     missingEvidence: [
       ...(finalSummary ? [] : ["final_summary"]),
@@ -83,6 +92,39 @@ export async function explainSession(
     ],
   };
 }
+
+const explainConversationCompaction = (
+  events: TraceEvent[],
+): ConversationCompactionExplanation | undefined => {
+  const compactionEvents = events.filter(
+    (event) =>
+      event.type === "conversation_compacted" ||
+      event.type === "conversation_compaction_attempted",
+  );
+  if (compactionEvents.length === 0) return undefined;
+  return {
+    passCount: compactionEvents.length,
+    compactedObservations: compactionEvents.reduce(
+      (total, event) => total + asNumber(event.payload.compactedCount),
+      0,
+    ),
+    bytesRemoved: compactionEvents.reduce(
+      (total, event) =>
+        total +
+        Math.max(
+          0,
+          asNumber(event.payload.beforeObservationBytes) -
+            asNumber(event.payload.afterObservationBytes),
+        ),
+      0,
+    ),
+    maxResidualOverageBytes: Math.max(
+      ...compactionEvents.map((event) =>
+        asNumber(event.payload.residualOverageBytes),
+      ),
+    ),
+  };
+};
 
 const toToolResultExplanation = (
   event: TraceEvent,
@@ -130,4 +172,8 @@ function asSessionAudit(value: unknown): SessionAudit | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function asNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }

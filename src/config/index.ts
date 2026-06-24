@@ -33,6 +33,9 @@ export interface ForgeletConfig {
     maxInputTokens: number;
     maxEstimatedCostUsd: number;
   };
+  activeContext: {
+    maxObservationBytes: number;
+  };
   safeCommands: string[];
   testCommands: string[];
   commandTimeoutMs: number;
@@ -73,6 +76,9 @@ export const defaultConfig: ForgeletConfig = {
     maxInputTokens: 120000,
     maxEstimatedCostUsd: 1.0,
   },
+  activeContext: {
+    maxObservationBytes: 16 * 1024,
+  },
   safeCommands: ["npm test", "npm run build", "npm run typecheck", "npx jest"],
   testCommands: ["npm test", "npm run build", "npm run typecheck"],
   commandTimeoutMs: 60_000,
@@ -98,7 +104,12 @@ export async function loadConfig(
   const projectConfig = await readOptionalJson(
     join(input.workspaceRoot, ".forgelet", "config.json"),
   );
-  return mergeConfig(mergeConfig(defaultConfig, homeConfig), projectConfig);
+  const config = mergeConfig(
+    mergeConfig(defaultConfig, homeConfig),
+    projectConfig,
+  );
+  validateConfig(config);
+  return config;
 }
 
 export async function setGlobalConfigValue(
@@ -130,6 +141,24 @@ function applySupportedConfigValue(
   value: string,
 ): WritableConfig {
   if (key === "memoryFile") return { ...config, memoryFile: value };
+  if (key === "activeContext.maxObservationBytes") {
+    const maxObservationBytes = Number(value);
+    if (
+      !Number.isFinite(maxObservationBytes) ||
+      !Number.isInteger(maxObservationBytes) ||
+      maxObservationBytes < 4_096
+    )
+      throw new Error(
+        "activeContext.maxObservationBytes must be a finite integer of at least 4096.",
+      );
+    return {
+      ...config,
+      activeContext: {
+        ...config.activeContext,
+        maxObservationBytes,
+      },
+    };
+  }
   if (key === "providers.deepseek.apiKeyEnv")
     return {
       ...config,
@@ -157,7 +186,7 @@ function applySupportedConfigValue(
   throw new Error(
     [
       `Unsupported config key for V1: ${key}`,
-      "Supported keys: memoryFile, providers.deepseek.apiKeyEnv, providers.openai.apiKeyEnv, providers.anthropic.apiKeyEnv",
+      "Supported keys: memoryFile, activeContext.maxObservationBytes, providers.deepseek.apiKeyEnv, providers.openai.apiKeyEnv, providers.anthropic.apiKeyEnv",
     ].join("\n"),
   );
 }
@@ -186,12 +215,28 @@ function mergeConfig(
       ...base.budgets,
       ...override.budgets,
     },
+    activeContext: {
+      ...base.activeContext,
+      ...override.activeContext,
+    },
     safeCommands: override.safeCommands ?? base.safeCommands,
     testCommands: override.testCommands ?? base.testCommands,
     commandTimeoutMs: override.commandTimeoutMs ?? base.commandTimeoutMs,
     maxPatchBytes: override.maxPatchBytes ?? base.maxPatchBytes,
     memoryFile: override.memoryFile ?? base.memoryFile,
   };
+}
+
+function validateConfig(config: ForgeletConfig): void {
+  const maxObservationBytes = config.activeContext.maxObservationBytes;
+  if (
+    !Number.isFinite(maxObservationBytes) ||
+    !Number.isInteger(maxObservationBytes) ||
+    maxObservationBytes < 4_096
+  )
+    throw new Error(
+      "activeContext.maxObservationBytes must be a finite integer of at least 4096.",
+    );
 }
 
 async function readOptionalJson(path: string): Promise<WritableConfig> {

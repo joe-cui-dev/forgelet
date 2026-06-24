@@ -66,6 +66,7 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
           contextFiles: command.contextFiles,
           model: command.model,
           budgetUsd: command.budgetUsd,
+          homeDir: options.homeDir,
           workspaceRoot,
           modelClient,
           act: command.act,
@@ -267,6 +268,7 @@ function formatSessionExplanation(explanation: SessionExplanation): string {
     "",
     "Tool use",
     ...formatToolResults(explanation.toolResults),
+    ...formatConversationCompaction(explanation.compaction),
     "",
     "Permissions and approvals",
     ...formatPermissions(explanation),
@@ -278,6 +280,20 @@ function formatSessionExplanation(explanation: SessionExplanation): string {
     "- Trace records the model turns, tool calls, permission decisions, results, and final audit.",
     "- The explanation is deterministic: it only uses recorded Session evidence.",
   ].join("\n");
+}
+
+function formatConversationCompaction(
+  compaction: SessionExplanation["compaction"],
+): string[] {
+  if (!compaction) return [];
+  return [
+    "",
+    "Conversation compaction:",
+    `Passes: ${compaction.passCount}`,
+    `Compacted observations: ${compaction.compactedObservations}`,
+    `Bytes removed: ${compaction.bytesRemoved}`,
+    `Maximum residual overage: ${compaction.maxResidualOverageBytes} bytes`,
+  ];
 }
 
 function formatMemorySuggestion(suggestion: MemorySuggestion): string {

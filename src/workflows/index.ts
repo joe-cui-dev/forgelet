@@ -19,6 +19,7 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { loadConfig, routeModel } from "../config/index.js";
 import { loadContextAttachments } from "../context/index.js";
+import { compactConversationInPlace } from "../conversation/compaction.js";
 import { loadDurableMemory, type LoadedDurableMemory } from "../memory/index.js";
 import { createTraceWriter } from "../trace/index.js";
 import { createActionableCodingTools } from "../tools/actionable.js";
@@ -35,6 +36,7 @@ export interface RunWorkflowInput {
   contextFiles: string[];
   model?: string;
   budgetUsd?: number;
+  homeDir?: string;
   workspaceRoot: string;
   modelClient?: ModelClient;
   act?: boolean;
@@ -66,6 +68,7 @@ interface RunReadOnlyLoopInput {
   safeCommands: string[];
   commandTimeoutMs: number;
   maxPatchBytes: number;
+  maxObservationBytes: number;
   act: boolean;
   baselineDirtyPaths: Set<string>;
   tracePath: string;
@@ -106,7 +109,10 @@ export const runWorkflowSession = async (
   const sessionId = `sess_${Date.now().toString(36)}`;
   const taskHash = hashTask(input.task);
   const traceWriter = await createTraceWriter(input.workspaceRoot, sessionId);
-  const config = await loadConfig({ workspaceRoot: input.workspaceRoot });
+  const config = await loadConfig({
+    homeDir: input.homeDir,
+    workspaceRoot: input.workspaceRoot,
+  });
   const baselineDirtyPaths =
     input.act && input.workflow === "coding"
       ? await gitStatusPaths(input.workspaceRoot)
@@ -202,6 +208,7 @@ export const runWorkflowSession = async (
       safeCommands: config.safeCommands,
       commandTimeoutMs: config.commandTimeoutMs,
       maxPatchBytes: config.maxPatchBytes,
+      maxObservationBytes: config.activeContext.maxObservationBytes,
       act: input.act === true && input.workflow === "coding",
       baselineDirtyPaths,
       tracePath: traceWriter.tracePath,
@@ -359,6 +366,20 @@ const runReadOnlyLoop = async (
       return { status: "stopped", reason: stopReason, summary };
     }
 
+    const compaction = compactConversationInPlace(conversation, {
+      maxObservationBytes: input.maxObservationBytes,
+    });
+    if (
+      compaction.compactedCount > 0 ||
+      compaction.beforeObservationBytes > compaction.targetObservationBytes
+    )
+      await input.appendTrace(
+        compaction.compactedCount > 0
+          ? "conversation_compacted"
+          : "conversation_compaction_attempted",
+        { ...compaction },
+      );
+
     const output = await input.modelClient.createTurn({
       task: input.session.task,
       messages: buildMessages(
@@ -371,6 +392,9 @@ const runReadOnlyLoop = async (
         input.limits,
         conversation,
         input.act,
+        compaction.compactedCount > 0
+          ? `Active observations compacted: ${compaction.afterObservationBytes}/${compaction.targetObservationBytes} bytes.`
+          : undefined,
       ),
       tools,
     });
@@ -683,6 +707,7 @@ const buildMessages = (
   limits: BudgetLimits,
   conversation: ModelMessage[],
   act: boolean,
+  compactionStatus?: string,
 ): ModelMessage[] => {
   const contextAttachmentLines =
     formatContextAttachmentsForPrompt(contextAttachments);
@@ -707,6 +732,7 @@ const buildMessages = (
         ...plan.items.map((item) => `- ${item.status}: ${item.step}`),
         "",
         `Budget: ${usage.modelTurns}/${limits.maxModelTurns} model turns, $${usage.estimatedCostUsd.toFixed(4)}/$${limits.maxEstimatedCostUsd.toFixed(4)} estimated.`,
+        ...(compactionStatus ? [compactionStatus] : []),
       ].join("\n"),
     },
   ];

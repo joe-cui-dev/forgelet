@@ -77,6 +77,75 @@ test("a coding Session can search, read, and finish through read-only tools", as
   expect(String(readResult.payload.preview)).toMatch(/needle/);
 });
 
+test("a Session compacts old tool observations before a later model turn", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-compaction-"));
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "config.json"),
+    JSON.stringify({ activeContext: { maxObservationBytes: 4_096 } }),
+    "utf8",
+  );
+  await writeFile(join(workspaceRoot, "first.txt"), "a".repeat(8_000), "utf8");
+  await writeFile(join(workspaceRoot, "second.txt"), "b".repeat(8_000), "utf8");
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        { id: "call_first", name: "read_file", input: { path: "first.txt" } },
+      ],
+    },
+    {
+      toolCalls: [
+        { id: "call_second", name: "read_file", input: { path: "second.txt" } },
+      ],
+    },
+    { content: "Both files were inspected.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "inspect both files",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  expect(result.summary).toMatch(/Both files were inspected/);
+  const thirdTurnMessages = modelClient.turnInputs[2]?.messages ?? [];
+  const toolMessages = thirdTurnMessages.filter(
+    (message) => message.role === "tool",
+  );
+  expect(JSON.parse(toolMessages[0]?.content ?? "{}").compacted).toBe(true);
+  expect(JSON.parse(toolMessages[1]?.content ?? "{}").content).toHaveLength(
+    8_000,
+  );
+  expect(
+    thirdTurnMessages.find((message) => message.role === "user")?.content,
+  ).toMatch(/Active observations compacted: \d+\/4096 bytes/);
+
+  const events = (await readFile(result.tracePath ?? "", "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const compacted = events.find(
+    (event) => event.type === "conversation_compacted",
+  );
+  const attempted = events.find(
+    (event) => event.type === "conversation_compaction_attempted",
+  );
+  expect(attempted.payload).toMatchObject({
+    compactedCount: 0,
+    targetObservationBytes: 4_096,
+  });
+  expect(compacted.payload).toMatchObject({
+    compactedCount: 1,
+    targetObservationBytes: 4_096,
+    toolNames: ["read_file"],
+  });
+  expect("content" in compacted.payload).toBe(false);
+  expect("path" in compacted.payload).toBe(false);
+  expect("preview" in compacted.payload).toBe(false);
+});
+
 test("context attachments are rendered for the model without storing full content in the trace", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-context-"));
   const largeContext = `Important issue context\n${"x".repeat(22 * 1024)}\nHidden tail marker\n`;
