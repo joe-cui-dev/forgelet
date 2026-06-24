@@ -4,6 +4,14 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { loadConfig } from "../../src/config/index.js";
 
+test("default actionable Sessions can run the repository typecheck", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-default-config-"));
+
+  const config = await loadConfig({ workspaceRoot });
+
+  expect(config.safeCommands).toContain("npm run typecheck");
+});
+
 test("loads merged default, global, and project config", async () => {
   const homeDir = await mkdtemp(join(tmpdir(), "forgelet-home-"));
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-project-"));

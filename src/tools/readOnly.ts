@@ -229,8 +229,25 @@ export const createReadOnlyTools = (plan: AgentPlan): ToolDefinition[] => {
       capability: "update_plan",
       description: "Replace the current Session plan.",
       inputSchema: {
+        // The input schema validates that the model provides an array of plan items with the required fields and correct types, and that the status field is one of the allowed values in the PlanStatus vocabulary. This validation helps ensure that the model's proposed plan updates are well-formed and adhere to the expected structure before the Session state is mutated, which is important for maintaining the integrity of the Session and enabling effective observation of the plan by the model.
         type: "object",
-        properties: { items: { type: "array" } },
+        properties: {
+          items: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                step: { type: "string" },
+                status: {
+                  type: "string",
+                  enum: ["pending", "in_progress", "completed"],
+                },
+              },
+              required: ["step", "status"],
+              additionalProperties: false,
+            },
+          },
+        },
         required: ["items"],
         additionalProperties: false,
       },

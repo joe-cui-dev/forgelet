@@ -46,8 +46,12 @@ export const createActionableCodingTools = (
     name: "run_command",
     providerId: "command",
     capability: "run_safe_command",
-    description:
-      "Run one exact configured safe command in the workspace without a shell.",
+    description: [
+      "Run one configured safe command in the workspace without a shell.",
+      options.safeCommands.length > 0
+        ? `The command must match exactly one of: ${options.safeCommands.join(", ")}.`
+        : "No commands are configured safe for this Session.",
+    ].join(" "),
     inputSchema: {
       type: "object",
       properties: { command: { type: "string" } },

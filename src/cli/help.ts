@@ -8,6 +8,7 @@ Usage:
   forge --live --budget 0.25 "<task>"
   forge --live --act "<task>"
   forge --model deepseek-v4-pro "<task>"
+  forge --version | -v
   forge --budget 0.25 "<task>"
   forge config get
   forge config set <key> <value>

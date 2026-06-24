@@ -9,6 +9,23 @@ import type { ToolContext } from "../../src/types.js";
 
 const TEST_COMMAND_TIMEOUT_MS = 5_000;
 
+test("run_command tells the model which exact commands are configured safe", () => {
+  const tools = createActionableCodingTools({
+    safeCommands: ["npm test", "npm run typecheck"],
+    commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
+    maxPatchBytes: 100_000,
+    sessionState: {
+      baselineDirtyPaths: new Set(),
+      forgeletTouchedPaths: new Set(),
+    },
+  });
+
+  const runCommand = tools.find((tool) => tool.name === "run_command");
+  expect(runCommand?.description).toMatch(/npm test/);
+  expect(runCommand?.description).toMatch(/npm run typecheck/);
+  expect(runCommand?.description).toMatch(/exactly/);
+});
+
 test("apply_patch modifies an ordinary workspace file after approval", async () => {
   const workspaceRoot = await createGitWorkspace();
   await writeFile(join(workspaceRoot, "example.txt"), "original\n", "utf8");

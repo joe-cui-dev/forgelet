@@ -956,6 +956,47 @@ test("update_plan records the changed Session plan in the trace", async () => {
   ]);
 });
 
+test("update_plan tells the model the required plan item shape", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-plan-schema-"));
+  const modelClient = new FakeModelClient([
+    { content: "No plan update needed.", toolCalls: [] },
+  ]);
+
+  await runAgent({
+    workflow: "coding",
+    task: "inspect the plan tool",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const updatePlan = modelClient.turnInputs[0]?.tools.find(
+    (tool) => tool.name === "update_plan",
+  );
+  expect(updatePlan?.inputSchema).toEqual({
+    type: "object",
+    properties: {
+      items: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            step: { type: "string" },
+            status: {
+              type: "string",
+              enum: ["pending", "in_progress", "completed"],
+            },
+          },
+          required: ["step", "status"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["items"],
+    additionalProperties: false,
+  });
+});
+
 test("read-only tools do not follow workspace symlinks outside the workspace", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-symlink-"));
   const outsideRoot = await mkdtemp(join(tmpdir(), "forgelet-outside-"));
