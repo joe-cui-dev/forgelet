@@ -671,6 +671,250 @@ test("large read_file observations are truncated for the model and not stored fu
   expect(String(readResult.payload.preview)).not.toMatch(/needle-at-end/);
 });
 
+test("read_file can continue from a byte offset without returning the first chunk again", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-byte-range-"));
+  const content = `${"a".repeat(64)}SECOND_CHUNK${"b".repeat(64)}`;
+  await writeFile(join(workspaceRoot, "range.txt"), content, "utf8");
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        {
+          id: "call_read",
+          name: "read_file",
+          input: { path: "range.txt", offsetBytes: 64, limitBytes: 12 },
+        },
+      ],
+    },
+    { content: "Read the requested byte range.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "read a later byte range",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const toolMessage = modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "";
+  const observation = JSON.parse(toolMessage);
+  expect(observation.ok).toBe(true);
+  expect(observation.content).toBe("SECOND_CHUNK");
+  expect(observation.metadata.rangeKind).toBe("byte");
+  expect(observation.metadata.offsetBytes).toBe(64);
+  expect(observation.metadata.limitBytes).toBe(12);
+  expect(observation.metadata.returnedStartByte).toBe(64);
+  expect(observation.metadata.returnedEndByte).toBe(76);
+  expect(observation.metadata.nextOffsetBytes).toBe(76);
+
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const readResult = events.find(
+    (event) =>
+      event.type === "tool_result" && event.payload.toolName === "read_file",
+  );
+  expect(readResult.payload.rangeKind).toBe("byte");
+  expect(readResult.payload.returnedStartByte).toBe(64);
+  expect(readResult.payload.returnedEndByte).toBe(76);
+});
+
+test("read_file can return a one-based line range without line number prefixes", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-line-range-"));
+  await writeFile(
+    join(workspaceRoot, "lines.ts"),
+    ["line one", "line two", "line three", "line four"].join("\n"),
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        {
+          id: "call_read",
+          name: "read_file",
+          input: { path: "lines.ts", startLine: 2, lineCount: 2 },
+        },
+      ],
+    },
+    { content: "Read the requested line range.", toolCalls: [] },
+  ]);
+
+  await runAgent({
+    workflow: "coding",
+    task: "read a line range",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const toolMessage = modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "";
+  const observation = JSON.parse(toolMessage);
+  expect(observation.ok).toBe(true);
+  expect(observation.content).toBe("line two\nline three");
+  expect(observation.content).not.toMatch(/^2:/);
+  expect(observation.metadata.rangeKind).toBe("line");
+  expect(observation.metadata.startLine).toBe(2);
+  expect(observation.metadata.lineCount).toBe(2);
+  expect(observation.metadata.returnedStartLine).toBe(2);
+  expect(observation.metadata.returnedEndLine).toBe(3);
+});
+
+test("read_file tail reads return the end of a file instead of the first chunk", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-tail-range-"));
+  await writeFile(
+    join(workspaceRoot, "tail.txt"),
+    ["first line", "middle line", "tail one", "tail two"].join("\n"),
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        {
+          id: "call_read",
+          name: "read_file",
+          input: { path: "tail.txt", tailLines: 2 },
+        },
+      ],
+    },
+    { content: "Read the tail.", toolCalls: [] },
+  ]);
+
+  await runAgent({
+    workflow: "coding",
+    task: "read the file tail",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const toolMessage = modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "";
+  const observation = JSON.parse(toolMessage);
+  expect(observation.ok).toBe(true);
+  expect(observation.content).toBe("tail one\ntail two");
+  expect(observation.content).not.toMatch(/first line/);
+  expect(observation.metadata.rangeKind).toBe("tail");
+  expect(observation.metadata.tailLines).toBe(2);
+  expect(observation.metadata.returnedStartLine).toBe(3);
+  expect(observation.metadata.returnedEndLine).toBe(4);
+});
+
+test("read_file rejects conflicting range modes as invalid input", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-range-conflict-"));
+  await writeFile(join(workspaceRoot, "conflict.txt"), "one\ntwo\n", "utf8");
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        {
+          id: "call_read",
+          name: "read_file",
+          input: {
+            path: "conflict.txt",
+            startLine: 1,
+            lineCount: 1,
+            tailLines: 1,
+          },
+        },
+      ],
+    },
+    { content: "Saw the range conflict.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "read conflicting ranges",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const toolMessage = modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "";
+  const observation = JSON.parse(toolMessage);
+  expect(observation.ok).toBe(false);
+  expect(observation.error.code).toBe("invalid_input");
+  expect(observation.error.message).toMatch(/range modes are mutually exclusive/i);
+
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const readResult = events.find(
+    (event) =>
+      event.type === "tool_result" && event.payload.toolName === "read_file",
+  );
+  expect(readResult.payload.ok).toBe(false);
+  expect(readResult.payload.error.code).toBe("invalid_input");
+});
+
+test("read_file byte ranges beyond the end return an empty successful observation", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-range-eof-"));
+  await writeFile(join(workspaceRoot, "short.txt"), "short", "utf8");
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        {
+          id: "call_read",
+          name: "read_file",
+          input: { path: "short.txt", offsetBytes: 100, limitBytes: 10 },
+        },
+      ],
+    },
+    { content: "Saw the empty range.", toolCalls: [] },
+  ]);
+
+  await runAgent({
+    workflow: "coding",
+    task: "read beyond eof",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const toolMessage = modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "";
+  const observation = JSON.parse(toolMessage);
+  expect(observation.ok).toBe(true);
+  expect(observation.content).toBe("");
+  expect(observation.metadata.rangeKind).toBe("byte");
+  expect(observation.metadata.totalBytes).toBe(5);
+  expect(observation.metadata.returnedBytes).toBe(0);
+  expect(observation.metadata.returnedStartByte).toBe(5);
+  expect(observation.metadata.returnedEndByte).toBe(5);
+  expect(observation.metadata.nextOffsetBytes).toBeUndefined();
+});
+
+test("read_file rejects zero as a one-based start line", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-line-zero-"));
+  await writeFile(join(workspaceRoot, "lines.txt"), "one\ntwo\n", "utf8");
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        {
+          id: "call_read",
+          name: "read_file",
+          input: { path: "lines.txt", startLine: 0, lineCount: 1 },
+        },
+      ],
+    },
+    { content: "Saw the invalid line range.", toolCalls: [] },
+  ]);
+
+  await runAgent({
+    workflow: "coding",
+    task: "read invalid line range",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const toolMessage = modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "";
+  const observation = JSON.parse(toolMessage);
+  expect(observation.ok).toBe(false);
+  expect(observation.error.code).toBe("invalid_input");
+  expect(observation.error.message).toMatch(/positive integer input: startLine/);
+});
+
 test("update_plan records the changed Session plan in the trace", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-plan-"));
   const modelClient = new FakeModelClient([

@@ -18,6 +18,17 @@ export const toolResultToObservation = (
   if (typeof data.contentHash === "string")
     metadata.contentHash = data.contentHash;
   if (typeof data.path === "string") metadata.path = data.path;
+  if (typeof data.rangeKind === "string") metadata.rangeKind = data.rangeKind;
+  copyNumberMetadata(data, metadata, "offsetBytes");
+  copyNumberMetadata(data, metadata, "limitBytes");
+  copyNumberMetadata(data, metadata, "startLine");
+  copyNumberMetadata(data, metadata, "lineCount");
+  copyNumberMetadata(data, metadata, "tailLines");
+  copyNumberMetadata(data, metadata, "returnedStartByte");
+  copyNumberMetadata(data, metadata, "returnedEndByte");
+  copyNumberMetadata(data, metadata, "returnedStartLine");
+  copyNumberMetadata(data, metadata, "returnedEndLine");
+  copyNumberMetadata(data, metadata, "nextOffsetBytes");
   if (Array.isArray(data.changedFiles))
     metadata.changedFiles = data.changedFiles.filter(
       (item): item is string => typeof item === "string",
@@ -76,3 +87,23 @@ export const unknownToolObservation = (
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 };
+
+const copyNumberMetadata = (
+  data: Record<string, unknown>,
+  metadata: ToolObservation["metadata"],
+  key: NumberMetadataKey,
+): void => {
+  if (typeof data[key] === "number") metadata[key] = data[key];
+};
+
+type NumberMetadataKey =
+  | "offsetBytes"
+  | "limitBytes"
+  | "startLine"
+  | "lineCount"
+  | "tailLines"
+  | "returnedStartByte"
+  | "returnedEndByte"
+  | "returnedStartLine"
+  | "returnedEndLine"
+  | "nextOffsetBytes";

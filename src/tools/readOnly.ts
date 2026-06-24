@@ -74,31 +74,128 @@ export const createReadOnlyTools = (plan: AgentPlan): ToolDefinition[] => {
       name: "read_file",
       providerId: "workspace",
       capability: "read_workspace",
-      description:
+      // The description is intentionally detailed to guide the model in using the tool effectively for iterative reading of large files and specific ranges.
+      description: [
         "Read a workspace file, truncated to the model observation limit.",
+        "Use { path } for the first chunk.",
+        "If truncated, continue with { path, offsetBytes: metadata.nextOffsetBytes }.",
+        "Use 1-based { path, startLine, lineCount } for source ranges.",
+        "Use { path, tailLines } for the end of a file.",
+        "Range modes are mutually exclusive.",
+      ].join(" "),
       inputSchema: {
         type: "object",
-        properties: { path: { type: "string" } },
+        properties: {
+          path: { type: "string" },
+          offsetBytes: { type: "number" },
+          limitBytes: { type: "number" },
+          startLine: { type: "number" },
+          lineCount: { type: "number" },
+          tailLines: { type: "number" },
+        },
         required: ["path"],
         additionalProperties: false,
       },
+      // The implementation supports multiple range modes and includes metadata in the tool result to enable the model to manage iterative reads and understand the context of the returned content.
       execute: async (input, ctx) => {
-        const path = requiredString(input, "path");
-        const absolutePath = await safeWorkspacePath(ctx.workspaceRoot, path);
-        const buffer = await readFile(absolutePath);
-        const returned = buffer.subarray(0, READ_FILE_LIMIT_BYTES);
-        return {
-          ok: true,
-          summary: `Read ${path}${buffer.length > returned.length ? " with truncation" : ""}.`,
-          data: {
-            content: returned.toString("utf8"),
-            path,
-            truncated: buffer.length > returned.length,
-            totalBytes: buffer.length,
-            returnedBytes: returned.length,
-            contentHash: createHash("sha256").update(buffer).digest("hex"),
+        const path = requiredString(input, "path"); // Validate and resolve the file path safely within the workspace to prevent unauthorized access and ensure the file exists before attempting to read it.
+        // Validate and determine range mode.
+        const offsetBytes = optionalNonNegativeInteger(input, "offsetBytes"); // 0-based byte offset for reading a specific byte range.
+        const limitBytes = optionalPositiveInteger(input, "limitBytes"); // Byte limit for the chunk to read, up to the tool's maximum.
+        const startLine = optionalPositiveInteger(input, "startLine"); // 1-based starting line number for reading a specific line range.
+        const lineCount = optionalPositiveInteger(input, "lineCount"); // Number of lines to read from the starting line for a line range.
+        const tailLines = optionalPositiveInteger(input, "tailLines"); // Number of lines to read from the end of the file for a tail range.
+        const hasByteRange =
+          offsetBytes !== undefined || limitBytes !== undefined; // Indicates if byte range mode is requested.
+        const hasLineRange = startLine !== undefined || lineCount !== undefined; // Indicates if line range mode is requested.
+        const hasTailRange = tailLines !== undefined; // Indicates if tail range mode is requested.
+        if (
+          [hasByteRange, hasLineRange, hasTailRange].filter(Boolean).length > 1
+        ) {
+          // Enforce that only one range mode is used at a time to avoid ambiguity in how to interpret the input parameters.
+          throw new Error("read_file range modes are mutually exclusive.");
+        }
+        const absolutePath = await safeWorkspacePath(ctx.workspaceRoot, path); // Resolve the file path safely within the workspace to prevent unauthorized access to the file system.
+        const buffer = await readFile(absolutePath); // Read the entire file into a buffer to allow for flexible slicing based on the requested range mode. This approach is suitable for files that are within a reasonable size limit, as it simplifies the logic for handling different types of ranges (byte, line, tail) without needing to manage file streams or multiple reads.
+        if (tailLines !== undefined) {
+          // For tail range mode, split the file into lines and select the last N lines as specified by tailLines. Then, apply byte-level truncation to the selected lines if they exceed the tool's byte limit. The tool result includes metadata about the range of lines returned and whether truncation occurred, enabling the model to make informed decisions about subsequent reads if needed.
+          const lines = buffer.toString("utf8").split("\n");
+          const returnedStartLine = Math.max(lines.length - tailLines + 1, 1); // Calculate the starting line number for the tail range, ensuring it does not go below 1.
+          const selected = lines.slice(returnedStartLine - 1); // Select the lines for the tail range based on the calculated starting line.
+          const selectedBuffer = Buffer.from(selected.join("\n"), "utf8"); // Convert the selected lines back into a buffer for consistent handling of byte limits and truncation.
+          const returned = selectedBuffer.subarray(0, READ_FILE_LIMIT_BYTES); // Apply byte-level truncation to the selected tail lines to ensure the returned content does not exceed the tool's observation limit, while still providing as much of the tail content as possible.
+          const returnedContent = returned.toString("utf8"); // Convert the returned buffer back to a string for inclusion in the tool result, allowing the model to read the content directly while also providing metadata about the range and truncation status.
+          const returnedLineCount = returnedContent
+            ? returnedContent.split("\n").length
+            : 0; // Calculate the number of lines in the returned content to include in the metadata, which helps the model understand how much of the requested tail range was included in the response and whether further reads are necessary to retrieve more of the tail content.
+          // Return the tool result with the content and metadata about the tail range, including whether truncation occurred and the line numbers of the returned content, enabling the model to manage iterative reads effectively if the entire tail range was not included in the initial response.
+          return readFileToolResult(path, buffer, returned, {
+            truncated: selectedBuffer.length > returned.length,
+            rangeMetadata: {
+              rangeKind: "tail",
+              tailLines,
+              returnedStartLine:
+                returnedLineCount > 0 ? returnedStartLine : undefined,
+              returnedEndLine:
+                returnedLineCount > 0
+                  ? returnedStartLine + returnedLineCount - 1
+                  : undefined,
+            },
+          });
+        }
+        if (startLine !== undefined || lineCount !== undefined) {
+          // For line range mode, split the file into lines and select the specified range of lines based on startLine and lineCount. Similar to tail range mode, apply byte-level truncation to the selected lines if they exceed the tool's byte limit. The tool result includes metadata about the requested line range and the actual lines returned, allowing the model to understand the context of the returned content and manage subsequent reads if needed to retrieve additional lines from the requested range.
+          if (startLine === undefined || lineCount === undefined)
+            throw new Error("Line ranges require startLine and lineCount.");
+          const lines = buffer.toString("utf8").split("\n"); // Split the file content into lines to facilitate line-based selection for the line range mode.
+          const selected = lines.slice(
+            startLine - 1,
+            startLine - 1 + lineCount,
+          ); // Select the lines for the requested line range based on the provided startLine and lineCount, adjusting for 0-based indexing in the array.
+          const selectedBuffer = Buffer.from(selected.join("\n"), "utf8"); // Convert the selected lines back into a buffer for consistent handling of byte limits and truncation, allowing the tool to apply the same byte-level truncation logic regardless of the range mode.
+          const returned = selectedBuffer.subarray(0, READ_FILE_LIMIT_BYTES); // Apply byte-level truncation to the selected lines to ensure the returned content does not exceed the tool's observation limit, while still providing as much of the requested line range as possible.
+          const returnedContent = returned.toString("utf8"); // Convert the returned buffer back to a string for inclusion in the tool result, allowing the model to read the content directly while also providing metadata about the range and truncation status.
+          const returnedLineCount = returnedContent
+            ? returnedContent.split("\n").length
+            : 0; // Calculate the number of lines in the returned content to include in the metadata, which helps the model understand how much of the requested line range was included in the response and whether further reads are necessary to retrieve more lines.
+          // Return the tool result with the content and metadata about the line range, including whether truncation occurred and the line numbers of the returned content, enabling the model to manage iterative reads effectively if the entire requested line range was not included in the initial response.
+          return readFileToolResult(path, buffer, returned, {
+            truncated: selectedBuffer.length > returned.length,
+            rangeMetadata: {
+              rangeKind: "line",
+              startLine,
+              lineCount,
+              returnedStartLine: returnedLineCount > 0 ? startLine : undefined,
+              returnedEndLine:
+                returnedLineCount > 0
+                  ? startLine + returnedLineCount - 1
+                  : undefined,
+            },
+          });
+        }
+        // For byte range mode (or default mode if no specific range parameters are provided), calculate the byte range to return based on offsetBytes and limitBytes, applying truncation as needed to ensure the returned content does not exceed the tool's observation limit. The tool result includes metadata about the byte range returned and whether truncation occurred, allowing the model to manage iterative reads effectively if the entire file was not included in the initial response. If no range parameters are provided, the tool defaults to returning the first chunk of the file up to the observation limit, and the metadata indicates that this is the default range mode, which can help the model understand that it is receiving the initial portion of the file and may need to request subsequent byte ranges if it needs more content from the file.
+        const startByte = Math.min(offsetBytes ?? 0, buffer.length); // Determine the starting byte offset for the read operation, defaulting to 0 if offsetBytes is not provided, and ensuring it does not exceed the file size.
+        const byteLimit = Math.min(
+          limitBytes ?? READ_FILE_LIMIT_BYTES,
+          READ_FILE_LIMIT_BYTES,
+        ); // Determine the byte limit for the read operation, defaulting to the tool's maximum observation limit if limitBytes is not provided, and ensuring it does not exceed the tool's defined maximum to prevent excessively large reads.
+        const endByte = Math.min(startByte + byteLimit, buffer.length); // Calculate the ending byte offset for the read operation based on the starting byte and the byte limit, ensuring it does not exceed the file size.
+        const returned = buffer.subarray(startByte, endByte); // Extract the specified byte range from the file buffer to return as the content for this tool execution, allowing for flexible reading of large files in manageable chunks based on the model's requests.
+        // Return the tool result with the content and metadata about the byte range, including whether truncation occurred and the byte offsets of the returned content, enabling the model to manage iterative reads effectively if the entire file was not included in the initial response or if it is navigating through a large file using byte ranges.
+        return readFileToolResult(path, buffer, returned, {
+          truncated: endByte < buffer.length,
+          rangeMetadata: {
+            rangeKind:
+              offsetBytes === undefined && limitBytes === undefined
+                ? "default"
+                : "byte",
+            offsetBytes,
+            limitBytes,
+            returnedStartByte: startByte,
+            returnedEndByte: endByte,
+            nextOffsetBytes: endByte < buffer.length ? endByte : undefined,
           },
-        };
+        });
       },
     },
     {
@@ -192,6 +289,31 @@ const listFiles = async (
   return files.sort();
 };
 
+// Formats read_file results with metadata for truncation and range modes to support iterative reads by the model and human inspection of tool results.
+const readFileToolResult = (
+  path: string,
+  fullBuffer: Buffer,
+  returned: Buffer,
+  options: {
+    truncated: boolean;
+    rangeMetadata: Record<string, unknown>;
+  },
+): ToolResult => {
+  return {
+    ok: true,
+    summary: `Read ${path}${options.truncated ? " with truncation" : ""}.`,
+    data: {
+      content: returned.toString("utf8"),
+      path,
+      truncated: options.truncated,
+      totalBytes: fullBuffer.length,
+      returnedBytes: returned.length,
+      contentHash: createHash("sha256").update(fullBuffer).digest("hex"),
+      ...options.rangeMetadata,
+    },
+  };
+};
+
 // Returns UTF-8 text only for files that look safe and useful to search.
 const readTextIfSmall = async (path: string): Promise<string | undefined> => {
   const ext = extname(path);
@@ -261,9 +383,7 @@ const gitDiff = async (workspaceRoot: string): Promise<ToolResult> => {
 
   return {
     ok: true,
-    summary: truncated
-      ? "Read git diff with truncation."
-      : "Read git diff.",
+    summary: truncated ? "Read git diff with truncation." : "Read git diff.",
     data: {
       content: [
         "Git diff stat:",
@@ -309,6 +429,30 @@ const optionalString = (input: unknown, key: string): string | undefined => {
   if (!isRecord(input)) return undefined;
   const value = input[key];
   return typeof value === "string" ? value : undefined;
+};
+
+// Reads an optional non-negative integer field from model-provided tool input.
+const optionalNonNegativeInteger = (
+  input: unknown,
+  key: string,
+): number | undefined => {
+  if (!isRecord(input)) return undefined;
+  const value = input[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0)
+    throw new Error(`Invalid non-negative integer input: ${key}`);
+  return value;
+};
+
+// Reads an optional positive integer field from model-provided tool input.
+const optionalPositiveInteger = (
+  input: unknown,
+  key: string,
+): number | undefined => {
+  const value = optionalNonNegativeInteger(input, key);
+  if (value === undefined) return undefined;
+  if (value === 0) throw new Error(`Invalid positive integer input: ${key}`);
+  return value;
 };
 
 // Validates the model-provided replacement plan before mutating Session state.

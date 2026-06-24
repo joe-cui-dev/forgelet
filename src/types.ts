@@ -221,6 +221,17 @@ export interface ToolObservation {
     returnedBytes?: number;
     contentHash?: string;
     path?: string;
+    rangeKind?: string;
+    offsetBytes?: number;
+    limitBytes?: number;
+    startLine?: number;
+    lineCount?: number;
+    tailLines?: number;
+    returnedStartByte?: number;
+    returnedEndByte?: number;
+    returnedStartLine?: number;
+    returnedEndLine?: number;
+    nextOffsetBytes?: number;
     preview?: string;
     changedFiles?: string[];
     command?: string;
