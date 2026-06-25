@@ -13,7 +13,7 @@ export class FakeModelClient implements ModelClient {
   }
 
   async createTurn(input: ModelTurnInput): Promise<ModelTurnOutput> {
-    this.turnInputs.push(input);
+    this.turnInputs.push(structuredClone(input));
     const output = this.outputs.shift();
     if (!output)
       return { content: "No scripted model output remains.", toolCalls: [] };

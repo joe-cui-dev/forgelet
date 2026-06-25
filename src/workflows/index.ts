@@ -376,6 +376,10 @@ const runReadOnlyLoop = async (
       return { status: "stopped", reason: stopReason, summary };
     }
 
+    const remainingModelTurns =
+      input.limits.maxModelTurns - usage.modelTurns;
+    const finalOnly = remainingModelTurns === 1;
+    const finalToolTurn = remainingModelTurns === 2;
     const compaction = compactConversationInPlace(conversation, {
       maxObservationBytes: input.maxObservationBytes,
     });
@@ -405,8 +409,10 @@ const runReadOnlyLoop = async (
         compaction.compactedCount > 0
           ? `Active observations compacted: ${compaction.afterObservationBytes}/${compaction.targetObservationBytes} bytes.`
           : undefined,
+        finalOnly,
+        finalToolTurn,
       ),
-      tools,
+      tools: finalOnly ? [] : tools,
     });
 
     usage.modelTurns += 1;
@@ -423,6 +429,7 @@ const runReadOnlyLoop = async (
         name: toolCall.name,
       })),
       usage: output.usage,
+      finalOnly,
     });
     await input.appendTrace("budget_update", { usage, limits: input.limits });
 
@@ -448,6 +455,48 @@ const runReadOnlyLoop = async (
       return {
         status: "stopped",
         reason: hardBudgetStopReason,
+        summary,
+      };
+    }
+
+    if (finalOnly && output.toolCalls.length > 0) {
+      await input.appendTrace("budget_blocked_tool_calls", {
+        reason: "max_model_turns",
+        skippedCount: output.toolCalls.length,
+        toolNames: output.toolCalls.map((toolCall) => toolCall.name),
+      });
+      const summary = formatStoppedSummary(
+        input.session,
+        input.route,
+        usage,
+        "max_model_turns",
+        input.limits,
+        { reason: "max_model_turns", skippedCount: output.toolCalls.length },
+      );
+      input.session.stage = "final";
+      return {
+        status: "stopped",
+        reason: "max_model_turns",
+        summary,
+      };
+    }
+
+    if (
+      output.toolCalls.length === 0 &&
+      !isUsableFinalContent(output.content ?? "")
+    ) {
+      if (!finalOnly) continue;
+      const summary = formatStoppedSummary(
+        input.session,
+        input.route,
+        usage,
+        "max_model_turns",
+        input.limits,
+      );
+      input.session.stage = "final";
+      return {
+        status: "stopped",
+        reason: "max_model_turns",
         summary,
       };
     }
@@ -721,6 +770,8 @@ const buildMessages = (
   conversation: ModelMessage[],
   act: boolean,
   compactionStatus?: string,
+  finalOnly = false,
+  finalToolTurn = false,
 ): ModelMessage[] => {
   const contextAttachmentLines =
     formatContextAttachmentsForPrompt(contextAttachments);
@@ -728,7 +779,7 @@ const buildMessages = (
   const messages: ModelMessage[] = [
     {
       role: "system",
-      content: systemPromptFor(session.workflow, act),
+      content: systemPromptFor(session.workflow, act, finalOnly),
     },
     {
       role: "user",
@@ -746,12 +797,52 @@ const buildMessages = (
         "",
         `Budget: ${usage.modelTurns}/${limits.maxModelTurns} model turns, $${usage.estimatedCostUsd.toFixed(4)}/$${limits.maxEstimatedCostUsd.toFixed(4)} estimated.`,
         ...(compactionStatus ? [compactionStatus] : []),
+        ...(finalToolTurn
+          ? [
+              "This is the final tool-capable turn. Request only operations still required to finish.",
+            ]
+          : []),
+        ...(finalOnly
+          ? [
+              "This is the reserved final answer turn. No tools are available.",
+              "Return a non-empty final answer from existing evidence. Do not request tools or emit tool-call syntax.",
+            ]
+          : []),
       ].join("\n"),
     },
   ];
 
-  messages.push(...conversation);
+  messages.push(
+    ...(finalOnly
+      ? conversationForFinalAnswer(conversation)
+      : conversation),
+  );
   return messages;
+};
+
+const conversationForFinalAnswer = (
+  conversation: ModelMessage[],
+): ModelMessage[] => {
+  const messages: ModelMessage[] = [];
+  for (const message of conversation) {
+    if (message.role === "tool") {
+      messages.push({
+        role: "user",
+        content: `Earlier tool observation:\n${message.content}`,
+      });
+      continue;
+    }
+    if (message.role === "assistant" && message.content.trim()) {
+      messages.push({ role: "assistant", content: message.content });
+    }
+  }
+  return messages;
+};
+
+const isUsableFinalContent = (content: string): boolean => {
+  const trimmed = content.trim();
+  if (!trimmed) return false;
+  return !trimmed.includes("<｜｜DSML｜｜tool_calls>");
 };
 
 const normalizeFinalContentForWorkflow = (
@@ -783,12 +874,22 @@ const hasMarkdownHeading = (content: string, heading: string): boolean => {
   );
 };
 
-const systemPromptFor = (workflow: WorkflowKind, act: boolean): string => {
+const systemPromptFor = (
+  workflow: WorkflowKind,
+  act: boolean,
+  finalOnly = false,
+): string => {
   const common = [
     "You are running inside the Forgelet Agent Kernel.",
     "Use only the tools provided in this turn.",
     "If a tool call is denied or fails, use the observation to self-correct.",
     "When you can answer the task, return final content with no tool calls.",
+    ...(finalOnly
+      ? [
+          "FINAL ANSWER ONLY: synthesize the best answer from existing evidence.",
+          "Do not call or request tools, and do not emit tool-call syntax. If evidence is incomplete, state that limitation in the answer.",
+        ]
+      : []),
   ];
   if (workflow === "coding" && act)
     return [

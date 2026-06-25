@@ -28,7 +28,7 @@ test("compacts an old large file observation while preserving the newest tool tu
   expect(conversation[3]?.content).toBe(newestContent);
 });
 
-test("an oversized newest tool turn preserves its newest and last failed observations", () => {
+test("an oversized newest tool turn preserves every fresh observation", () => {
   const conversation: ModelMessage[] = [
     {
       role: "assistant",
@@ -43,6 +43,7 @@ test("an oversized newest tool turn preserves its newest and last failed observa
     failedToolObservation("call_failed", "read_file", "failed.txt"),
     toolObservation("call_last", "read_file", "last.txt", "c".repeat(6_000)),
   ];
+  const firstContent = conversation[1]?.content;
   const failedContent = conversation[2]?.content;
   const lastContent = conversation[3]?.content;
 
@@ -50,11 +51,37 @@ test("an oversized newest tool turn preserves its newest and last failed observa
     maxObservationBytes: 4_096,
   });
 
-  expect(result.compactedCount).toBe(1);
-  expect(JSON.parse(conversation[1]?.content ?? "{}").compacted).toBe(true);
+  expect(result.compactedCount).toBe(0);
+  expect(conversation[1]?.content).toBe(firstContent);
   expect(conversation[2]?.content).toBe(failedContent);
   expect(conversation[3]?.content).toBe(lastContent);
   expect(result.residualOverageBytes).toBeGreaterThan(0);
+});
+
+test("a fresh observation batch becomes compactable after a later tool turn", () => {
+  const conversation: ModelMessage[] = [
+    {
+      role: "assistant",
+      content: "",
+      toolCalls: [
+        { id: "call_first", name: "read_file", input: { path: "first.txt" } },
+        { id: "call_second", name: "read_file", input: { path: "second.txt" } },
+      ],
+    },
+    toolObservation("call_first", "read_file", "first.txt", "a".repeat(6_000)),
+    toolObservation("call_second", "read_file", "second.txt", "b".repeat(6_000)),
+    assistantToolCall("call_new", "read_file"),
+    toolObservation("call_new", "read_file", "new.txt", "new"),
+  ];
+
+  const result = compactConversationInPlace(conversation, {
+    maxObservationBytes: 4_096,
+  });
+
+  expect(result.compactedCount).toBe(2);
+  expect(JSON.parse(conversation[1]?.content ?? "{}").compacted).toBe(true);
+  expect(JSON.parse(conversation[2]?.content ?? "{}").compacted).toBe(true);
+  expect(JSON.parse(conversation[4]?.content ?? "{}").compacted).toBeUndefined();
 });
 
 test("prioritizes content-heavy tools before other old observations", () => {

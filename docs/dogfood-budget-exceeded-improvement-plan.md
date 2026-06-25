@@ -140,7 +140,7 @@ V1 scope:
 - Extend the existing global command to accept `forge config set activeContext.maxObservationBytes <integer>`. Keep its current global-write semantics; project-specific overrides remain manual edits to `.forgelet/config.json`, and Slice 4 does not add a `--project` config mutation command.
 - Validate `activeContext.maxObservationBytes` during configuration loading. It must be a finite integer of at least `4096`; otherwise fail before the first model call with an error that names the invalid field. Do not silently fall back or clamp an explicitly invalid value.
 - Normally keep complete tool content for every observation produced by the newest assistant tool-call turn, and compact older observations oldest-first when the active conversation exceeds its budget.
-- If the newest tool-call turn alone exceeds `activeContext.maxObservationBytes`, protect its newest observation and, when different, the last failed observation from that turn. Compact the other observations from that turn oldest-first. This fallback normally protects one item and protects at most two when immediate error recovery needs the additional failed result.
+- Preserve every observation from the newest assistant tool-call turn until the model has received that complete batch once, even when the batch temporarily exceeds `activeContext.maxObservationBytes`. Before a later model turn, that batch becomes eligible for normal deterministic compaction. This fresh-batch rule supersedes the earlier fallback that protected only the newest and last failed observations.
 - Compact observations in deterministic tiers, oldest-first within each tier:
   - first, old `read_file`, `git_diff`, and `run_command` observations
   - then, other old tool observations if the conversation is still over budget
@@ -151,7 +151,7 @@ V1 scope:
 - Replace eligible tool messages in the in-memory `conversation` in place. Do not retain a second hidden copy of discarded full observation content. The immutable Trace remains the execution evidence; if the model later needs file details again, it can issue a targeted read using the retained path and range metadata.
 - Mark the compact model-visible observation explicitly with `compacted: true`. Later compaction passes must treat that marker as authoritative and skip the message, rather than inferring compaction from a missing `content` field. Preserve `ok`, `toolCallId`, `toolName`, `summary`, relevant error information, and compact metadata.
 - If a tool message is not valid JSON or does not match the expected model-visible observation shape, leave it unchanged and increment `uncompactableCount`. Do not fail the Session or truncate an unknown payload heuristically.
-- Protect failed observations while they belong to the newest assistant tool-call turn so the model has full details for immediate self-correction. Once a later tool-call turn exists, failed observations become eligible for normal tiered compaction; their compact form must retain the complete structured `error.code`, `error.message`, and summary even when large content is discarded.
+- Protect failed observations as part of the complete fresh observation batch. Once a later tool-call turn exists, they become eligible for normal tiered compaction; their compact form must retain the complete structured `error.code`, `error.message`, and summary even when large content is discarded.
 - Give `apply_patch` observations no permanent exemption. Protect them under the same newest-turn and failure rules, then allow old patch observations to compact while retaining `changedFiles`, patch validation outcome, summary, and complete structured errors. The model should use `git_diff` when it later needs the concrete resulting diff.
 - For `run_command`, V1 compaction must consume only the existing summary, command, exit code, timeout state, structured error, and available preview. Do not expand Slice 4 to redesign command observations with separate stdout/stderr or head/tail previews; treat that as a later tool-contract improvement if dogfood shows the compact result is insufficient.
 - Treat `activeContext.maxObservationBytes` as a best-effort working-set target, not a new Session stop limit. If every eligible observation has reached its compact form and their combined size still exceeds the target, preserve those minimum facts, continue the Session, and record the residual overage in compaction Trace metadata. Do not delete complete assistant/tool exchanges or introduce an `active_context_limit_exceeded` stop reason in V1.
@@ -162,7 +162,7 @@ V1 scope:
 
 Validation:
 
-- Add focused compactor unit tests for deterministic tier ordering, newest-turn protection, failed-observation protection, the single-turn overage fallback, idempotence through `compacted: true`, and residual overage after every eligible observation reaches compact form.
+- Add focused compactor unit tests for deterministic tier ordering, complete fresh-batch protection, later eligibility of that batch, idempotence through `compacted: true`, and residual overage after every eligible observation reaches compact form.
 - Add one workflow-level fake-model integration test that reads multiple large files, crosses a deliberately small configured observation budget, and then completes a representative inspect-and-summarize task.
 - Assert later model inputs respect the best-effort observation target when compact forms make that possible.
 - Assert compacted tool messages retain their original `toolCallId` and remain paired with the corresponding assistant tool calls.
@@ -182,7 +182,7 @@ Implementation dogfood results:
 - With the initial 49152-byte default, `sess_mqs258i7` compacted 14 observations and removed 109240 model-visible bytes, but still stopped at `131976/120000` cumulative input tokens.
 - With the calibrated 16384-byte target, `sess_mqs277py` and the default-value confirmation `sess_mqs29bfq` stayed below the input limit at `84254/120000` and `82262/120000`. Both instead reached `max_model_turns`, showing that compaction fixed the demonstrated input-growth failure while exposing a separate model stopping-discipline problem.
 - Actionable Sessions `sess_mqs2aont` and `sess_mqs2dvle` also stayed below the input limit. Permission policy correctly denied editing a path dirty at Session start, configured typecheck completed successfully when approved, and compaction evidence remained explainable. The model nevertheless exhausted its turn budget after repeated reads, corrupt patch attempts, and duplicate patch requests.
-- Follow-up work should address final-turn behavior, duplicate action detection, and patch-generation recovery independently. Those concerns must not be folded into observation compaction or used to widen its V1 contract.
+- Slice 7 defines the immediate follow-up for newest-batch visibility and final-turn behavior. Duplicate action detection and patch-generation recovery remain separate later concerns.
 
 ### Slice 5: Make dogfood task scope enforceable
 
@@ -253,6 +253,64 @@ Validation:
 - Add a CLI integration test that asserts live/scaffolded runs print the Session ID, trace path, and task hash.
 - Confirm `forge sessions list` exposes enough information to match a command to a trace without opening JSONL.
 
+### Slice 7: Preserve fresh observations and reserve a final answer turn
+
+Goal: prevent small Sessions from exhausting `maxModelTurns` through repeated exploration when the required evidence has already been gathered.
+
+Changes:
+
+- Treat all observations produced by one assistant tool-call turn as one fresh observation batch.
+- Preserve the complete fresh batch through the immediately following model turn, even when that temporarily exceeds `activeContext.maxObservationBytes`.
+- After that following model turn completes, the batch becomes eligible for normal deterministic compaction before a later model turn.
+- Apply the same one-turn protection to successful, failed, and denied observations. Do not retain a separate long-lived failed-observation exemption.
+- Keep `activeContext.maxObservationBytes` as a best-effort working-set target. A fresh-batch overage is recorded through the existing compaction evidence and is not a new Session stop condition.
+- Keep the existing per-tool observation truncation as the V1 guardrail against unusually large individual results. Do not add an emergency fresh-batch compactor or tool-call-count limit in this slice.
+- Interpret `maxModelTurns` as including one reserved final answer turn for every Workflow using the Agent Kernel.
+- When two turns remain, keep tools available but tell the model this is its final tool-capable turn and it should request only the operations still required to finish.
+- When one turn remains, expose no tools and explicitly require final content based on the evidence already available.
+- A configuration of `maxModelTurns: 1` therefore permits one direct-answer turn and no exploratory tool turn.
+- Do not run the reserved final answer turn if input-token or estimated-cost limits have already been reached. Those remain hard limits and retain their precise stop reasons.
+- Record `finalOnly: true` on the real `model_turn` Trace event for the reserved final answer turn.
+- A final answer is complete only when the model returns non-empty content with no tool calls.
+- If the reserved final answer turn returns tool calls, do not execute them. Record `budget_blocked_tool_calls` with reason `max_model_turns`, then stop the Session with `max_model_turns`.
+- If the reserved final answer turn returns empty content, stop with `max_model_turns`; do not synthesize a result that the model did not produce.
+- Apply the rule uniformly to Coding and Writing Workflows. Workflow-specific final output formatting remains unchanged.
+
+Validation:
+
+- Replace the current newest-turn fallback compactor test with coverage proving every observation in the newest assistant tool-call batch remains complete for the next model turn, including when the batch exceeds the observation target.
+- Add coverage proving that batch becomes compactable before a subsequent model turn.
+- Add a workflow test where a multi-tool batch crosses the target, remains fully visible once, and then the Session completes without rereading the same evidence.
+- Replace the current `maxModelTurns: 1` expectation with a direct-answer test proving the sole turn receives no tools and can complete.
+- Add a test proving the penultimate turn receives tools plus a final-tool-turn warning.
+- Add a test proving the reserved final answer turn receives no tools, is traced with `finalOnly: true`, and can complete with non-empty content.
+- Add tests proving tool calls or empty content on the reserved turn stop with `max_model_turns` and do not execute tools.
+- Add a test proving an exhausted input-token or cost limit prevents the reserved turn and keeps its precise stop reason.
+- Run `npm test`, `npm run typecheck`, and a live read-only dogfood retry of the CLI-entrypoint summary task.
+
+Dogfood acceptance:
+
+- The CLI-entrypoint summary task completes with an accurate final answer instead of stopping after a twelfth read.
+- A fresh parallel read batch is visible in full exactly once before it becomes compactable.
+- The final Trace shows a `finalOnly: true` model turn with no executed tool calls.
+- The change does not raise the default `maxModelTurns` above 12.
+
+Implementation result:
+
+- The Agent Kernel now preserves the complete newest observation batch through one model turn, then makes it eligible for normal deterministic compaction.
+- The last available model turn is reserved for a non-empty final answer, exposes no tools, and records `finalOnly: true`. The preceding turn remains tool-capable and receives an explicit final-tool-turn warning.
+- Final answer synthesis receives prior evidence as plain text rather than replaying the assistant/tool protocol. This prevents DeepSeek from continuing its tool-calling mode merely because historical tool messages remain in context.
+- Tool calls returned on the final-only turn are blocked without execution. Empty output and DeepSeek textual DSML tool-call markup are not accepted as completed results.
+- `maxModelTurns: 1` now means one direct-answer turn with no tools. Input-token and estimated-cost limits remain hard stops checked independently.
+- Automated validation passes with the default `maxModelTurns` still set to 12.
+
+Dogfood result:
+
+- `sess_mqtcfzst` completed the original CLI-entrypoint summary task in 12 turns. Its final turn recorded `finalOnly: true`, exposed no tools, and produced prose instead of DSML tool-call markup.
+- The completion mechanism passed, but answer-quality acceptance remains partial: the suggested `--help` improvement was incorrect because `src/cli/parseArgs.ts` and `src/cli/index.ts` already support the help command.
+- Earlier retries `sess_mqtc9gh1`, `sess_mqtcbv63`, and `sess_mqtcdmtu` demonstrated that removing tool schemas alone was insufficient for DeepSeek; historical assistant/tool protocol caused textual DSML tool requests. Those Sessions are now stopped honestly rather than being misreported as completed.
+- Improving evidence relevance, duplicate-read suppression, and final-answer factual review remains separate follow-up work. It should not weaken fresh-batch protection or expand `maxModelTurns`.
+
 ## Recommended Order
 
 1. Slice 1 first. It is the smallest user-visible improvement and gives better diagnostics for every later dogfood run.
@@ -261,6 +319,7 @@ Validation:
 4. Slice 4 fourth. Implement the deterministic V1 active-context bound now that targeted read metadata is available; keep semantic compaction and resume integration in V2.
 5. Slice 5 later. It is useful for dogfood harnessing, but it expands the permission surface and should not block the first fixes.
 6. Slice 6 can be done anytime. It is small and improves every future dogfood diagnosis.
+7. Slice 7 next after the completed compaction work. It addresses the max-turn failure exposed by live validation without widening the Session budget.
 
 ## Next Dogfood Command After Slice 1 and Slice 2
 

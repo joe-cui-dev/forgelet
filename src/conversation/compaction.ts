@@ -56,21 +56,9 @@ export function compactConversationInPlace(
   const oldCandidates = toolMessages.filter(
     ({ index }) => index < newestTurnStart,
   );
-  const newestCandidates = toolMessages.filter(
-    ({ index }) => index > newestTurnStart,
-  );
-  const protectedIndexes = protectedNewestObservationIndexes(newestCandidates);
   const candidates = [
     ...oldCandidates.filter(({ message }) => hasPriorityToolName(message)),
     ...oldCandidates.filter(({ message }) => !hasPriorityToolName(message)),
-    ...newestCandidates.filter(
-      ({ message, index }) =>
-        !protectedIndexes.has(index) && hasPriorityToolName(message),
-    ),
-    ...newestCandidates.filter(
-      ({ message, index }) =>
-        !protectedIndexes.has(index) && !hasPriorityToolName(message),
-    ),
   ];
   const compactedTools = new Set<string>();
 
@@ -94,23 +82,6 @@ export function compactConversationInPlace(
     result.afterObservationBytes - options.maxObservationBytes,
   );
   return result;
-}
-
-function protectedNewestObservationIndexes(
-  newestCandidates: Array<{ message: ModelMessage; index: number }>,
-): Set<number> {
-  const protectedIndexes = new Set<number>();
-  const newest = newestCandidates.at(-1);
-  if (newest) protectedIndexes.add(newest.index);
-  for (let index = newestCandidates.length - 1; index >= 0; index -= 1) {
-    const candidate = newestCandidates[index];
-    if (!candidate) continue;
-    const parsed = parseObservation(candidate.message.content);
-    if (parsed?.ok !== false) continue;
-    protectedIndexes.add(candidate.index);
-    break;
-  }
-  return protectedIndexes;
 }
 
 function newestToolTurnStart(conversation: ModelMessage[]): number {

@@ -847,7 +847,7 @@ test("an ungranted tool call returns a denial observation and the Session can re
   expect(finished.payload.status).toBe("completed");
 });
 
-test("a Session stops before the next model turn when the turn budget is exhausted", async () => {
+test("a one-turn Session reserves its only model turn for a final answer", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-budget-"));
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
   await writeFile(
@@ -858,9 +858,9 @@ test("a Session stops before the next model turn when the turn budget is exhaust
   const modelClient = new FakeModelClient([
     {
       usage: { inputTokens: 10, outputTokens: 5, estimatedCostUsd: 0.01 },
-      toolCalls: [{ id: "call_list", name: "list_files", input: {} }],
+      content: "A direct final answer.",
+      toolCalls: [],
     },
-    { content: "This should not be called.", toolCalls: [] },
   ]);
 
   const result = await runAgent({
@@ -872,18 +872,212 @@ test("a Session stops before the next model turn when the turn budget is exhaust
   });
 
   expect(modelClient.turnInputs.length).toBe(1);
-  expect(result.summary).toMatch(/Reason: max_model_turns/);
+  expect(modelClient.turnInputs[0]?.tools).toEqual([]);
+  expect(result.summary).toMatch(/A direct final answer/);
 
   const trace = await readFile(result.tracePath ?? "", "utf8");
   const events = trace
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
+  const modelTurn = events.find((event) => event.type === "model_turn");
+  expect(modelTurn.payload.finalOnly).toBe(true);
   const budgetUpdate = events.find((event) => event.type === "budget_update");
   expect(budgetUpdate.payload.usage.modelTurns).toBe(1);
   const finished = events.find((event) => event.type === "session_finished");
-  expect(finished.payload.status).toBe("stopped");
-  expect(finished.payload.reason).toBe("max_model_turns");
+  expect(finished.payload.status).toBe("completed");
+});
+
+test("a Session warns on its final tool turn and then removes tools for the final answer", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-final-turn-"));
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "config.json"),
+    JSON.stringify({ budgets: { maxModelTurns: 2 } }),
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [{ id: "call_list", name: "list_files", input: {} }],
+    },
+    { content: "The final answer uses the listed files.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "inspect files",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  expect(modelClient.turnInputs[0]?.tools.length).toBeGreaterThan(0);
+  expect(modelClient.turnInputs[0]?.messages[1]?.content).toMatch(
+    /final tool-capable turn/,
+  );
+  expect(modelClient.turnInputs[1]?.tools).toEqual([]);
+  expect(
+    modelClient.turnInputs[1]?.messages.some(
+      (message) =>
+        message.role === "tool" || (message.toolCalls?.length ?? 0) > 0,
+    ),
+  ).toBe(false);
+  expect(
+    modelClient.turnInputs[1]?.messages.some((message) =>
+      message.content.includes("Listed"),
+    ),
+  ).toBe(true);
+  expect(modelClient.turnInputs[1]?.messages[0]?.content).toMatch(
+    /FINAL ANSWER ONLY/,
+  );
+  expect(modelClient.turnInputs[1]?.messages[1]?.content).toMatch(
+    /reserved final answer turn/,
+  );
+  expect(result.summary).toMatch(/The final answer uses the listed files/);
+
+  const events = (await readFile(result.tracePath ?? "", "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(
+    events
+      .filter((event) => event.type === "model_turn")
+      .map((event) => event.payload.finalOnly),
+  ).toEqual([false, true]);
+});
+
+test("tool calls returned on the final answer turn are blocked", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-final-turn-tools-"),
+  );
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "config.json"),
+    JSON.stringify({ budgets: { maxModelTurns: 1 } }),
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([
+    {
+      content: "I still want to inspect.",
+      toolCalls: [{ id: "call_list", name: "list_files", input: {} }],
+    },
+  ]);
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "inspect files",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  expect(result.summary).toMatch(/Reason: max_model_turns/);
+  const events = (await readFile(result.tracePath ?? "", "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(events.some((event) => event.type === "tool_call")).toBe(false);
+  expect(
+    events.find((event) => event.type === "budget_blocked_tool_calls")?.payload,
+  ).toEqual({
+    reason: "max_model_turns",
+    skippedCount: 1,
+    toolNames: ["list_files"],
+  });
+  expect(
+    events.find((event) => event.type === "session_finished")?.payload,
+  ).toMatchObject({ status: "stopped", reason: "max_model_turns" });
+});
+
+test("textual tool-call markup is not accepted as a final answer", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-final-turn-markup-"),
+  );
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "config.json"),
+    JSON.stringify({ budgets: { maxModelTurns: 1 } }),
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([
+    {
+      content: [
+        '<｜｜DSML｜｜tool_calls>',
+        '<｜｜DSML｜｜invoke name="read_file">',
+        "</｜｜DSML｜｜invoke>",
+        "</｜｜DSML｜｜tool_calls>",
+      ].join("\n"),
+      toolCalls: [],
+    },
+  ]);
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "answer directly",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  expect(result.summary).toMatch(/Reason: max_model_turns/);
+  const events = (await readFile(result.tracePath ?? "", "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(
+    events.find((event) => event.type === "session_finished")?.payload,
+  ).toMatchObject({ status: "stopped", reason: "max_model_turns" });
+});
+
+test("empty content on the final answer turn stops the Session", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-empty-final-turn-"),
+  );
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "config.json"),
+    JSON.stringify({ budgets: { maxModelTurns: 1 } }),
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([{ content: "   ", toolCalls: [] }]);
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "answer directly",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  expect(result.summary).toMatch(/Reason: max_model_turns/);
+  const events = (await readFile(result.tracePath ?? "", "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(
+    events.find((event) => event.type === "session_finished")?.payload,
+  ).toMatchObject({ status: "stopped", reason: "max_model_turns" });
+});
+
+test("empty final content before the reserved turn is retried", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-empty-final-retry-"),
+  );
+  const modelClient = new FakeModelClient([
+    { content: "   ", toolCalls: [] },
+    { content: "A usable answer.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "answer after retry",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  expect(modelClient.turnInputs).toHaveLength(2);
+  expect(result.summary).toMatch(/A usable answer/);
 });
 
 test("a Session stopped by input token limit reports the precise stop reason and budget details", async () => {
@@ -1060,6 +1254,61 @@ test("large read_file observations are truncated for the model and not stored fu
   );
   expect("content" in readResult.payload).toBe(false);
   expect(String(readResult.payload.preview)).not.toMatch(/needle-at-end/);
+});
+
+test("a fresh observation batch is visible in full once before compaction", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-fresh-batch-"));
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "config.json"),
+    JSON.stringify({ activeContext: { maxObservationBytes: 4_096 } }),
+    "utf8",
+  );
+  await writeFile(join(workspaceRoot, "first.txt"), "a".repeat(6_000), "utf8");
+  await writeFile(join(workspaceRoot, "second.txt"), "b".repeat(6_000), "utf8");
+  await writeFile(join(workspaceRoot, "third.txt"), "third", "utf8");
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        { id: "call_first", name: "read_file", input: { path: "first.txt" } },
+        { id: "call_second", name: "read_file", input: { path: "second.txt" } },
+      ],
+    },
+    {
+      toolCalls: [
+        { id: "call_third", name: "read_file", input: { path: "third.txt" } },
+      ],
+    },
+    { content: "All evidence inspected.", toolCalls: [] },
+  ]);
+
+  await runAgent({
+    workflow: "coding",
+    task: "inspect all evidence",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const freshBatch = modelClient.turnInputs[1]?.messages.filter(
+    (message) => message.role === "tool",
+  );
+  expect(freshBatch).toHaveLength(2);
+  expect(
+    freshBatch?.map((message) => JSON.parse(message.content).compacted),
+  ).toEqual([undefined, undefined]);
+
+  const laterObservations = modelClient.turnInputs[2]?.messages.filter(
+    (message) => message.role === "tool",
+  );
+  expect(
+    laterObservations
+      ?.slice(0, 2)
+      .map((message) => JSON.parse(message.content).compacted),
+  ).toEqual([true, true]);
+  expect(JSON.parse(laterObservations?.[2]?.content ?? "{}").compacted).toBe(
+    undefined,
+  );
 });
 
 test("read_file can continue from a byte offset without returning the first chunk again", async () => {
