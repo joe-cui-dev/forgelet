@@ -77,6 +77,289 @@ test("a coding Session can search, read, and finish through read-only tools", as
   expect(String(readResult.payload.preview)).toMatch(/needle/);
 });
 
+test("a Session Read Scope denies read_file outside the allowed paths", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-read-scope-"));
+  await writeFile(join(workspaceRoot, "allowed.txt"), "allowed\n", "utf8");
+  await writeFile(join(workspaceRoot, "secret.txt"), "secret\n", "utf8");
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        { id: "call_read", name: "read_file", input: { path: "secret.txt" } },
+      ],
+    },
+    { content: "The read was denied.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "inspect the allowed file",
+    contextFiles: [],
+    allowedReadPaths: ["allowed.txt"],
+    workspaceRoot,
+    modelClient,
+  });
+
+  expect(result.session.readScope).toEqual(["allowed.txt"]);
+  const denied = JSON.parse(
+    modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "{}",
+  );
+  expect(denied).toMatchObject({
+    ok: false,
+    toolName: "read_file",
+    error: { code: "permission_denied" },
+  });
+
+  const events = (await readFile(result.tracePath ?? "", "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(
+    events.find((event) => event.type === "permission_decision")?.payload,
+  ).toMatchObject({
+    toolName: "read_file",
+    decision: "deny",
+  });
+});
+
+test("a Session Read Scope allows read_file inside the allowed paths", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-read-scope-allowed-"),
+  );
+  await writeFile(join(workspaceRoot, "allowed.txt"), "allowed content\n", "utf8");
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        { id: "call_read", name: "read_file", input: { path: "allowed.txt" } },
+      ],
+    },
+    { content: "The allowed file was read.", toolCalls: [] },
+  ]);
+
+  await runAgent({
+    workflow: "coding",
+    task: "inspect the allowed file",
+    contextFiles: [],
+    allowedReadPaths: ["allowed.txt"],
+    workspaceRoot,
+    modelClient,
+  });
+
+  expect(
+    JSON.parse(modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "{}"),
+  ).toMatchObject({
+    ok: true,
+    toolName: "read_file",
+    content: "allowed content\n",
+  });
+});
+
+test("a missing file inside the Session Read Scope returns invalid_input", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-read-scope-missing-"),
+  );
+  await mkdir(join(workspaceRoot, "allowed"), { recursive: true });
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        {
+          id: "call_read",
+          name: "read_file",
+          input: { path: "allowed/missing.txt" },
+        },
+      ],
+    },
+    { content: "The missing file was reported.", toolCalls: [] },
+  ]);
+
+  await runAgent({
+    workflow: "coding",
+    task: "inspect the allowed file",
+    contextFiles: [],
+    allowedReadPaths: ["allowed"],
+    workspaceRoot,
+    modelClient,
+  });
+
+  expect(
+    JSON.parse(modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "{}"),
+  ).toMatchObject({
+    ok: false,
+    error: { code: "invalid_input" },
+  });
+});
+
+test("search_text returns only matches inside the Session Read Scope", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-search-scope-"),
+  );
+  await writeFile(join(workspaceRoot, "allowed.txt"), "needle allowed\n", "utf8");
+  await writeFile(join(workspaceRoot, "secret.txt"), "needle secret\n", "utf8");
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        { id: "call_search", name: "search_text", input: { query: "needle" } },
+      ],
+    },
+    { content: "Only the allowed match was visible.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "find the allowed match",
+    contextFiles: [],
+    allowedReadPaths: ["allowed.txt"],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const observation = JSON.parse(
+    modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "{}",
+  );
+  expect(observation.content).toMatch(/allowed\.txt/);
+  expect(observation.content).not.toMatch(/secret\.txt/);
+  expect(observation.metadata.scopeConstrained).toBe(true);
+  const events = (await readFile(result.tracePath ?? "", "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(
+    events.find(
+      (event) =>
+        event.type === "tool_result" &&
+        event.payload.toolName === "search_text",
+    )?.payload.scopeConstrained,
+  ).toBe(true);
+});
+
+test("list_files returns only paths inside the Session Read Scope", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-list-scope-"));
+  await mkdir(join(workspaceRoot, "allowed"), { recursive: true });
+  await mkdir(join(workspaceRoot, "secret"), { recursive: true });
+  await writeFile(join(workspaceRoot, "allowed", "visible.txt"), "yes\n", "utf8");
+  await writeFile(join(workspaceRoot, "secret", "hidden.txt"), "no\n", "utf8");
+  const modelClient = new FakeModelClient([
+    { toolCalls: [{ id: "call_list", name: "list_files", input: {} }] },
+    { content: "Only allowed files were listed.", toolCalls: [] },
+  ]);
+
+  await runAgent({
+    workflow: "coding",
+    task: "list allowed files",
+    contextFiles: [],
+    allowedReadPaths: ["allowed"],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const observation = JSON.parse(
+    modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "{}",
+  );
+  expect(observation.content).toMatch(/allowed\/visible\.txt/);
+  expect(observation.content).not.toMatch(/secret|hidden\.txt/);
+  expect(observation.metadata.scopeConstrained).toBe(true);
+});
+
+test("collection reads deny targets that do not overlap the Session Read Scope", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-list-denied-scope-"),
+  );
+  await mkdir(join(workspaceRoot, "allowed"), { recursive: true });
+  await mkdir(join(workspaceRoot, "secret"), { recursive: true });
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        { id: "call_list", name: "list_files", input: { path: "secret" } },
+      ],
+    },
+    { content: "The directory read was denied.", toolCalls: [] },
+  ]);
+
+  await runAgent({
+    workflow: "coding",
+    task: "list allowed files",
+    contextFiles: [],
+    allowedReadPaths: ["allowed"],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const observation = JSON.parse(
+    modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "{}",
+  );
+  expect(observation).toMatchObject({
+    ok: false,
+    toolName: "list_files",
+    error: { code: "permission_denied" },
+  });
+});
+
+test("git_status exposes only paths inside the Session Read Scope", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-git-status-scope-"),
+  );
+  await execGit(workspaceRoot, ["init"]);
+  await writeFile(join(workspaceRoot, "allowed.txt"), "before\n", "utf8");
+  await writeFile(join(workspaceRoot, "secret.txt"), "before\n", "utf8");
+  await execGit(workspaceRoot, ["add", "allowed.txt", "secret.txt"]);
+  await execGit(workspaceRoot, ["commit", "-m", "baseline"]);
+  await writeFile(join(workspaceRoot, "allowed.txt"), "after\n", "utf8");
+  await writeFile(join(workspaceRoot, "secret.txt"), "after\n", "utf8");
+  const modelClient = new FakeModelClient([
+    { toolCalls: [{ id: "call_status", name: "git_status", input: {} }] },
+    { content: "Only allowed status was visible.", toolCalls: [] },
+  ]);
+
+  await runAgent({
+    workflow: "coding",
+    task: "inspect allowed status",
+    contextFiles: [],
+    allowedReadPaths: ["allowed.txt"],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const observation = JSON.parse(
+    modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "{}",
+  );
+  expect(observation.content).toMatch(/allowed\.txt/);
+  expect(observation.content).not.toMatch(/secret\.txt/);
+  expect(observation.metadata.scopeConstrained).toBe(true);
+});
+
+test("git_diff exposes only content inside the Session Read Scope", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-git-diff-scope-"),
+  );
+  await execGit(workspaceRoot, ["init"]);
+  await writeFile(join(workspaceRoot, "allowed.txt"), "before allowed\n", "utf8");
+  await writeFile(join(workspaceRoot, "secret.txt"), "before secret\n", "utf8");
+  await execGit(workspaceRoot, ["add", "allowed.txt", "secret.txt"]);
+  await execGit(workspaceRoot, ["commit", "-m", "baseline"]);
+  await writeFile(join(workspaceRoot, "allowed.txt"), "after allowed\n", "utf8");
+  await writeFile(join(workspaceRoot, "secret.txt"), "after secret\n", "utf8");
+  const modelClient = new FakeModelClient([
+    { toolCalls: [{ id: "call_diff", name: "git_diff", input: {} }] },
+    { content: "Only allowed diff was visible.", toolCalls: [] },
+  ]);
+
+  await runAgent({
+    workflow: "coding",
+    task: "inspect allowed diff",
+    contextFiles: [],
+    allowedReadPaths: ["allowed.txt"],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const observation = JSON.parse(
+    modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "{}",
+  );
+  expect(observation.content).toMatch(/allowed\.txt/);
+  expect(observation.content).toMatch(/after allowed/);
+  expect(observation.content).not.toMatch(/secret\.txt|after secret/);
+  expect(observation.metadata.scopeConstrained).toBe(true);
+});
+
 test("a Session compacts old tool observations before a later model turn", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-compaction-"));
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
@@ -149,6 +432,7 @@ test("a Session compacts old tool observations before a later model turn", async
 test("context attachments are rendered for the model without storing full content in the trace", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-context-"));
   const largeContext = `Important issue context\n${"x".repeat(22 * 1024)}\nHidden tail marker\n`;
+  await writeFile(join(workspaceRoot, "allowed.txt"), "allowed\n", "utf8");
   await writeFile(join(workspaceRoot, "issue.md"), largeContext, "utf8");
   const modelClient = new FakeModelClient([
     { content: "I can see the attached issue context.", toolCalls: [] },
@@ -158,6 +442,7 @@ test("context attachments are rendered for the model without storing full conten
     workflow: "coding",
     task: "use the attached issue",
     contextFiles: ["issue.md"],
+    allowedReadPaths: ["allowed.txt"],
     workspaceRoot,
     modelClient,
   });
@@ -191,6 +476,43 @@ test("context attachments are rendered for the model without storing full conten
   expect(JSON.stringify(contextEvent.payload)).not.toMatch(
     /Hidden tail marker/,
   );
+});
+
+test("a Context Attachment does not grant tool access outside the Session Read Scope", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-context-scope-"),
+  );
+  await writeFile(join(workspaceRoot, "allowed.txt"), "allowed\n", "utf8");
+  await writeFile(join(workspaceRoot, "issue.md"), "attached issue\n", "utf8");
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        { id: "call_read", name: "read_file", input: { path: "issue.md" } },
+      ],
+    },
+    { content: "The attachment did not expand tool access.", toolCalls: [] },
+  ]);
+
+  await runAgent({
+    workflow: "coding",
+    task: "use the attachment",
+    contextFiles: ["issue.md"],
+    allowedReadPaths: ["allowed.txt"],
+    workspaceRoot,
+    modelClient,
+  });
+
+  expect(
+    modelClient.turnInputs[0]?.messages.find(
+      (message) => message.role === "user",
+    )?.content,
+  ).toMatch(/attached issue/);
+  expect(
+    JSON.parse(modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "{}"),
+  ).toMatchObject({
+    ok: false,
+    error: { code: "permission_denied" },
+  });
 });
 
 test("a coding Session can inspect a truncated git diff without storing the full diff in the trace", async () => {
@@ -1110,6 +1432,82 @@ test("read-only tools do not follow workspace symlinks outside the workspace", a
   );
   expect(readResult.payload.ok).toBe(false);
   expect(readResult.payload.error.code).toBe("invalid_input");
+});
+
+test("a Session Read Scope denies symlinks that escape an allowed directory", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-scope-symlink-"),
+  );
+  const outsideRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-scope-outside-"),
+  );
+  await mkdir(join(workspaceRoot, "allowed"), { recursive: true });
+  await writeFile(join(outsideRoot, "secret.txt"), "outside secret\n", "utf8");
+  await symlink(
+    join(outsideRoot, "secret.txt"),
+    join(workspaceRoot, "allowed", "secret-link.txt"),
+  );
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        {
+          id: "call_read",
+          name: "read_file",
+          input: { path: "allowed/secret-link.txt" },
+        },
+      ],
+    },
+    { content: "The escaping symlink was denied.", toolCalls: [] },
+  ]);
+
+  await runAgent({
+    workflow: "coding",
+    task: "read allowed files",
+    contextFiles: [],
+    allowedReadPaths: ["allowed"],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const observation = JSON.parse(
+    modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "{}",
+  );
+  expect(observation).toMatchObject({
+    ok: false,
+    error: { code: "permission_denied" },
+  });
+  expect(JSON.stringify(observation)).not.toMatch(/outside secret/);
+});
+
+test("Session Read Scope entries are literal paths rather than globs", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-literal-scope-"),
+  );
+  await writeFile(join(workspaceRoot, "*.txt"), "needle literal\n", "utf8");
+  await writeFile(join(workspaceRoot, "secret.txt"), "needle secret\n", "utf8");
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        { id: "call_search", name: "search_text", input: { query: "needle" } },
+      ],
+    },
+    { content: "The literal path was searched.", toolCalls: [] },
+  ]);
+
+  await runAgent({
+    workflow: "coding",
+    task: "search the literal file",
+    contextFiles: [],
+    allowedReadPaths: ["*.txt"],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const observation = JSON.parse(
+    modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "{}",
+  );
+  expect(observation.content).toMatch(/\*\.txt/);
+  expect(observation.content).not.toMatch(/secret\.txt/);
 });
 
 function execGit(workspaceRoot: string, args: string[]): Promise<void> {

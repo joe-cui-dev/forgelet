@@ -42,6 +42,17 @@ Use `--live` for a real DeepSeek-backed read-only Session. Read-only Sessions ca
 forge --live --budget 0.10 "inspect this repo and summarize the CLI entrypoint"
 ```
 
+For a narrow dogfood run, repeat `--allow-read` with workspace-relative file or directory paths. Directories allow their descendants; entries are literal paths, not globs.
+
+```bash
+forge --live \
+  --allow-read README.md \
+  --allow-read src/workflows \
+  "summarize the workflow"
+```
+
+The resulting Session Read Scope filters workspace search/list and Git status/diff results, and denies direct reads outside the scope. It applies only to that Session. Explicit `--context` attachments remain available to the model but do not grant tool access to their paths.
+
 Use `--live --act` only when you want the Coding Workflow to request confirmed file edits and configured commands.
 
 ```bash

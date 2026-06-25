@@ -21,6 +21,7 @@ import { loadConfig, routeModel } from "../config/index.js";
 import { loadContextAttachments } from "../context/index.js";
 import { compactConversationInPlace } from "../conversation/compaction.js";
 import { loadDurableMemory, type LoadedDurableMemory } from "../memory/index.js";
+import { normalizeSessionReadScope } from "../readScope/index.js";
 import { createTraceWriter } from "../trace/index.js";
 import { createActionableCodingTools } from "../tools/actionable.js";
 import { createReadOnlyTools } from "../tools/readOnly.js";
@@ -34,6 +35,7 @@ export interface RunWorkflowInput {
   workflow: WorkflowKind;
   task: string;
   contextFiles: string[];
+  allowedReadPaths?: string[];
   model?: string;
   budgetUsd?: number;
   homeDir?: string;
@@ -69,6 +71,7 @@ interface RunReadOnlyLoopInput {
   commandTimeoutMs: number;
   maxPatchBytes: number;
   maxObservationBytes: number;
+  readScope?: string[];
   act: boolean;
   baselineDirtyPaths: Set<string>;
   tracePath: string;
@@ -108,6 +111,10 @@ export const runWorkflowSession = async (
   const now = new Date().toISOString();
   const sessionId = `sess_${Date.now().toString(36)}`;
   const taskHash = hashTask(input.task);
+  const readScope = await normalizeSessionReadScope(
+    input.workspaceRoot,
+    input.allowedReadPaths,
+  );
   const traceWriter = await createTraceWriter(input.workspaceRoot, sessionId);
   const config = await loadConfig({
     homeDir: input.homeDir,
@@ -140,6 +147,7 @@ export const runWorkflowSession = async (
     workflow: input.workflow,
     task: input.task,
     taskHash,
+    ...(readScope ? { readScope } : {}),
     stage: "final",
     plan,
     createdAt: now,
@@ -150,6 +158,7 @@ export const runWorkflowSession = async (
       workflow: input.workflow,
       startedAt: now,
       taskHash,
+      ...(readScope ? { readScope } : {}),
     }),
   );
   await traceWriter.append(
@@ -209,6 +218,7 @@ export const runWorkflowSession = async (
       commandTimeoutMs: config.commandTimeoutMs,
       maxPatchBytes: config.maxPatchBytes,
       maxObservationBytes: config.activeContext.maxObservationBytes,
+      readScope,
       act: input.act === true && input.workflow === "coding",
       baselineDirtyPaths,
       tracePath: traceWriter.tracePath,
@@ -482,6 +492,7 @@ const runReadOnlyLoop = async (
         session: input.session,
         workspaceRoot: input.workspaceRoot,
         grantedCapabilities,
+        readScope: input.readScope,
         appendTrace: input.appendTrace,
       });
       recordAuditObservation(audit, observation);
@@ -595,6 +606,7 @@ const executeToolCall = async (input: {
   session: AgentSession;
   workspaceRoot: string;
   grantedCapabilities: Capability[];
+  readScope?: string[];
   appendTrace(type: string, payload: Record<string, unknown>): Promise<void>;
 }): Promise<ToolObservation> => {
   await input.appendTrace("tool_call", {
@@ -607,6 +619,7 @@ const executeToolCall = async (input: {
     sessionId: input.session.id,
     workflow: input.session.workflow,
     grantedCapabilities: input.grantedCapabilities,
+    readScope: input.readScope,
   });
   await input.appendTrace("permission_decision", {
     toolCallId: input.toolCall.id,
@@ -920,6 +933,7 @@ const traceToolObservation = (
     exitCode: observation.metadata.exitCode,
     durationMs: observation.metadata.durationMs,
     timedOut: observation.metadata.timedOut,
+    scopeConstrained: observation.metadata.scopeConstrained,
   };
 };
 

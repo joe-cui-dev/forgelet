@@ -9,6 +9,10 @@ import type {
   ToolDefinition,
   ToolResult,
 } from "../types.js";
+import {
+  doesPathOverlapSessionReadScope,
+  isPathInSessionReadScope,
+} from "../readScope/index.js";
 
 const READ_FILE_LIMIT_BYTES = 20 * 1024;
 const GIT_DIFF_LIMIT_BYTES = 20 * 1024;
@@ -26,14 +30,29 @@ export const createReadOnlyTools = (plan: AgentPlan): ToolDefinition[] => {
         properties: { path: { type: "string" } },
         additionalProperties: false,
       },
+      classify: async (input, ctx) =>
+        classifyCollectionRead(
+          "list_files",
+          optionalString(input, "path") ?? ".",
+          input,
+          ctx,
+        ),
       execute: async (input, ctx) => {
         const path = optionalString(input, "path") ?? ".";
         const root = await safeWorkspacePath(ctx.workspaceRoot, path);
-        const files = await listFiles(root, ctx.workspaceRoot);
+        const files = await listFiles(
+          root,
+          ctx.workspaceRoot,
+          ctx.readScope,
+        );
         return {
           ok: true,
           summary: `Listed ${files.length} files.`,
-          data: { content: files.join("\n"), path },
+          data: {
+            content: files.join("\n"),
+            path,
+            scopeConstrained: ctx.readScope !== undefined,
+          },
         };
       },
     },
@@ -48,11 +67,22 @@ export const createReadOnlyTools = (plan: AgentPlan): ToolDefinition[] => {
         required: ["query"],
         additionalProperties: false,
       },
+      classify: async (input, ctx) =>
+        classifyCollectionRead(
+          "search_text",
+          optionalString(input, "path") ?? ".",
+          input,
+          ctx,
+        ),
       execute: async (input, ctx) => {
         const query = requiredString(input, "query");
         const path = optionalString(input, "path") ?? ".";
         const root = await safeWorkspacePath(ctx.workspaceRoot, path);
-        const files = await listFiles(root, ctx.workspaceRoot);
+        const files = await listFiles(
+          root,
+          ctx.workspaceRoot,
+          ctx.readScope,
+        );
         const matches: string[] = [];
         for (const file of files) {
           const absolutePath = await safeWorkspacePath(ctx.workspaceRoot, file);
@@ -66,7 +96,11 @@ export const createReadOnlyTools = (plan: AgentPlan): ToolDefinition[] => {
         return {
           ok: true,
           summary: `Found ${matches.length} matches for "${query}".`,
-          data: { content: matches.join("\n"), path },
+          data: {
+            content: matches.join("\n"),
+            path,
+            scopeConstrained: ctx.readScope !== undefined,
+          },
         };
       },
     },
@@ -95,6 +129,31 @@ export const createReadOnlyTools = (plan: AgentPlan): ToolDefinition[] => {
         },
         required: ["path"],
         additionalProperties: false,
+      },
+      classify: async (input, ctx) => {
+        const path = requiredString(input, "path");
+        const allowed = await isPathInSessionReadScope(
+          ctx.workspaceRoot,
+          path,
+          ctx.readScope,
+        );
+        return {
+          workflow: ctx.workflow,
+          toolName: "read_file",
+          capability: "read_workspace",
+          riskTier: allowed ? "low" : "forbidden",
+          input,
+          workspaceRoot: ctx.workspaceRoot,
+          targets: [
+            {
+              kind: "path",
+              path,
+              classification: allowed
+                ? "ordinary"
+                : "outside_session_read_scope",
+            },
+          ],
+        };
       },
       // The implementation supports multiple range modes and includes metadata in the tool result to enable the model to manage iterative reads and understand the context of the returned content.
       execute: async (input, ctx) => {
@@ -205,13 +264,16 @@ export const createReadOnlyTools = (plan: AgentPlan): ToolDefinition[] => {
       description: "Show short git status for the workspace.",
       inputSchema: { type: "object", additionalProperties: false },
       execute: async (_input, ctx) => {
-        const content = await gitStatus(ctx.workspaceRoot);
+        const content = await gitStatus(ctx.workspaceRoot, ctx.readScope);
         return {
           ok: true,
           summary: content.trim()
             ? "Read git status."
             : "Workspace git status is clean.",
-          data: { content },
+          data: {
+            content,
+            scopeConstrained: ctx.readScope !== undefined,
+          },
         };
       },
     },
@@ -221,7 +283,8 @@ export const createReadOnlyTools = (plan: AgentPlan): ToolDefinition[] => {
       capability: "git_read",
       description: "Show unstaged git diff stat and a truncated diff.",
       inputSchema: { type: "object", additionalProperties: false },
-      execute: async (_input, ctx) => gitDiff(ctx.workspaceRoot),
+      execute: async (_input, ctx) =>
+        gitDiff(ctx.workspaceRoot, ctx.readScope),
     },
     {
       name: "update_plan",
@@ -264,6 +327,36 @@ export const createReadOnlyTools = (plan: AgentPlan): ToolDefinition[] => {
   ];
 };
 
+const classifyCollectionRead = async (
+  toolName: "list_files" | "search_text",
+  path: string,
+  input: unknown,
+  ctx: ToolContext,
+) => {
+  const allowed = await doesPathOverlapSessionReadScope(
+    ctx.workspaceRoot,
+    path,
+    ctx.readScope,
+  );
+  return {
+    workflow: ctx.workflow,
+    toolName,
+    capability: "read_workspace" as const,
+    riskTier: allowed ? ("low" as const) : ("forbidden" as const),
+    input,
+    workspaceRoot: ctx.workspaceRoot,
+    targets: [
+      {
+        kind: "path" as const,
+        path,
+        classification: allowed
+          ? ("ordinary" as const)
+          : ("outside_session_read_scope" as const),
+      },
+    ],
+  };
+};
+
 // Resolves a path through realpath so symlinks cannot escape the workspace.
 const safeWorkspacePath = async (
   workspaceRoot: string,
@@ -284,7 +377,9 @@ const safeWorkspacePath = async (
 const listFiles = async (
   root: string,
   workspaceRoot: string,
+  readScope?: string[],
 ): Promise<string[]> => {
+  const realWorkspaceRoot = await realpath(workspaceRoot);
   const entries = await readdir(root, { withFileTypes: true });
   const files: string[] = [];
   for (const entry of entries) {
@@ -298,9 +393,22 @@ const listFiles = async (
       continue;
     const absolute = resolve(root, entry.name);
     if (entry.isDirectory()) {
-      files.push(...(await listFiles(absolute, workspaceRoot)));
+      if (
+        await doesPathOverlapSessionReadScope(
+          workspaceRoot,
+          absolute,
+          readScope,
+        )
+      )
+        files.push(
+          ...(await listFiles(absolute, workspaceRoot, readScope)),
+        );
     } else if (entry.isFile()) {
-      files.push(relative(workspaceRoot, absolute));
+      const path = relative(realWorkspaceRoot, absolute);
+      if (
+        await isPathInSessionReadScope(workspaceRoot, path, readScope)
+      )
+        files.push(path);
     }
   }
   return files.sort();
@@ -346,11 +454,20 @@ const readTextIfSmall = async (path: string): Promise<string | undefined> => {
 };
 
 // Keeps git integration read-only and degrades gracefully outside a git checkout.
-const gitStatus = (workspaceRoot: string): Promise<string> => {
+const gitStatus = (
+  workspaceRoot: string,
+  readScope: string[] | undefined,
+): Promise<string> => {
   return new Promise((resolveStatus) => {
+    const args = [
+      ...(readScope ? ["--literal-pathspecs"] : []),
+      "status",
+      "--short",
+      ...(readScope ? ["--", ...readScope] : []),
+    ];
     execFile(
       "git",
-      ["status", "--short"],
+      args,
       { cwd: workspaceRoot },
       (error, stdout) => {
         if (error) resolveStatus("Git status is unavailable.");
@@ -360,10 +477,18 @@ const gitStatus = (workspaceRoot: string): Promise<string> => {
   });
 };
 
-const gitDiff = async (workspaceRoot: string): Promise<ToolResult> => {
+const gitDiff = async (
+  workspaceRoot: string,
+  readScope: string[] | undefined,
+): Promise<ToolResult> => {
+  const scopedArgs = (args: string[]) => [
+    ...(readScope ? ["--literal-pathspecs"] : []),
+    ...args,
+    ...(readScope ? ["--", ...readScope] : []),
+  ];
   const [stat, diff] = await Promise.all([
-    gitOutput(workspaceRoot, ["diff", "--stat"]),
-    gitOutput(workspaceRoot, ["diff"]),
+    gitOutput(workspaceRoot, scopedArgs(["diff", "--stat"])),
+    gitOutput(workspaceRoot, scopedArgs(["diff"])),
   ]);
   if (stat === undefined || diff === undefined) {
     return {
@@ -374,6 +499,7 @@ const gitDiff = async (workspaceRoot: string): Promise<ToolResult> => {
         truncated: false,
         totalBytes: 0,
         returnedBytes: 0,
+        scopeConstrained: readScope !== undefined,
       },
     };
   }
@@ -386,6 +512,7 @@ const gitDiff = async (workspaceRoot: string): Promise<ToolResult> => {
         truncated: false,
         totalBytes: 0,
         returnedBytes: 0,
+        scopeConstrained: readScope !== undefined,
       },
     };
   }
@@ -413,6 +540,7 @@ const gitDiff = async (workspaceRoot: string): Promise<ToolResult> => {
       totalBytes: buffer.length,
       returnedBytes: returned.length,
       contentHash: createHash("sha256").update(diff).digest("hex"),
+      scopeConstrained: readScope !== undefined,
     },
   };
 };

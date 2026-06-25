@@ -6,6 +6,7 @@ export interface RunAgentInput {
   workflow?: WorkflowKind;
   task: string;
   contextFiles: string[];
+  allowedReadPaths?: string[];
   model?: string;
   budgetUsd?: number;
   homeDir?: string;
@@ -26,6 +27,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     workflow: input.workflow ?? "coding",
     task: input.task,
     contextFiles: input.contextFiles,
+    allowedReadPaths: input.allowedReadPaths,
     model: input.model,
     budgetUsd: input.budgetUsd,
     homeDir: input.homeDir,

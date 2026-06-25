@@ -40,6 +40,12 @@ test("parses actionable coding runs", () => {
   });
 });
 
+test("rejects --allow-read without a path", () => {
+  expect(() => parseArgs(["--allow-read"])).toThrow(
+    /Missing value for --allow-read/,
+  );
+});
+
 test("rejects actionable writing runs", () => {
   expect(() => parseArgs(["write", "--live", "--act", "revise this"])).toThrow(/--act is only available for the coding workflow/);
 });

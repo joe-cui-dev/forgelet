@@ -4,6 +4,7 @@ export function helpText(): string {
 Usage:
   forge "<task>"
   forge --context issue.md "<task>"
+  forge --allow-read README.md --allow-read src/workflows "<task>"
   forge write --context draft.md "revise this"
   forge --live --budget 0.25 "<task>"
   forge --live --act "<task>"
@@ -19,7 +20,7 @@ Usage:
   forge memory suggest <sessionId>
   forge memory accept <suggestionId>
 
-Forgelet V1 runs scaffolded Sessions by default. Use --live to run a real DeepSeek-backed Session. Add --act for coding runs that may request confirmed file edits and configured commands.
+Forgelet V1 runs scaffolded Sessions by default. Use --live to run a real DeepSeek-backed Session. Repeat --allow-read with workspace-relative file or directory paths to constrain workspace and Git reads for one Session. Add --act for coding runs that may request confirmed file edits and configured commands.
 
 Writing runs return Critique, Revision, and Notes.
 V1 config set supports memoryFile, activeContext.maxObservationBytes, and provider API key env vars.`;

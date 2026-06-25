@@ -38,6 +38,8 @@ export const toolResultToObservation = (
     metadata.exitCode = data.exitCode;
   if (typeof data.durationMs === "number") metadata.durationMs = data.durationMs;
   if (typeof data.timedOut === "boolean") metadata.timedOut = data.timedOut;
+  if (typeof data.scopeConstrained === "boolean")
+    metadata.scopeConstrained = data.scopeConstrained;
   if (content) metadata.preview = content.slice(0, TRACE_PREVIEW_CHARS);
   return {
     ok: result.ok,

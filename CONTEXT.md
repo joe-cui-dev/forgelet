@@ -96,6 +96,10 @@ _Avoid_: Global tool access, tool allowlist
 The Session-time rule that decides whether a concrete tool call is allowed, requires confirmation, or is denied after **Workflow Capability Grants** and provider-classified risk tier are considered.
 _Avoid_: Tool allowlist, global approval
 
+**Session Read Scope**:
+The optional per-**Session** boundary that narrows which workspace content its read **Capabilities** may expose. It constrains workspace exploration without restricting user-provided **Context Attachments** or replacing the **Workflow Capability Grant** or **Permission Policy**.
+_Avoid_: Read-file allowlist, prompt-only scope, write scope
+
 **Risk Tiered Autonomy**:
 The default execution policy where low-risk read, analysis, and reversible model work can proceed automatically, durable writes or external effects require confirmation, and destructive or secret-touching actions are denied or strongly confirmed.
 _Avoid_: Always plan-first, fully autonomous mode
@@ -157,6 +161,14 @@ Domain expert: "No. The Writing Workflow does not receive shell or workspace mut
 Dev: "If the Coding Workflow has workspace write capability, can it edit files whenever it wants?"
 
 Domain expert: "No. The Workflow Capability Grant only makes the request eligible. The Permission Policy still decides whether each concrete tool call is allowed, requires confirmation, or is denied."
+
+Dev: "If a Coding Session can read the workspace, can a narrow dogfood run inspect every file?"
+
+Domain expert: "Not when it has a Session Read Scope. The read Capability remains granted, but the Session boundary limits which workspace content its reading tools may expose."
+
+Dev: "Does that prevent me from attaching a file outside the Session Read Scope?"
+
+Domain expert: "No. A Context Attachment is material you explicitly provide; the Session Read Scope limits the model's workspace exploration, not that attachment."
 
 Dev: "Should Forgelet ask before every step?"
 

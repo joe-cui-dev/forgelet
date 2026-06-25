@@ -201,6 +201,7 @@ const COMPACT_METADATA_KEYS = [
   "exitCode",
   "durationMs",
   "timedOut",
+  "scopeConstrained",
 ] as const;
 
 function observationBytes(conversation: ModelMessage[]): number {

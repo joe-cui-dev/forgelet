@@ -1,7 +1,7 @@
 import type { WorkflowKind } from "../types.js";
 
 export type ForgeCommand =
-  | { kind: "run"; workflow: WorkflowKind; task: string; contextFiles: string[]; model?: string; budgetUsd?: number; live: boolean; act: boolean }
+  | { kind: "run"; workflow: WorkflowKind; task: string; contextFiles: string[]; allowedReadPaths?: string[]; model?: string; budgetUsd?: number; live: boolean; act: boolean }
   | { kind: "config-get" }
   | { kind: "config-set"; key: string; value: string }
   | { kind: "sessions-list" }
@@ -92,6 +92,7 @@ function parseMemory(args: string[]): ForgeCommand {
 
 function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
   const contextFiles: string[] = [];
+  const allowedReadPaths: string[] = [];
   let model: string | undefined;
   let budgetUsd: number | undefined;
   let live = false;
@@ -104,6 +105,12 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
       const value = args[++i];
       if (!value) throw new Error("Missing value for --context");
       contextFiles.push(value);
+      continue;
+    }
+    if (arg === "--allow-read") {
+      const value = args[++i];
+      if (!value) throw new Error("Missing value for --allow-read");
+      allowedReadPaths.push(value);
       continue;
     }
     if (arg === "--model") {
@@ -136,5 +143,15 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
 
   const task = taskParts.join(" ").trim();
   if (!task) throw new Error(workflow === "writing" ? "Usage: forge write \"<task>\"" : "Usage: forge \"<task>\"");
-  return { kind: "run", workflow, task, contextFiles, model, budgetUsd, live, act };
+  return {
+    kind: "run",
+    workflow,
+    task,
+    contextFiles,
+    ...(allowedReadPaths.length > 0 ? { allowedReadPaths } : {}),
+    model,
+    budgetUsd,
+    live,
+    act,
+  };
 }

@@ -190,14 +190,51 @@ Goal: support narrow dogfood runs without relying only on prompt wording.
 
 Changes:
 
-- Add a per-Session read allowlist option later, or a lightweight V1 config/test-only hook first.
-- If a model requests a disallowed path, return a controlled denial observation.
-- Consider a CLI flag such as `--allow-read README.md --allow-read src/workflows/index.ts` after the core behavior is proven.
+- Add an optional per-Session `Session Read Scope` that narrows which workspace content the Session's read capabilities may expose.
+- Enforce the scope across all tools that expose workspace content, not only `read_file`.
+- Keep `read_workspace` as the Workflow Capability Grant; apply the narrower Session boundary through the Permission Policy.
+- If a model requests content outside the Session Read Scope, return a controlled `permission_denied` observation and trace the real permission decision.
+- Keep write scope outside Slice 5; workspace mutations continue through their existing capability and permission rules.
+- Define scope entries as workspace-relative file or directory paths. A file entry allows only that file; a directory entry recursively allows its descendants.
+- Keep V1 matching literal and do not support globs.
+- Resolve and compare real paths so symlinks cannot expose content outside an allowed entry or the workspace.
+- For collection reads such as `list_files` and `search_text`, allow requests whose target overlaps the Session Read Scope, but traverse and return only allowed files.
+- Do not reveal the names or existence of excluded paths. Mark successful filtered observations as constrained by the Session Read Scope.
+- Apply the Session Read Scope to `git_status` and `git_diff` even though they use the separate `git_read` Capability, because both can expose workspace paths or file content.
+- Filter Git observations to allowed files only, mark them as scope-constrained, and do not report excluded file names or counts.
+- Do not apply the Session Read Scope to explicit Context Attachments supplied through `--context`. Those are user-authorized Session inputs, while the scope limits subsequent workspace exploration through tools.
+- Attaching one file does not implicitly add that file or its directory to the Session Read Scope.
+- Add a repeatable `--allow-read <workspace-relative-path>` CLI option. One or more occurrences form the Session Read Scope for that run.
+- When `--allow-read` is absent, preserve the current unrestricted workspace-read behavior. The scope is per-Session and is not persisted to global or project configuration.
+- Normalize and validate scope entries before the first model call, then record the normalized entries in the `session_started` Trace event so the enforced boundary is auditable.
+- Pass the Session Read Scope through the Session and tool context rather than storing it as mutable global state.
+
+Example:
+
+```bash
+forge --live \
+  --allow-read README.md \
+  --allow-read src/workflows \
+  "Summarize the workflow"
+```
 
 Validation:
 
+- Add CLI parser and integration tests for repeated `--allow-read` values, missing values, and the unrestricted behavior when the flag is absent.
 - Add a test where `read_file` for an allowed path succeeds and a disallowed path returns a denial.
+- Add coverage proving other workspace-reading tools cannot expose content outside the Session Read Scope.
+- Add tests for recursive directory entries, literal non-glob matching, and symlink escape denial.
+- Add tests proving collection reads return only allowed paths and do not reveal excluded path names.
+- Add tests proving `git_status` and `git_diff` expose only allowed paths and content.
+- Add a test proving an explicit Context Attachment remains available outside the Session Read Scope without granting tool access to its path.
 - Confirm denied reads are traced as real permission decisions.
+- Confirm `session_started` records normalized scope entries and no scope field is emitted as an implied restriction when `--allow-read` is absent.
+
+Implementation result:
+
+- Slice 5 is implemented with repeatable `--allow-read`, normalized per-Session scope state, Permission Policy denials for direct and disjoint collection reads, and scope-filtered workspace and Git observations.
+- Context Attachments remain independent user-authorized inputs, and real-path checks prevent symlink escapes.
+- Automated coverage includes unrestricted compatibility, allowed and denied reads, recursive directories, literal paths, collection filtering, Git filtering, missing targets, Context Attachments, and symlink boundaries.
 
 ### Slice 6: Make Session correlation obvious
 

@@ -39,6 +39,7 @@ export interface AgentSession {
   workflow: WorkflowKind;
   task: string;
   taskHash: string;
+  readScope?: string[];
   stage: AgentStage;
   plan: AgentPlan;
   createdAt: string;
@@ -190,6 +191,7 @@ export interface ToolContext {
   sessionId: string;
   workflow: WorkflowKind;
   grantedCapabilities: Capability[];
+  readScope?: string[];
 }
 
 export interface ToolResult {
@@ -238,6 +240,7 @@ export interface ToolObservation {
     exitCode?: number | null;
     durationMs?: number;
     timedOut?: boolean;
+    scopeConstrained?: boolean;
   };
 }
 
@@ -262,7 +265,8 @@ export type ToolTarget =
         | "generated"
         | "dirty_at_session_start"
         | "delete_file"
-        | "outside_workspace";
+        | "outside_workspace"
+        | "outside_session_read_scope";
     }
   | {
       kind: "command";

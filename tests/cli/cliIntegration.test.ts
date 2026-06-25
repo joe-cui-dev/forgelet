@@ -28,6 +28,7 @@ test("CLI lists and shows project sessions", async () => {
   const started = events.find((event) => event.type === "session_started");
   const taskHash = started?.payload.taskHash;
   expect(taskHash).toMatch(/^[0-9a-f]{8}$/);
+  expect(started?.payload).not.toHaveProperty("readScope");
   expect(list.stdout).toMatch(new RegExp(`\\b${taskHash}\\b`));
   expect(run.summary).toMatch(new RegExp(`Task hash: ${taskHash}`));
 
@@ -715,6 +716,60 @@ test("CLI --live runs a read-only Session with an injected live model client", a
   expect(result.stdout).toMatch(/Forgelet session completed/);
   expect(result.stdout).toMatch(/Found needle in example.ts/);
   expect(modelClient.turnInputs.length).toBe(2);
+});
+
+test("CLI records repeated --allow-read entries as the Session Read Scope", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-read-scope-"),
+  );
+  await mkdir(join(workspaceRoot, "src", "workflows"), { recursive: true });
+  await writeFile(join(workspaceRoot, "README.md"), "Forgelet\n", "utf8");
+  const modelClient = new FakeModelClient([
+    { content: "Scope recorded.", toolCalls: [] },
+  ]);
+
+  const result = await runCli(
+    [
+      "--live",
+      "--allow-read",
+      "./README.md",
+      "--allow-read",
+      "src/workflows/",
+      "inspect allowed files",
+    ],
+    {
+      workspaceRoot,
+      env: {},
+      createLiveModelClient: async () => modelClient,
+    },
+  );
+
+  expect(result.exitCode).toBe(0);
+  const tracePath = result.stdout.match(/Trace: (.+)$/m)?.[1];
+  const events = (await readFile(tracePath ?? "", "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(
+    events.find((event) => event.type === "session_started")?.payload
+      .readScope,
+  ).toEqual(["README.md", "src/workflows"]);
+});
+
+test("CLI rejects absolute Session Read Scope paths", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-absolute-read-scope-"),
+  );
+  const allowedPath = join(workspaceRoot, "README.md");
+  await writeFile(allowedPath, "Forgelet\n", "utf8");
+
+  const result = await runCli(
+    ["--allow-read", allowedPath, "inspect allowed files"],
+    { workspaceRoot },
+  );
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toMatch(/--allow-read paths must be workspace-relative/);
 });
 
 test("CLI live Sessions use the global active observation target", async () => {

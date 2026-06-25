@@ -64,6 +64,7 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
           workflow: command.workflow,
           task: command.task,
           contextFiles: command.contextFiles,
+          allowedReadPaths: command.allowedReadPaths,
           model: command.model,
           budgetUsd: command.budgetUsd,
           homeDir: options.homeDir,
