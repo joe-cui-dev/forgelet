@@ -15,6 +15,7 @@ Usage:
   forge config get
   forge config set <key> <value>
   forge config set activeContext.maxObservationBytes 16384
+  forge config set activeContext.observationDigestPreviewBytes 2048
   forge sessions list
   forge sessions show <sessionId>
   forge explain <sessionId>
@@ -24,5 +25,5 @@ Usage:
 Forgelet V1 runs scaffolded Sessions by default. Use --live to run a real DeepSeek-backed Session. Repeat --allow-read with workspace-relative file or directory paths to constrain workspace and Git reads for one Session. Add --act for coding runs that may request confirmed file edits and configured commands.
 
 Writing runs return Critique, Revision, and Notes. Creative writing runs return Critique, Revision, Alternatives, and Notes. Styles: vivid, tight, literary, plain.
-V1 config set supports memoryFile, activeContext.maxObservationBytes, and provider API key env vars.`;
+V1 config set supports memoryFile, activeContext config keys, and provider API key env vars.`;
 }

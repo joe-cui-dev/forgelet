@@ -28,6 +28,59 @@ test("compacts an old large file observation while preserving the newest tool tu
   expect(conversation[3]?.content).toBe(newestContent);
 });
 
+test("compacts old file observations into range-preserving digests", () => {
+  const returnedContent = `${"x".repeat(2_500)}middle-slice-content`;
+  const conversation: ModelMessage[] = [
+    assistantToolCall("call_old", "read_file"),
+    rangedToolObservation(
+      "call_old",
+      "src/cli/index.ts",
+      returnedContent,
+      {
+        offsetBytes: 5_000,
+        limitBytes: 5_000,
+        returnedStartByte: 5_000,
+        returnedEndByte: 10_000,
+        nextOffsetBytes: 10_000,
+        totalBytes: 14_303,
+        truncated: true,
+      },
+    ),
+    assistantToolCall("call_new", "read_file"),
+    toolObservation("call_new", "read_file", "new.txt", "n".repeat(6_000)),
+  ];
+
+  compactConversationInPlace(conversation, {
+    maxObservationBytes: 4_096,
+    observationDigestPreviewBytes: 2_048,
+  });
+
+  const compacted = JSON.parse(conversation[1]?.content ?? "{}");
+  expect(compacted).toMatchObject({
+    toolCallId: "call_old",
+    toolName: "read_file",
+    compacted: true,
+    digest:
+      "Compacted read_file result for src/cli/index.ts, byte range 5000-10000 of 14303, truncated, next offset 10000.",
+    metadata: {
+      path: "src/cli/index.ts",
+      contentHash: "src/cli/index.ts-hash",
+      rangeKind: "byte",
+      offsetBytes: 5_000,
+      limitBytes: 5_000,
+      returnedStartByte: 5_000,
+      returnedEndByte: 10_000,
+      returnedBytes: Buffer.byteLength(returnedContent, "utf8"),
+      totalBytes: 14_303,
+      nextOffsetBytes: 10_000,
+      truncated: true,
+    },
+  });
+  expect(compacted.metadata.preview).toHaveLength(2_048);
+  expect(compacted.metadata.preview).toBe(returnedContent.slice(0, 2_048));
+  expect(compacted).not.toHaveProperty("content");
+});
+
 test("an oversized newest tool turn preserves every fresh observation", () => {
   const conversation: ModelMessage[] = [
     {
@@ -96,7 +149,7 @@ test("prioritizes content-heavy tools before other old observations", () => {
   const listContent = conversation[1]?.content;
 
   compactConversationInPlace(conversation, {
-    maxObservationBytes: 7_000,
+    maxObservationBytes: 8_500,
   });
 
   expect(conversation[1]?.content).toBe(listContent);
@@ -172,6 +225,41 @@ function toolObservation(
         contentHash: `${path}-hash`,
         returnedBytes: Buffer.byteLength(content, "utf8"),
         preview: content.slice(0, 500),
+      },
+    }),
+  };
+}
+
+function rangedToolObservation(
+  toolCallId: string,
+  path: string,
+  content: string,
+  range: {
+    offsetBytes: number;
+    limitBytes: number;
+    returnedStartByte: number;
+    returnedEndByte: number;
+    nextOffsetBytes: number;
+    totalBytes: number;
+    truncated: boolean;
+  },
+): ModelMessage {
+  return {
+    role: "tool",
+    toolCallId,
+    content: JSON.stringify({
+      ok: true,
+      toolCallId,
+      toolName: "read_file",
+      summary: `Read ${path} with truncation.`,
+      content,
+      metadata: {
+        path,
+        contentHash: `${path}-hash`,
+        rangeKind: "byte",
+        returnedBytes: Buffer.byteLength(content, "utf8"),
+        preview: content.slice(0, 500),
+        ...range,
       },
     }),
   };

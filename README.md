@@ -162,6 +162,7 @@ V1 has a narrow `config set` surface for user-level values:
 ```bash
 forge config set memoryFile .forgelet/memory.md
 forge config set activeContext.maxObservationBytes 16384
+forge config set activeContext.observationDigestPreviewBytes 2048
 forge config set providers.deepseek.apiKeyEnv DEEPSEEK_API_KEY
 forge config set providers.openai.apiKeyEnv OPENAI_API_KEY
 forge config set providers.anthropic.apiKeyEnv ANTHROPIC_API_KEY
@@ -173,7 +174,7 @@ Model defaults and routing are defined in `src/config/index.ts`. Use `--model` f
 forge --live --model deepseek-v4-pro "inspect this repo"
 ```
 
-Project-level `safeCommands`, `testCommands`, `commandTimeoutMs`, `maxPatchBytes`, and `activeContext.maxObservationBytes` overrides belong in `.forgelet/config.json`. The active observation target defaults to 16384 UTF-8 bytes and controls best-effort compaction of old model-visible tool results; it is not a provider token limit or a Session stop budget.
+Project-level `safeCommands`, `testCommands`, `commandTimeoutMs`, `maxPatchBytes`, and `activeContext` overrides belong in `.forgelet/config.json`. The active observation target defaults to 16384 UTF-8 bytes and controls best-effort compaction of old model-visible tool results; it is not a provider token limit or a Session stop budget. Observation Digest excerpts default to 2048 UTF-8 bytes per compacted result.
 
 ## V1 Boundaries
 

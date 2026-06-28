@@ -2,6 +2,7 @@ import type { ModelMessage } from "../types.js";
 
 export interface CompactionOptions {
   maxObservationBytes: number;
+  observationDigestPreviewBytes?: number;
 }
 
 export interface CompactionResult {
@@ -20,6 +21,7 @@ interface ParsedObservation {
   toolName: string;
   summary: string;
   content?: string;
+  digest?: string;
   compacted?: boolean;
   error?: {
     code?: unknown;
@@ -70,7 +72,9 @@ export function compactConversationInPlace(
       continue;
     }
     if (parsed.compacted === true) continue;
-    candidate.message.content = JSON.stringify(compactObservation(parsed));
+    candidate.message.content = JSON.stringify(
+      compactObservation(parsed, options),
+    );
     result.compactedCount += 1;
     compactedTools.add(parsed.toolName);
   }
@@ -115,15 +119,19 @@ function parseObservation(content: string): ParsedObservation | undefined {
   }
 }
 
-function compactObservation(observation: ParsedObservation): ParsedObservation {
+function compactObservation(
+  observation: ParsedObservation,
+  options: CompactionOptions,
+): ParsedObservation {
   return {
     ok: observation.ok,
     toolCallId: observation.toolCallId,
     toolName: observation.toolName,
     summary: observation.summary,
+    digest: digestObservation(observation),
     compacted: true,
     error: compactError(observation.error),
-    metadata: compactMetadata(observation.metadata),
+    metadata: compactMetadata(observation, options),
   };
 }
 
@@ -138,16 +146,69 @@ function compactError(
 }
 
 function compactMetadata(
-  metadata: Record<string, unknown> | undefined,
+  observation: ParsedObservation,
+  options: CompactionOptions,
 ): Record<string, unknown> {
+  const metadata = observation.metadata;
   if (!metadata) return {};
   const compact: Record<string, unknown> = {};
   for (const key of COMPACT_METADATA_KEYS) {
     if (metadata[key] !== undefined) compact[key] = metadata[key];
   }
-  if (typeof metadata.preview === "string")
-    compact.preview = clipUtf8(metadata.preview, 512);
+  const previewSource =
+    typeof observation.content === "string"
+      ? observation.content
+      : typeof metadata.preview === "string"
+        ? metadata.preview
+        : undefined;
+  if (previewSource)
+    compact.preview = clipUtf8(
+      previewSource,
+      options.observationDigestPreviewBytes ?? 2_048,
+    );
   return compact;
+}
+
+function digestObservation(observation: ParsedObservation): string {
+  const metadata = observation.metadata ?? {};
+  const subject =
+    typeof metadata.path === "string" && metadata.path
+      ? metadata.path
+      : observation.toolName;
+  const range = digestRange(metadata);
+  const state =
+    metadata.truncated === true
+      ? "truncated"
+      : metadata.truncated === false
+        ? "complete"
+        : "returned";
+  const continuation =
+    typeof metadata.nextOffsetBytes === "number"
+      ? `, next offset ${metadata.nextOffsetBytes}`
+      : "";
+  return [
+    `Compacted ${observation.toolName} result for ${subject}`,
+    `${range}, ${state}${continuation}.`,
+  ].join("");
+}
+
+function digestRange(metadata: Record<string, unknown>): string {
+  if (
+    typeof metadata.returnedStartByte === "number" &&
+    typeof metadata.returnedEndByte === "number"
+  ) {
+    const total =
+      typeof metadata.totalBytes === "number"
+        ? ` of ${metadata.totalBytes}`
+        : "";
+    return `, byte range ${metadata.returnedStartByte}-${metadata.returnedEndByte}${total}`;
+  }
+  if (
+    typeof metadata.returnedStartLine === "number" &&
+    typeof metadata.returnedEndLine === "number"
+  )
+    return `, line range ${metadata.returnedStartLine}-${metadata.returnedEndLine}`;
+  return "";
 }
 
 const COMPACT_METADATA_KEYS = [

@@ -52,6 +52,14 @@ _Avoid_: Transcript, log dump, demo script
 User-provided or user-approved material attached to a **Session** so a **Workflow** can use it as task context. A **Trace** should record attachment provenance, size, hash, and a short preview rather than silently turning the attachment into durable full-text storage.
 _Avoid_: Prompt paste, hidden source, trace content
 
+**Active Context**:
+The current model-facing working set assembled for a **Session** turn, including task context, attachments, recent interaction, and tool observations. Active Context may be compacted without changing the **Trace**.
+_Avoid_: Trace, durable memory, full session history
+
+**Observation Digest**:
+A compact model-facing representation of an older tool observation in **Active Context**. It preserves enough deterministic evidence for the model to understand what was observed, while avoiding replay of the full original result.
+_Avoid_: Thin summary, trace payload, semantic memory
+
 **Workflow Graph**:
 The explicit stage structure of a **Workflow**. A graph can include deterministic steps and local **ReAct Nodes** where exploration or tool use is needed.
 _Avoid_: Single generic loop, hidden prompt flow
@@ -185,6 +193,14 @@ Domain expert: "Not when it has a Session Read Scope. The read Capability remain
 Dev: "Does that prevent me from attaching a file outside the Session Read Scope?"
 
 Domain expert: "No. A Context Attachment is material you explicitly provide; the Session Read Scope limits the model's workspace exploration, not that attachment."
+
+Dev: "If the Trace only stores a preview, does the model also lose everything it read?"
+
+Domain expert: "Not immediately. Full observations can enter Active Context, and older ones can become Observation Digests so the model keeps deterministic evidence without replaying every byte."
+
+Dev: "Can we fix context growth by storing full file contents in the Trace?"
+
+Domain expert: "No. The Trace remains evidence-first and metadata-first. Richer retention belongs in Active Context as an Observation Digest, not hidden durable storage."
 
 Dev: "Should Forgelet ask before every step?"
 

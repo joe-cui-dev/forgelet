@@ -35,6 +35,7 @@ export interface ForgeletConfig {
   };
   activeContext: {
     maxObservationBytes: number;
+    observationDigestPreviewBytes: number;
   };
   safeCommands: string[];
   testCommands: string[];
@@ -43,7 +44,10 @@ export interface ForgeletConfig {
   memoryFile: string;
 }
 
-type WritableConfig = Partial<Omit<ForgeletConfig, "providers">> & {
+type WritableConfig = Partial<
+  Omit<ForgeletConfig, "activeContext" | "providers">
+> & {
+  activeContext?: Partial<ForgeletConfig["activeContext"]>;
   providers?: {
     deepseek?: Partial<ProviderSettings>;
     openai?: Partial<ProviderSettings>;
@@ -78,6 +82,7 @@ export const defaultConfig: ForgeletConfig = {
   },
   activeContext: {
     maxObservationBytes: 16 * 1024,
+    observationDigestPreviewBytes: 2_048,
   },
   safeCommands: ["npm test", "npm run build", "npm run typecheck", "npx jest"],
   testCommands: ["npm test", "npm run build", "npm run typecheck"],
@@ -159,6 +164,17 @@ function applySupportedConfigValue(
       },
     };
   }
+  if (key === "activeContext.observationDigestPreviewBytes") {
+    const observationDigestPreviewBytes = Number(value);
+    validateObservationDigestPreviewBytes(observationDigestPreviewBytes);
+    return {
+      ...config,
+      activeContext: {
+        ...config.activeContext,
+        observationDigestPreviewBytes,
+      },
+    };
+  }
   if (key === "providers.deepseek.apiKeyEnv")
     return {
       ...config,
@@ -186,7 +202,7 @@ function applySupportedConfigValue(
   throw new Error(
     [
       `Unsupported config key for V1: ${key}`,
-      "Supported keys: memoryFile, activeContext.maxObservationBytes, providers.deepseek.apiKeyEnv, providers.openai.apiKeyEnv, providers.anthropic.apiKeyEnv",
+      "Supported keys: memoryFile, activeContext.maxObservationBytes, activeContext.observationDigestPreviewBytes, providers.deepseek.apiKeyEnv, providers.openai.apiKeyEnv, providers.anthropic.apiKeyEnv",
     ].join("\n"),
   );
 }
@@ -236,6 +252,16 @@ function validateConfig(config: ForgeletConfig): void {
   )
     throw new Error(
       "activeContext.maxObservationBytes must be a finite integer of at least 4096.",
+    );
+  validateObservationDigestPreviewBytes(
+    config.activeContext.observationDigestPreviewBytes,
+  );
+}
+
+function validateObservationDigestPreviewBytes(value: number): void {
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value < 128)
+    throw new Error(
+      "activeContext.observationDigestPreviewBytes must be a finite integer of at least 128.",
     );
 }
 

@@ -656,6 +656,26 @@ test("CLI sets the global active observation working-set target", async () => {
   expect(JSON.parse(get.stdout).activeContext.maxObservationBytes).toBe(65_536);
 });
 
+test("CLI sets the global observation digest preview cap", async () => {
+  const homeDir = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-digest-preview-home-"),
+  );
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-digest-preview-"),
+  );
+
+  const set = await runCli(
+    ["config", "set", "activeContext.observationDigestPreviewBytes", "3072"],
+    { homeDir, workspaceRoot },
+  );
+  const get = await runCli(["config", "get"], { homeDir, workspaceRoot });
+
+  expect(set.exitCode).toBe(0);
+  expect(JSON.parse(get.stdout).activeContext.observationDigestPreviewBytes).toBe(
+    3_072,
+  );
+});
+
 test("CLI help documents the active observation config key", async () => {
   const result = await runCli(["--help"]);
 
@@ -663,7 +683,10 @@ test("CLI help documents the active observation config key", async () => {
     /forge config set activeContext\.maxObservationBytes 16384/,
   );
   expect(result.stdout).toMatch(
-    /config set supports memoryFile, activeContext\.maxObservationBytes, and provider API key env vars/,
+    /forge config set activeContext\.observationDigestPreviewBytes 2048/,
+  );
+  expect(result.stdout).toMatch(
+    /config set supports memoryFile, activeContext config keys, and provider API key env vars/,
   );
 });
 

@@ -141,11 +141,15 @@ Keep long-running and resumed Sessions useful without carrying every large tool 
 
 V1 dogfood showed that repeated `read_file` observations can make active model context grow quickly. Trace payloads correctly store only metadata and previews, but the live conversation can still carry full returned file chunks from earlier turns. That makes `budget_exceeded` likely even when estimated dollar cost is still low.
 
-V1 now plans a deterministic, observation-only compaction guardrail: old model-visible tool observations are compacted against a configurable UTF-8 byte target while recent results and structured execution facts are preserved. This bounds the largest demonstrated source of growth, but it is not complete prompt or semantic context management.
+V1 uses a deterministic, observation-only compaction guardrail: old model-visible tool observations are compacted against a configurable UTF-8 byte target while recent results and structured execution facts are preserved. Compacted observations become bounded Observation Digests rather than thin summaries, so the model keeps deterministic evidence without replaying the full result. The digest excerpt cap is configurable separately from the total observation target, with a conservative default around 2048 UTF-8 bytes. This bounds the largest demonstrated source of growth, but it is not complete prompt or semantic context management.
 
 **Capabilities**
 
 - Build on V1 deterministic observation compaction rather than replacing it.
+- Preserve useful deterministic Observation Digests for compacted results before adding semantic summarization.
+- Add `activeContext.observationDigestPreviewBytes` as the per-digest excerpt cap, separate from `activeContext.maxObservationBytes`.
+- Preserve each compacted result's exact returned range shape, including byte or line bounds and continuation metadata.
+- Keep compacted tool messages as JSON observations, with a deterministic model-readable `digest` string inside the payload.
 - Add semantic relevance and explicit pinning for observations that should remain available in full.
 - Account for other prompt contributors, including historical tool-call arguments, without conflating byte guards with provider token usage.
 - Track complete active conversation token pressure separately from persisted Trace evidence.
@@ -154,7 +158,7 @@ V1 now plans a deterministic, observation-only compaction guardrail: old model-v
 
 **Design rule**
 
-Compaction is a model-context optimization, not a Trace rewrite. The Trace remains the immutable evidence log; the compacted conversation is the current working set sent to the model.
+Compaction is a model-context optimization, not a Trace rewrite. The Trace remains the immutable evidence log; the compacted conversation is the Active Context sent to the model.
 
 ### 4. Writing and Knowledge Workbench
 

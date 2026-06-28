@@ -75,6 +75,7 @@ interface RunReadOnlyLoopInput {
   commandTimeoutMs: number;
   maxPatchBytes: number;
   maxObservationBytes: number;
+  observationDigestPreviewBytes: number;
   readScope?: string[];
   act: boolean;
   baselineDirtyPaths: Set<string>;
@@ -226,6 +227,8 @@ export const runWorkflowSession = async (
       commandTimeoutMs: config.commandTimeoutMs,
       maxPatchBytes: config.maxPatchBytes,
       maxObservationBytes: config.activeContext.maxObservationBytes,
+      observationDigestPreviewBytes:
+        config.activeContext.observationDigestPreviewBytes,
       readScope,
       act: input.act === true && input.workflow === "coding",
       baselineDirtyPaths,
@@ -394,6 +397,7 @@ const runReadOnlyLoop = async (
     const finalToolTurn = remainingModelTurns === 2;
     const compaction = compactConversationInPlace(conversation, {
       maxObservationBytes: input.maxObservationBytes,
+      observationDigestPreviewBytes: input.observationDigestPreviewBytes,
     });
     if (
       compaction.compactedCount > 0 ||

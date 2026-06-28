@@ -18,6 +18,7 @@ test("defaults the active observation working-set target", async () => {
   const config = await loadConfig({ workspaceRoot });
 
   expect(config.activeContext.maxObservationBytes).toBe(16_384);
+  expect(config.activeContext.observationDigestPreviewBytes).toBe(2_048);
 });
 
 test("loads merged default, global, and project config", async () => {
@@ -40,7 +41,10 @@ test("loads merged default, global, and project config", async () => {
       safeCommands: ["npm test"],
       commandTimeoutMs: 12_345,
       maxPatchBytes: 54_321,
-      activeContext: { maxObservationBytes: 70_000 },
+      activeContext: {
+        maxObservationBytes: 70_000,
+        observationDigestPreviewBytes: 3_000,
+      },
     }),
     "utf8",
   );
@@ -55,6 +59,7 @@ test("loads merged default, global, and project config", async () => {
   expect(config.commandTimeoutMs).toBe(12_345);
   expect(config.maxPatchBytes).toBe(54_321);
   expect(config.activeContext.maxObservationBytes).toBe(70_000);
+  expect(config.activeContext.observationDigestPreviewBytes).toBe(3_000);
 });
 
 test("rejects an invalid active observation working-set target", async () => {
@@ -68,5 +73,21 @@ test("rejects an invalid active observation working-set target", async () => {
 
   await expect(loadConfig({ workspaceRoot })).rejects.toThrow(
     /activeContext\.maxObservationBytes.*4096/,
+  );
+});
+
+test("rejects an invalid observation digest preview cap", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-digest-invalid-"));
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "config.json"),
+    JSON.stringify({
+      activeContext: { observationDigestPreviewBytes: 127 },
+    }),
+    "utf8",
+  );
+
+  await expect(loadConfig({ workspaceRoot })).rejects.toThrow(
+    /activeContext\.observationDigestPreviewBytes.*128/,
   );
 });
