@@ -143,6 +143,8 @@ V1 dogfood showed that repeated `read_file` observations can make active model c
 
 V1 uses a deterministic, observation-only compaction guardrail: old model-visible tool observations are compacted against a configurable UTF-8 byte target while recent results and structured execution facts are preserved. Compacted observations become bounded Observation Digests rather than thin summaries, so the model keeps deterministic evidence without replaying the full result. The digest excerpt cap is configurable separately from the total observation target, with a conservative default around 2048 UTF-8 bytes. This bounds the largest demonstrated source of growth, but it is not complete prompt or semantic context management.
 
+V2 should add semantic retention and pinning on top of the deterministic baseline. Semantic retention means keeping observations richer when their meaning is important to the task, such as the file range that contains the suspected bug or the test output that explains a failure. Pinning means explicitly marking selected observations as protected from aggressive compaction, whether the pin comes from a deterministic policy, the model, or a future user-facing review surface.
+
 **Capabilities**
 
 - Build on V1 deterministic observation compaction rather than replacing it.
@@ -150,7 +152,8 @@ V1 uses a deterministic, observation-only compaction guardrail: old model-visibl
 - Add `activeContext.observationDigestPreviewBytes` as the per-digest excerpt cap, separate from `activeContext.maxObservationBytes`.
 - Preserve each compacted result's exact returned range shape, including byte or line bounds and continuation metadata.
 - Keep compacted tool messages as JSON observations, with a deterministic model-readable `digest` string inside the payload.
-- Add semantic relevance and explicit pinning for observations that should remain available in full.
+- Add semantic retention for observations whose meaning is central to the task, so they can stay richer than ordinary old observations.
+- Add explicit pinning for observations that should remain available in full or near-full across later turns and resumed Sessions.
 - Account for other prompt contributors, including historical tool-call arguments, without conflating byte guards with provider token usage.
 - Track complete active conversation token pressure separately from persisted Trace evidence.
 - Make compaction decisions traceable without storing the full compacted content.
@@ -473,7 +476,8 @@ Extend the deterministic V1 observation compactor into semantic context manageme
 Acceptance criteria:
 
 - V1 compact observation facts remain usable as the deterministic baseline.
-- Relevant observations can be explicitly pinned or retained through a traceable semantic policy.
+- Relevant observations can be retained through a traceable semantic policy when their meaning is central to the task.
+- Selected observations can be explicitly pinned so compaction does not reduce them below the chosen retention level.
 - Historical tool-call arguments, including large patch inputs, are handled without breaking provider assistant/tool message contracts.
 - Resumed Sessions reconstruct a compact working set rather than replaying every prior observation and tool argument verbatim.
 - Trace remains immutable and metadata-first; compaction does not rewrite saved Trace evidence.
