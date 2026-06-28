@@ -77,6 +77,30 @@ test("a coding Session can search, read, and finish through read-only tools", as
   expect(String(readResult.payload.preview)).toMatch(/needle/);
 });
 
+test("a creative writing Session returns a Revision Pack", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-creative-loop-"));
+  await writeFile(join(workspaceRoot, "draft.md"), "The room was cold.\n", "utf8");
+  const modelClient = new FakeModelClient([
+    { content: "The room breathed winter through the walls.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "writing",
+    workflowVariant: "creative",
+    creativeStyle: "vivid",
+    task: "revise this scene",
+    contextFiles: ["draft.md"],
+    workspaceRoot,
+    modelClient,
+  });
+
+  expect(result.summary).toMatch(/Critique/);
+  expect(result.summary).toMatch(/Revision/);
+  expect(result.summary).toMatch(/Alternatives/);
+  expect(result.summary).toMatch(/Notes/);
+  expect(result.summary).toMatch(/The room breathed winter through the walls/);
+});
+
 test("a Session Read Scope denies read_file outside the allowed paths", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-read-scope-"));
   await writeFile(join(workspaceRoot, "allowed.txt"), "allowed\n", "utf8");

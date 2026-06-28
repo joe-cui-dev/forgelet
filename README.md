@@ -87,6 +87,36 @@ Notes
 ...
 ```
 
+Use `--creative` with an explicit style for short-form creative rewriting. The
+first V2 creative slice requires at least one `--context` attachment and prints a
+Revision Pack to the terminal; it does not write revised prose back to files.
+
+```bash
+forge write --live --creative --style vivid --context scene.md "revise this scene"
+```
+
+Built-in styles are `vivid`, `tight`, `literary`, and `plain`.
+
+Creative writing output is shaped as:
+
+```text
+Critique
+...
+
+Revision
+...
+
+Alternatives
+1. ...
+2. ...
+
+Notes
+...
+```
+
+Long-form Writing Project continuity is a later V2 design step; it is not a
+precondition for short-form creative rewriting.
+
 ## Context Attachments
 
 Attach text context with `--context`.

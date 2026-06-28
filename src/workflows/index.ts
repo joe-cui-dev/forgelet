@@ -4,6 +4,7 @@ import type {
   BudgetLimits,
   BudgetUsage,
   Capability,
+  CreativeStyle,
   LoadedContextAttachment,
   ModelClient,
   ModelMessage,
@@ -14,6 +15,7 @@ import type {
   ToolObservation,
   TraceEvent,
   WorkflowKind,
+  WorkflowVariant,
 } from "../types.js";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -33,6 +35,8 @@ import {
 
 export interface RunWorkflowInput {
   workflow: WorkflowKind;
+  workflowVariant?: WorkflowVariant;
+  creativeStyle?: CreativeStyle;
   task: string;
   contextFiles: string[];
   allowedReadPaths?: string[];
@@ -145,6 +149,8 @@ export const runWorkflowSession = async (
   const session: AgentSession = {
     id: sessionId,
     workflow: input.workflow,
+    ...(input.workflowVariant ? { workflowVariant: input.workflowVariant } : {}),
+    ...(input.creativeStyle ? { creativeStyle: input.creativeStyle } : {}),
     task: input.task,
     taskHash,
     ...(readScope ? { readScope } : {}),
@@ -156,6 +162,8 @@ export const runWorkflowSession = async (
   await traceWriter.append(
     createTraceEvent(sessionId, "session_started", now, {
       workflow: input.workflow,
+      ...(input.workflowVariant ? { workflowVariant: input.workflowVariant } : {}),
+      ...(input.creativeStyle ? { creativeStyle: input.creativeStyle } : {}),
       startedAt: now,
       taskHash,
       ...(readScope ? { readScope } : {}),
@@ -270,6 +278,10 @@ export const runWorkflowSession = async (
   const details = [
     `Forgelet session created: ${sessionId}`,
     `Workflow: ${input.workflow}`,
+    ...(input.workflowVariant
+      ? [`Workflow variant: ${input.workflowVariant}`]
+      : []),
+    ...(input.creativeStyle ? [`Creative style: ${input.creativeStyle}`] : []),
     `Task: ${input.task}`,
     `Task hash: ${taskHash}`,
     input.contextFiles.length > 0
@@ -505,7 +517,7 @@ const runReadOnlyLoop = async (
     // Session's final answer.
     if (output.toolCalls.length === 0) {
       finalContent = normalizeFinalContentForWorkflow(
-        input.session.workflow,
+        input.session,
         output.content ?? "",
       );
       input.plan.items = input.plan.items.map((item) => ({
@@ -779,12 +791,18 @@ const buildMessages = (
   const messages: ModelMessage[] = [
     {
       role: "system",
-      content: systemPromptFor(session.workflow, act, finalOnly),
+      content: systemPromptFor(session, act, finalOnly),
     },
     {
       role: "user",
       content: [
         `Workflow: ${session.workflow}`,
+        ...(session.workflowVariant
+          ? [`Workflow variant: ${session.workflowVariant}`]
+          : []),
+        ...(session.creativeStyle
+          ? [`Creative style: ${session.creativeStyle}`]
+          : []),
         `Stage: ${route.stage}`,
         `Task: ${session.task}`,
         "",
@@ -846,10 +864,33 @@ const isUsableFinalContent = (content: string): boolean => {
 };
 
 const normalizeFinalContentForWorkflow = (
-  workflow: WorkflowKind,
+  session: AgentSession,
   content: string,
 ): string => {
-  if (workflow !== "writing") return content;
+  if (session.workflow !== "writing") return content;
+  if (session.workflowVariant === "creative") {
+    if (
+      hasMarkdownHeading(content, "Critique") &&
+      hasMarkdownHeading(content, "Revision") &&
+      hasMarkdownHeading(content, "Alternatives") &&
+      hasMarkdownHeading(content, "Notes")
+    )
+      return content;
+    return [
+      "Critique",
+      "No separate critique was provided by the model.",
+      "",
+      "Revision",
+      content.trim() || "(empty)",
+      "",
+      "Alternatives",
+      "1. No vivid/literary alternative was provided by the model.",
+      "2. No clearer/tighter alternative was provided by the model.",
+      "",
+      "Notes",
+      "No additional notes were provided.",
+    ].join("\n");
+  }
   if (
     hasMarkdownHeading(content, "Critique") &&
     hasMarkdownHeading(content, "Revision") &&
@@ -875,7 +916,7 @@ const hasMarkdownHeading = (content: string, heading: string): boolean => {
 };
 
 const systemPromptFor = (
-  workflow: WorkflowKind,
+  session: AgentSession,
   act: boolean,
   finalOnly = false,
 ): string => {
@@ -891,7 +932,7 @@ const systemPromptFor = (
         ]
       : []),
   ];
-  if (workflow === "coding" && act)
+  if (session.workflow === "coding" && act)
     return [
       ...common,
       "This is an actionable Coding Workflow Session.",
@@ -899,11 +940,20 @@ const systemPromptFor = (
       "Every file edit or command must pass Forgelet permission and approval boundaries before it runs.",
       "Do not claim verification succeeded unless a run_command observation shows the command ran successfully.",
     ].join("\n");
-  if (workflow === "coding")
+  if (session.workflow === "coding")
     return [
       ...common,
       "This is a read-only Coding Workflow Session.",
       "Read-only tools may inspect workspace content; do not claim to write files or run commands.",
+    ].join("\n");
+  if (session.workflowVariant === "creative")
+    return [
+      ...common,
+      "This is a Creative Writing Workflow variant.",
+      `Style: ${session.creativeStyle ?? "plain"}.`,
+      "Use the provided context and Durable Memory, but do not request workspace, git, shell, patch, or command tools.",
+      "Return a Revision Pack with these headings: Critique, Revision, Alternatives, Notes.",
+      "Alternatives must include exactly two options: one more vivid/literary and one clearer/tighter.",
     ].join("\n");
   return [
     ...common,
@@ -1048,6 +1098,10 @@ const formatCompletedSummary = (
   return [
     `Forgelet session completed: ${session.id}`,
     `Workflow: ${session.workflow}`,
+    ...(session.workflowVariant
+      ? [`Workflow variant: ${session.workflowVariant}`]
+      : []),
+    ...(session.creativeStyle ? [`Creative style: ${session.creativeStyle}`] : []),
     `Task: ${session.task}`,
     `Task hash: ${session.taskHash}`,
     `Route: ${route.model} (${route.reason})`,

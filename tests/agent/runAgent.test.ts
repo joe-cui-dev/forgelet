@@ -83,3 +83,32 @@ test("selects the built-in model route when project config tries to override def
   expect(routing.payload.model).toBe("deepseek-v4-flash");
   expect(result.summary).toMatch(/Route: deepseek-v4-flash/);
 });
+
+test("records creative writing variant metadata in the Session trace", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-creative-"));
+  await writeFile(join(workspaceRoot, "draft.md"), "The room was cold.\n", "utf8");
+
+  const result = await runAgent({
+    workflow: "writing",
+    workflowVariant: "creative",
+    creativeStyle: "vivid",
+    task: "revise this scene",
+    contextFiles: ["draft.md"],
+    workspaceRoot
+  });
+
+  expect(result.session.workflow).toBe("writing");
+  expect(result.session.workflowVariant).toBe("creative");
+  expect(result.session.creativeStyle).toBe("vivid");
+  expect(result.summary).toMatch(/Workflow variant: creative/);
+  expect(result.summary).toMatch(/Creative style: vivid/);
+
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const events = trace.trim().split("\n").map((line) => JSON.parse(line));
+  const started = events.find((event) => event.type === "session_started");
+  expect(started.payload).toMatchObject({
+    workflow: "writing",
+    workflowVariant: "creative",
+    creativeStyle: "vivid"
+  });
+});

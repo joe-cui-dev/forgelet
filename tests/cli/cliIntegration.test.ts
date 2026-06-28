@@ -1,6 +1,6 @@
 import { expect, test } from "@jest/globals";
 import { execFile } from "child_process";
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from "fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { runAgent } from "../../src/agent/runAgent.js";
@@ -716,6 +716,56 @@ test("CLI --live runs a read-only Session with an injected live model client", a
   expect(result.stdout).toMatch(/Forgelet session completed/);
   expect(result.stdout).toMatch(/Found needle in example.ts/);
   expect(modelClient.turnInputs.length).toBe(2);
+});
+
+test("CLI --live runs a creative writing Revision Pack Session", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-creative-"));
+  await writeFile(join(workspaceRoot, "draft.md"), "The room was cold.\n", "utf8");
+  const modelClient = new FakeModelClient([
+    { content: "The room breathed winter through the walls.", toolCalls: [] },
+  ]);
+
+  const result = await runCli(
+    [
+      "write",
+      "--live",
+      "--creative",
+      "--style",
+      "vivid",
+      "--context",
+      "draft.md",
+      "revise this scene",
+    ],
+    {
+      workspaceRoot,
+      env: {},
+      createLiveModelClient: async (input) => {
+        expect(input.workflow).toBe("writing");
+        return modelClient;
+      },
+    },
+  );
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toMatch(/Workflow variant: creative/);
+  expect(result.stdout).toMatch(/Creative style: vivid/);
+  expect(result.stdout).toMatch(/Alternatives/);
+
+  const traceFiles = await readdir(join(workspaceRoot, ".forgelet", "sessions"));
+  const trace = await readFile(
+    join(workspaceRoot, ".forgelet", "sessions", traceFiles[0] ?? ""),
+    "utf8",
+  );
+  const started = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line))
+    .find((event) => event.type === "session_started");
+  expect(started.payload).toMatchObject({
+    workflow: "writing",
+    workflowVariant: "creative",
+    creativeStyle: "vivid",
+  });
 });
 
 test("CLI records repeated --allow-read entries as the Session Read Scope", async () => {

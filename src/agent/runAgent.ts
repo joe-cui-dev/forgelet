@@ -1,9 +1,17 @@
-import type { AgentSession, ModelClient, WorkflowKind } from "../types.js";
+import type {
+  AgentSession,
+  CreativeStyle,
+  ModelClient,
+  WorkflowKind,
+  WorkflowVariant,
+} from "../types.js";
 import type { ApprovalHandler } from "../tools/toolRegistry.js";
 import { runWorkflowSession } from "../workflows/index.js";
 
 export interface RunAgentInput {
   workflow?: WorkflowKind;
+  workflowVariant?: WorkflowVariant;
+  creativeStyle?: CreativeStyle;
   task: string;
   contextFiles: string[];
   allowedReadPaths?: string[];
@@ -25,6 +33,8 @@ export interface RunAgentResult {
 export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
   return runWorkflowSession({
     workflow: input.workflow ?? "coding",
+    workflowVariant: input.workflowVariant,
+    creativeStyle: input.creativeStyle,
     task: input.task,
     contextFiles: input.contextFiles,
     allowedReadPaths: input.allowedReadPaths,

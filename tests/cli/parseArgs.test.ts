@@ -63,6 +63,63 @@ test("parses a writing workflow task", () => {
   });
 });
 
+test("parses a creative writing workflow variant", () => {
+  expect(
+    parseArgs([
+      "write",
+      "--creative",
+      "--style",
+      "vivid",
+      "--context",
+      "draft.md",
+      "revise this scene",
+    ]),
+  ).toEqual({
+    kind: "run",
+    workflow: "writing",
+    workflowVariant: "creative",
+    creativeStyle: "vivid",
+    task: "revise this scene",
+    contextFiles: ["draft.md"],
+    model: undefined,
+    budgetUsd: undefined,
+    live: false,
+    act: false
+  });
+});
+
+test("rejects creative writing without context", () => {
+  expect(() =>
+    parseArgs(["write", "--creative", "--style", "vivid", "revise this"]),
+  ).toThrow(/--creative requires at least one --context/);
+});
+
+test("rejects creative writing without a style", () => {
+  expect(() =>
+    parseArgs(["write", "--creative", "--context", "draft.md", "revise this"]),
+  ).toThrow(/--creative requires --style/);
+});
+
+test("rejects style without creative writing", () => {
+  expect(() =>
+    parseArgs(["write", "--style", "vivid", "--context", "draft.md", "revise this"]),
+  ).toThrow(/--style is only available with --creative/);
+});
+
+test("rejects unknown creative writing styles", () => {
+  expect(() =>
+    parseArgs([
+      "write",
+      "--creative",
+      "--style",
+      "noir",
+      "--context",
+      "draft.md",
+      "revise this",
+    ]),
+  ).toThrow(/--style must be one of: vivid, tight, literary, plain/);
+});
+
 test("parses non-model config set", () => {
   expect(parseArgs(["config", "set", "memoryFile", ".forgelet/memory.md"])).toEqual({
     kind: "config-set",

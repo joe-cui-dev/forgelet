@@ -20,9 +20,25 @@ _Avoid_: Chat mode, document editor
 The default V1 output shape for a **Writing Workflow**: Forgelet explains the main writing issues, states the revision strategy, and returns a revised version. The critique and the revision are both part of the result.
 _Avoid_: Final text only, writing chat reply
 
+**Creative Writing Workflow**:
+A **Writing Workflow** specialization for short-form prose polishing, rewriting, style variation, and creative drafting from user-provided text context. It should remain text-first and distinct from a full **Writing Project** until project continuity becomes necessary.
+_Avoid_: Generic writing chat, document editor, long-form project state
+
+**Revision Pack**:
+The default V2 output shape for a **Creative Writing Workflow**: Forgelet returns a critique, one primary revision, two creative alternatives, and notes about the editing choices. A Revision Pack keeps short-form rewriting useful without requiring **Writing Project** continuity.
+_Avoid_: Single polished answer, variant-only response, editor chat
+
+**Writing Project**:
+A long-form creative work boundary such as a novel, serialized essay, or chapter-based manuscript where continuity across characters, setting, outline, style, and prior chapters matters. A Writing Project can use **Context Attachments** and the **Knowledge Library**, but it is not the same as one **Session**.
+_Avoid_: One-off rewrite, chat history, single context file
+
 **Workflow**:
 A named task shape that uses the **Agent Kernel** to coordinate stages, model calls, tools, permissions, trace, budget, and review. Workflows can be coding, writing, image work, learning, research, or other personal agent routines.
 _Avoid_: Prompt, mode, command
+
+**Workflow Variant**:
+A named specialization inside a **Workflow** that changes prompt shape, output contract, or trace classification without becoming a separate workflow family. Creative writing is a variant of the **Writing Workflow**, not a new top-level Workflow.
+_Avoid_: Workflow kind, mode hidden in task text
 
 **Session**:
 One auditable run of a **Workflow**, including the user's task, selected workflow, context, trace, decisions, and final outcome. In V1, a **Session** belongs to the current project workspace and is the reusable boundary for review, explanation, and memory provenance.

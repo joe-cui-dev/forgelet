@@ -62,6 +62,8 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
           : undefined;
         const result = await runAgent({
           workflow: command.workflow,
+          workflowVariant: command.workflowVariant,
+          creativeStyle: command.creativeStyle,
           task: command.task,
           contextFiles: command.contextFiles,
           allowedReadPaths: command.allowedReadPaths,

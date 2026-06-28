@@ -1,7 +1,7 @@
-import type { WorkflowKind } from "../types.js";
+import type { CreativeStyle, WorkflowKind, WorkflowVariant } from "../types.js";
 
 export type ForgeCommand =
-  | { kind: "run"; workflow: WorkflowKind; task: string; contextFiles: string[]; allowedReadPaths?: string[]; model?: string; budgetUsd?: number; live: boolean; act: boolean }
+  | { kind: "run"; workflow: WorkflowKind; workflowVariant?: WorkflowVariant; creativeStyle?: CreativeStyle; task: string; contextFiles: string[]; allowedReadPaths?: string[]; model?: string; budgetUsd?: number; live: boolean; act: boolean }
   | { kind: "config-get" }
   | { kind: "config-set"; key: string; value: string }
   | { kind: "sessions-list" }
@@ -95,6 +95,8 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
   const allowedReadPaths: string[] = [];
   let model: string | undefined;
   let budgetUsd: number | undefined;
+  let workflowVariant: WorkflowVariant | undefined;
+  let creativeStyle: CreativeStyle | undefined;
   let live = false;
   let act = false;
   const taskParts: string[] = [];
@@ -127,6 +129,20 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
       budgetUsd = parsed;
       continue;
     }
+    if (arg === "--creative") {
+      if (workflow !== "writing")
+        throw new Error("--creative is only available for the writing workflow.");
+      workflowVariant = "creative";
+      continue;
+    }
+    if (arg === "--style") {
+      const value = args[++i];
+      if (!value) throw new Error("Missing value for --style");
+      if (!isCreativeStyle(value))
+        throw new Error("--style must be one of: vivid, tight, literary, plain");
+      creativeStyle = value;
+      continue;
+    }
     if (arg === "--live") {
       live = true;
       continue;
@@ -143,9 +159,17 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
 
   const task = taskParts.join(" ").trim();
   if (!task) throw new Error(workflow === "writing" ? "Usage: forge write \"<task>\"" : "Usage: forge \"<task>\"");
+  if (creativeStyle && workflowVariant !== "creative")
+    throw new Error("--style is only available with --creative.");
+  if (workflowVariant === "creative" && contextFiles.length === 0)
+    throw new Error("--creative requires at least one --context attachment.");
+  if (workflowVariant === "creative" && !creativeStyle)
+    throw new Error("--creative requires --style <vivid|tight|literary|plain>.");
   return {
     kind: "run",
     workflow,
+    workflowVariant,
+    creativeStyle,
     task,
     contextFiles,
     ...(allowedReadPaths.length > 0 ? { allowedReadPaths } : {}),
@@ -154,4 +178,13 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
     live,
     act,
   };
+}
+
+function isCreativeStyle(value: string): value is CreativeStyle {
+  return (
+    value === "vivid" ||
+    value === "tight" ||
+    value === "literary" ||
+    value === "plain"
+  );
 }

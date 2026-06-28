@@ -1,5 +1,8 @@
 export type WorkflowKind = "coding" | "writing";
 
+export type WorkflowVariant = "creative";
+export type CreativeStyle = "vivid" | "tight" | "literary" | "plain";
+
 export type AgentStage =
   | "intake"
   | "inspect"
@@ -37,6 +40,8 @@ export interface AgentPlan {
 export interface AgentSession {
   id: string;
   workflow: WorkflowKind;
+  workflowVariant?: WorkflowVariant;
+  creativeStyle?: CreativeStyle;
   task: string;
   taskHash: string;
   readScope?: string[];
