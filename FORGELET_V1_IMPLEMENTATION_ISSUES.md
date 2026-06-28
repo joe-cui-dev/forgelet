@@ -1,12 +1,40 @@
 # Forgelet V1 Implementation Issues
 
-This document breaks the Forgelet V1 technical design into the first implementation issues. The order is intentional: start with the CLI skeleton, then configuration, trace, tool registry, mock agent loop, and finally real model providers.
+This document is the historical implementation plan for Forgelet V1.
 
-## Current Implementation Focus
+## V1 Release Status
 
-The next implementation work is split into two tracer bullets. The first finishes the safe read-only Agent Kernel foundation; the second crosses into medium-risk action only after the tool and permission boundaries are explicit.
+Forgelet V1 is implemented and dogfoodable as a local-first Agent Kernel with:
+
+- scaffolded Sessions by default
+- DeepSeek-backed live Coding and Writing Sessions
+- read-only Coding tools for workspace, Git, and Session planning
+- explicit `--act` mode for approved `apply_patch` and configured `run_command`
+- Session JSONL Traces, `forge sessions show`, and `forge explain`
+- structured actionable Session audit data under `final_summary.audit`
+- user-approved Durable Memory suggestions
+- narrow user config persistence and project config overrides
+- V1 conversation observation compaction
+
+The canonical user-facing V1 surface is now `README.md`. This file remains useful as a design and acceptance-history record, but it should not be read as the current backlog. Future feature work belongs in `FORGELET_LONG_TERM_PLAN_V2_V3.md` or a new focused plan.
+
+V1 release verification as of 2026-06-28:
+
+- `npm run typecheck`
+- `npm test`
+- `npm run build`
+
+All three commands passed locally during release cleanup.
+
+## Completed V1 Implementation Focus
+
+V1 was implemented through two tracer bullets. The first finished the safe read-only Agent Kernel foundation; the second crossed into medium-risk action only after the tool and permission boundaries were explicit.
 
 ### Tracer Bullet 1: Safe read-only kernel
+
+**Status**
+
+Implemented in V1. The live Coding Workflow has read workspace, Git read, Session planning, Workflow Capability Grant filtering, `ToolRegistry` dispatch, Permission Policy decisions, context attachment prompt rendering, metadata-only context Trace entries, and controlled observations for unknown or ungranted tools.
 
 **Goal**
 
@@ -46,13 +74,17 @@ Make the live DeepSeek-backed Session loop safe, observable, and useful for repo
 
 ### Tracer Bullet 2: Minimal actionable Coding Workflow
 
+**Status**
+
+Implemented in V1. `forge --live --act "<task>"` exposes `apply_patch` and `run_command` only for the Coding Workflow, subject to Workflow Capability Grants, Permission Policy decisions, and per-call approval. Actionable Sessions record workspace baseline metadata, Forgelet-touched paths, verification commands, kernel-observed risks, and structured audit data for `sessions show` and `explain`.
+
 **Goal**
 
 Let a Coding Workflow complete a small repository task by patching ordinary workspace files, running approved verification commands, reviewing the diff, and producing an auditable final summary.
 
-**Next slice**
+**Release audit status**
 
-Make the minimal actionable path trustworthy before widening the V1 surface. The next implementation slice should finish the auditable action-kernel boundary: deterministic final audit facts, Session-start dirty baseline separation, Forgelet-touched file tracking, stronger patch preflight, and interactive approval prompts suitable for a real `forge --live --act` dogfood run.
+The minimal actionable path is now trustworthy enough for V1 dogfooding. The auditable action-kernel boundary includes deterministic final audit facts, Session-start dirty baseline separation, Forgelet-touched file tracking, patch preflight, and interactive approval prompts suitable for a real `forge --live --act` dogfood run.
 
 Start with the final audit summary. This slice should make the Session result trustworthy before adding more patch mechanics: the runner-authored audit footer must state what Forgelet changed, which verification commands ran and how they exited, what dirty paths already existed at Session start, which remaining workspace changes were not attributed to Forgelet, the model turn count, estimated cost, remaining risks when known, and the trace path.
 
@@ -88,7 +120,7 @@ Represent `kernelObservedRisks` as structured risk objects rather than strings. 
 
 Do not add a risk `severity` field in V1. Risk `kind` and evidence fields are enough for the audit contract; severity can be introduced later by a review surface if Forgelet needs a formal display policy.
 
-Implementation checklist:
+Implemented checklist:
 
 1. Add shared audit types in `src/types.ts`: `SessionAudit`, `AuditChangeGroups`, `AuditVerificationCommand`, and `AuditRisk`.
 2. Add or update Session read-model tests that prove `final_summary.audit` is read as structured data rather than parsed from prose.
@@ -108,7 +140,7 @@ Implementation checklist:
    - pre-existing dirty paths as context risk
    - other current workspace changes as attribution risk
    - stopped Sessions caused by budget or turn limits when applicable
-9. Verify with focused tests first, then `npm test` and `npm run typecheck` once the local Jest/`ts-jest` environment resolves.
+9. Verify with focused tests first, then `npm test`, `npm run typecheck`, and `npm run build`.
 
 **Scope**
 
@@ -1241,7 +1273,9 @@ Proves Forgelet is becoming a personal agent platform rather than a coding-only 
 
 ---
 
-## Suggested Build Order
+## Historical Build Order
+
+The following order was used to stage V1 implementation. It is retained as release history, not as a current task queue.
 
 1. Issue 1: Scaffold the TypeScript CLI project
 2. Issue 2: Add core domain types
@@ -1269,7 +1303,9 @@ Proves Forgelet is becoming a personal agent platform rather than a coding-only 
 24. Issue 26: Validate writing workflow skeleton
 25. Issue 25: Run first real-repo success test
 
-## MVP-B Cut Line
+## Historical MVP-B Cut Line
+
+This cut line was an intermediate implementation target before the final V1 release surface settled.
 
 MVP-B is complete after these issues are done:
 
@@ -1289,7 +1325,9 @@ MVP-B is complete after these issues are done:
 
 At that point Forgelet should be able to run a mocked coding-agent loop and perform real local workspace operations under permission control.
 
-## MVP-C Cut Line
+## Historical MVP-C Cut Line
+
+This cut line was the broader V1 target that evolved into the released V1 surface documented in `README.md`.
 
 MVP-C adds:
 
