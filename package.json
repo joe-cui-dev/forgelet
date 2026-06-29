@@ -8,6 +8,7 @@
   },
   "files": [
     "dist",
+    "fixtures",
     "README.md",
     "ARCHITECTURE.md"
   ],
@@ -16,6 +17,7 @@
     "typecheck": "tsc -p tsconfig.test.json --noEmit",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand",
     "smoke:deepseek": "npm run build && node dist/models/providers/deepseekSmoke.js",
+    "smoke:writing": "npm run build && node dist/smoke/writingCreative.js",
     "clean": "rm -rf dist dist-test"
   },
   "keywords": [

@@ -28,6 +28,13 @@ npm run smoke:deepseek
 
 `npm run smoke:deepseek` is the cheapest real-provider check. It verifies API access and tool-call wiring without running a full Session.
 
+`npm run smoke:writing` runs a real Creative Writing Workflow smoke test. It
+builds the CLI, runs from the project workspace with
+`fixtures/writing/scene.md`, and checks only the Revision Pack
+structure and Trace evidence. It writes the Session Trace under the project's
+`.forgelet/sessions/` directory and prints the Trace path for review; it does
+not score prose quality or write revised prose back to the repo.
+
 ## Coding Workflow
 
 By default, Forgelet creates a scaffolded Session and writes a JSONL Trace without calling a model.
