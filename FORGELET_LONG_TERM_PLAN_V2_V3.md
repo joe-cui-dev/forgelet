@@ -463,13 +463,45 @@ Acceptance criteria:
 
 ### V2 Issue 3: Implement session resume
 
-Allow Forgelet to resume from a prior trace.
+Allow Forgelet to continue from a prior Session through an explicit Session Continuation.
+
+Detailed execution plan: [`docs/session-continuation-execution-plan.md`](docs/session-continuation-execution-plan.md).
 
 Acceptance criteria:
 
-- `forge resume <sessionId>` loads prior trace.
-- User sees previous task, status, changed files, and last summary.
-- Continued session writes a linked trace event.
+- `forge resume <sessionId>` without a new instruction is review-only: it shows previous task, lineage, status, changed files, risks, and last summary, but does not execute model or tool steps.
+- `forge resume <sessionId> "<instruction>"` creates a new Session Continuation rather than mutating the prior Session.
+- Session Continuations inherit Continuation Context from the entire Session Lineage, not only the immediate parent Session.
+- Session Lineage supports branching: one Session may have multiple child continuations for alternate fixes, writing variants, or investigation paths. A resumed Session inherits from its own ancestry path, not from sibling branches.
+- Resuming a Session that already has child continuations creates another child from the explicitly named Session. Forgelet does not automatically jump to the latest child or merge sibling branch context.
+- Continuation Context includes structured working memory from the lineage: final summaries, plan state, changed files, verification attempts, kernel-observed risks, context attachment metadata, and evidence pointers.
+- Continuation Context does not replay every historical model message or full tool result; large observations should flow through compacted evidence such as Observation Digests.
+- The resume slice starts with deterministic Continuation Context and does not depend on semantic retention or pinning. It should consume the compact working set provided by the Active Context layer rather than inventing a separate retention policy.
+- Session Continuations inherit Context Attachment identity and evidence by default, including source path, source type, preview or summary, hash, and metadata.
+- Session Continuations do not automatically reload full Context Attachment content. Users must explicitly request reload through a future `--reuse-context` shape or by passing `--context` again.
+- When a continuation reloads attachment content, the Trace records the newly loaded hash and whether it differs from the inherited attachment identity.
+- Session Continuations default to the source Session's Workflow. A Workflow switch requires an explicit workflow-shaped resume command, such as a future `forge write resume <sessionId> "<instruction>"`, and the new Trace records the transition.
+- Session Continuations inherit the source lineage's Session Read Scope by default, so a narrow multi-turn task keeps its prior workspace boundary.
+- A resume command may explicitly add or narrow read scope for the new Session, but lineage inheritance must never silently expand workspace access. The new Trace records inherited and newly requested scope separately.
+- The first implementation slice requires a new instruction and defers bare review-only resume. Bare `forge resume <sessionId>` rejects clearly instead of continuing implicitly.
+- Continued Sessions write linked trace evidence that records the source Session and lineage relationship.
+- Resume never treats unfinished destructive or risky actions from a prior Session as current user approval.
+- Session Continuations inherit audit evidence about prior permission, approval, patch, and command events, but every new write, command, external effect, or other risky action must pass through the new Session's Permission Policy.
+- Session Continuations take the current workspace state as the new Session baseline, while classifying Forgelet-authored changes from the lineage as inherited changes. They do not reuse the source Session's original workspace baseline as current truth.
+- The first resume implementation supports actionable Coding Workflow continuations. `--act` remains the explicit boundary for file writes and configured commands, approvals are requested again, and the final audit distinguishes inherited Forgelet changes from new changes made by the continuation.
+- Implement resume in two slices: first read-only live continuation that proves lineage reconstruction, Continuation Context, prompt input, and linked Trace evidence; then actionable continuation with `--act`, fresh approvals, inherited-change classification, and final audit coverage.
+- The first read-only live continuation slice supports Coding Workflow resume only. Writing Workflow resume follows after the core lineage and Continuation Context path is proven.
+- The first read-only live continuation CLI shape is `forge resume <sessionId> "<instruction>"`.
+- The first slice explicitly rejects bare resume, Writing Workflow resume, actionable resume, and context reload shapes such as `forge resume <sessionId>`, `forge write resume <sessionId> "<instruction>"`, `forge resume <sessionId> --act "<instruction>"`, and `forge resume <sessionId> --reuse-context "<instruction>"`.
+- Resume rejects unreadable or malformed target Sessions because there is no reliable current lineage anchor.
+- Resume may continue with degraded Continuation Context when an ancestor Session is missing, malformed, or incomplete, as long as review output and the new Trace explicitly mark the lineage context as incomplete.
+- The first resume implementation supports completed and incomplete or stopped target Sessions, but rejects malformed target Sessions. Continuation Context marks whether the source Session finished cleanly.
+- `forge resume <sessionId> "<instruction>"` runs a live model-backed continuation by default. Resume does not create scaffold-only continuation Sessions.
+- The first resume implementation must prove inherited Continuation Context in a real model turn. A linked scaffold-only Session is not enough to validate the feature.
+- Session Continuations inherit workflow semantics and use the current Routing Policy for the new Session's model route. The prior route is lineage evidence, not a binding model choice.
+- Session Continuations use a fresh budget for the new auditable run. They do not inherit or spend from a prior Session's remaining budget, though users may explicitly pass `--budget` or `--model` overrides.
+- Live resume output starts with a Continuation header before the model result. The header shows the source Session, new child Session, lineage depth, degraded or incomplete context status, and inherited context highlights.
+- Resume tests prove that Continuation Context reaches the model input, not only the Trace. FakeModelClient coverage asserts lineage facts in the prompt or Active Context, and a live dogfood run verifies the model can cite prior Session facts from the inherited context.
 
 ### V2 Issue 4: Add conversation compaction
 
@@ -482,6 +514,7 @@ Acceptance criteria:
 - Selected observations can be explicitly pinned so compaction does not reduce them below the chosen retention level.
 - Historical tool-call arguments, including large patch inputs, are handled without breaking provider assistant/tool message contracts.
 - Resumed Sessions reconstruct a compact working set rather than replaying every prior observation and tool argument verbatim.
+- Semantic retention and pinning automatically improve Continuation Context once available; resume should use those retained or pinned facts without creating a competing inheritance mechanism.
 - Trace remains immutable and metadata-first; compaction does not rewrite saved Trace evidence.
 - Budget updates distinguish complete active conversation pressure from persisted Trace size and from the V1 observation byte target.
 - Tests cover semantic retention, tool-argument handling, and resumed Session reconstruction.

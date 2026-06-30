@@ -48,6 +48,18 @@ _Avoid_: Workflow kind, mode hidden in task text
 One auditable run of a **Workflow**, including the user's task, selected workflow, context, trace, decisions, and final outcome. In V1, a **Session** belongs to the current project workspace and is the reusable boundary for review, explanation, and memory provenance.
 _Avoid_: Agent conversation, chat session, workflow session
 
+**Session Continuation**:
+A new **Session** that continues from a prior **Session** while preserving an explicit **Session Lineage**. A Session Continuation inherits **Continuation Context** but does not mutate earlier Sessions or their **Traces**.
+_Avoid_: Reopened session, appended trace, chat resume
+
+**Session Lineage**:
+The ancestry path of **Sessions** connected by **Session Continuations** from a current Session back to its root. A Session can have multiple continuations, so the broader continuation graph may branch while each resumed Session inherits from its own lineage path.
+_Avoid_: Chat history, overwritten session, linear-only memory
+
+**Continuation Context**:
+The compact **Active Context** reconstructed from a **Session Lineage** for a **Session Continuation**. It carries prior task state, relevant observations, decisions, and outcomes into a new run without becoming **Durable Memory**.
+_Avoid_: Durable memory, full transcript replay, hidden chat history
+
 **Trace**:
 The chronological record of events that actually occurred during a **Session**. A **Trace** is evidence for review, explanation, and memory provenance; it should not contain simulated model turns, tool calls, or permission decisions that did not happen.
 _Avoid_: Transcript, log dump, demo script
