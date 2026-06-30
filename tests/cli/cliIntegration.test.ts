@@ -741,6 +741,105 @@ test("CLI --live runs a read-only Session with an injected live model client", a
   expect(modelClient.turnInputs.length).toBe(2);
 });
 
+test("CLI resume runs a live read-only Session Continuation by default", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-resume-"));
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(sessionDir, "sess_parent.jsonl"),
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-06-20T00:00:00.000Z",
+        sessionId: "sess_parent",
+        payload: {
+          workflow: "coding",
+          startedAt: "2026-06-20T00:00:00.000Z",
+        },
+      }),
+      JSON.stringify({
+        type: "user_task",
+        ts: "2026-06-20T00:00:00.000Z",
+        sessionId: "sess_parent",
+        payload: { task: "remember cobalt" },
+      }),
+      JSON.stringify({
+        type: "final_summary",
+        ts: "2026-06-20T00:00:01.000Z",
+        sessionId: "sess_parent",
+        payload: { summary: "The inherited fact is cobalt." },
+      }),
+      JSON.stringify({
+        type: "session_finished",
+        ts: "2026-06-20T00:00:02.000Z",
+        sessionId: "sess_parent",
+        payload: { status: "completed" },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([
+    { content: "Continuing with cobalt.", toolCalls: [] },
+  ]);
+
+  const result = await runCli(["resume", "sess_parent", "continue"], {
+    workspaceRoot,
+    env: {},
+    createLiveModelClient: async (input) => {
+      expect(input.workflow).toBe("coding");
+      expect(input.modelOverride).toBe(undefined);
+      return modelClient;
+    },
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toMatch(/Continuation: sess_parent -> sess_/);
+  expect(result.stdout).toMatch(/Lineage depth: 1/);
+  expect(result.stdout).toMatch(/Context: complete/);
+  expect(result.stdout).toMatch(/Continuing with cobalt/);
+  expect(result.stdout).toMatch(/Trace: .*\.forgelet\/sessions\/sess_/);
+  expect(modelClient.turnInputs[0]?.messages.map((message) => message.content).join("\n")).toMatch(
+    /Continuation Context:/,
+  );
+});
+
+test("CLI resume rejects Writing Workflow Sessions in the first slice", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-resume-writing-"));
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(sessionDir, "sess_writing.jsonl"),
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-06-20T00:00:00.000Z",
+        sessionId: "sess_writing",
+        payload: {
+          workflow: "writing",
+          startedAt: "2026-06-20T00:00:00.000Z",
+        },
+      }),
+      JSON.stringify({
+        type: "session_finished",
+        ts: "2026-06-20T00:00:02.000Z",
+        sessionId: "sess_writing",
+        payload: { status: "completed" },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+
+  const result = await runCli(["resume", "sess_writing", "continue"], {
+    workspaceRoot,
+    env: {},
+    createLiveModelClient: async () =>
+      new FakeModelClient([{ content: "should not run", toolCalls: [] }]),
+  });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toMatch(/Writing Workflow resume is not available yet/);
+});
+
 test("CLI --live runs a creative writing Revision Pack Session", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-creative-"));
   await writeFile(join(workspaceRoot, "draft.md"), "The room was cold.\n", "utf8");

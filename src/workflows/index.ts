@@ -24,6 +24,12 @@ import { loadContextAttachments } from "../context/index.js";
 import { compactConversationInPlace } from "../conversation/compaction.js";
 import { loadDurableMemory, type LoadedDurableMemory } from "../memory/index.js";
 import { normalizeSessionReadScope } from "../readScope/index.js";
+import {
+  buildContinuationContext,
+  continuationContextTracePayload,
+  formatContinuationContextForPrompt,
+  type ContinuationContext,
+} from "../sessions/continuation.js";
 import { createTraceWriter } from "../trace/index.js";
 import { createActionableCodingTools } from "../tools/actionable.js";
 import { createReadOnlyTools } from "../tools/readOnly.js";
@@ -46,6 +52,7 @@ export interface RunWorkflowInput {
   workspaceRoot: string;
   modelClient?: ModelClient;
   act?: boolean;
+  continuationSourceSessionId?: string;
   approvalHandler?: ApprovalHandler;
 }
 
@@ -80,6 +87,7 @@ interface RunReadOnlyLoopInput {
   act: boolean;
   baselineDirtyPaths: Set<string>;
   tracePath: string;
+  continuationContext?: ContinuationContext;
   approvalHandler?: ApprovalHandler;
   appendTrace(type: string, payload: Record<string, unknown>): Promise<void>;
 }
@@ -116,9 +124,15 @@ export const runWorkflowSession = async (
   const now = new Date().toISOString();
   const sessionId = `sess_${Date.now().toString(36)}`;
   const taskHash = hashTask(input.task);
+  const continuationContext = input.continuationSourceSessionId
+    ? await buildContinuationContext(
+        input.workspaceRoot,
+        input.continuationSourceSessionId,
+      )
+    : undefined;
   const readScope = await normalizeSessionReadScope(
     input.workspaceRoot,
-    input.allowedReadPaths,
+    input.allowedReadPaths ?? continuationContext?.inheritedReadScope,
   );
   const traceWriter = await createTraceWriter(input.workspaceRoot, sessionId);
   const config = await loadConfig({
@@ -168,11 +182,42 @@ export const runWorkflowSession = async (
       startedAt: now,
       taskHash,
       ...(readScope ? { readScope } : {}),
+      ...(continuationContext
+        ? {
+            continuation: {
+              sourceSessionId: continuationContext.lineage.sourceSessionId,
+              rootSessionId: continuationContext.lineage.rootSessionId,
+              lineageSessionIds: continuationContext.lineage.sessionIds,
+              degraded: continuationContext.lineage.degraded,
+            },
+          }
+        : {}),
     }),
   );
   await traceWriter.append(
     createTraceEvent(sessionId, "user_task", now, { task: input.task }),
   );
+  if (continuationContext) {
+    await traceWriter.append(
+      createTraceEvent(sessionId, "session_continuation_started", now, {
+        sourceSessionId: continuationContext.lineage.sourceSessionId,
+        lineageSessionIds: continuationContext.lineage.sessionIds,
+        lineageDepth: continuationContext.lineage.sessionIds.length,
+        degraded: continuationContext.lineage.degraded,
+        incompleteReasons: continuationContext.lineage.incompleteReasons,
+        inheritedWorkflow: input.workflow,
+        inheritedReadScope: continuationContext.inheritedReadScope,
+      }),
+    );
+    await traceWriter.append(
+      createTraceEvent(
+        sessionId,
+        "continuation_context_loaded",
+        now,
+        continuationContextTracePayload(continuationContext),
+      ),
+    );
+  }
   for (const contextAttachment of contextAttachments) {
     await traceWriter.append(
       createTraceEvent(
@@ -233,6 +278,7 @@ export const runWorkflowSession = async (
       act: input.act === true && input.workflow === "coding",
       baselineDirtyPaths,
       tracePath: traceWriter.tracePath,
+      continuationContext,
       approvalHandler: input.approvalHandler,
       appendTrace: (type, payload) =>
         traceWriter.append(
@@ -418,6 +464,7 @@ const runReadOnlyLoop = async (
         input.route,
         input.contextAttachments,
         input.durableMemory,
+        input.continuationContext,
         usage,
         input.limits,
         conversation,
@@ -781,6 +828,7 @@ const buildMessages = (
   route: ActLoopRoute,
   contextAttachments: LoadedContextAttachment[],
   durableMemory: LoadedDurableMemory | undefined,
+  continuationContext: ContinuationContext | undefined,
   usage: BudgetUsage,
   limits: BudgetLimits,
   conversation: ModelMessage[],
@@ -792,6 +840,8 @@ const buildMessages = (
   const contextAttachmentLines =
     formatContextAttachmentsForPrompt(contextAttachments);
   const durableMemoryLines = formatDurableMemoryForPrompt(durableMemory);
+  const continuationContextLines =
+    formatContinuationContextForPrompt(continuationContext);
   const taskLabel =
     session.workflowVariant === "creative" ? "Creative brief" : "Task";
   const messages: ModelMessage[] = [
@@ -812,6 +862,8 @@ const buildMessages = (
         `Stage: ${route.stage}`,
         `${taskLabel}: ${session.task}`,
         "",
+        ...continuationContextLines,
+        ...(continuationContextLines.length > 0 ? [""] : []),
         ...contextAttachmentLines,
         ...(contextAttachmentLines.length > 0 ? [""] : []),
         ...durableMemoryLines,

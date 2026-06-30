@@ -21,6 +21,7 @@ export interface RunAgentInput {
   workspaceRoot: string;
   modelClient?: ModelClient;
   act?: boolean;
+  continuationSourceSessionId?: string;
   approvalHandler?: ApprovalHandler;
 }
 
@@ -44,6 +45,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     workspaceRoot: input.workspaceRoot,
     modelClient: input.modelClient,
     act: input.act,
+    continuationSourceSessionId: input.continuationSourceSessionId,
     approvalHandler: input.approvalHandler,
   });
 }

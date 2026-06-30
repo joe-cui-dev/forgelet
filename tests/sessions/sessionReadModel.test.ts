@@ -4,6 +4,7 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { listSessions } from "../../src/sessions/index.js";
 import { showSession } from "../../src/sessions/index.js";
+import { buildSessionLineage } from "../../src/sessions/continuation.js";
 import { runAgent } from "../../src/agent/runAgent.js";
 
 test("lists completed and incomplete project sessions from traces", async () => {
@@ -150,4 +151,148 @@ test("shows structured final audit facts from an actionable session trace", asyn
     estimatedCostUsd: 0.0123,
     tracePath: ".forgelet/sessions/sess_audit.jsonl",
   });
+});
+
+test("builds a one-node Session Lineage from a completed Session", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-lineage-"));
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(sessionDir, "sess_parent.jsonl"),
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-06-20T00:00:00.000Z",
+        sessionId: "sess_parent",
+        payload: {
+          workflow: "coding",
+          startedAt: "2026-06-20T00:00:00.000Z",
+        },
+      }),
+      JSON.stringify({
+        type: "user_task",
+        ts: "2026-06-20T00:00:00.000Z",
+        sessionId: "sess_parent",
+        payload: { task: "fix lineage" },
+      }),
+      JSON.stringify({
+        type: "session_finished",
+        ts: "2026-06-20T00:00:02.000Z",
+        sessionId: "sess_parent",
+        payload: { status: "completed" },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+
+  const lineage = await buildSessionLineage(workspaceRoot, "sess_parent");
+
+  expect(lineage.sessionIds).toEqual(["sess_parent"]);
+  expect(lineage.rootSessionId).toBe("sess_parent");
+  expect(lineage.sourceSessionId).toBe("sess_parent");
+  expect(lineage.degraded).toBe(false);
+  expect(lineage.incompleteReasons).toEqual([]);
+  expect(lineage.sourceStatus).toBe("completed");
+});
+
+test("builds a parent-to-child Session Lineage from continuation metadata", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-lineage-child-"));
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(sessionDir, "sess_parent.jsonl"),
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-06-20T00:00:00.000Z",
+        sessionId: "sess_parent",
+        payload: {
+          workflow: "coding",
+          startedAt: "2026-06-20T00:00:00.000Z",
+        },
+      }),
+      JSON.stringify({
+        type: "session_finished",
+        ts: "2026-06-20T00:00:02.000Z",
+        sessionId: "sess_parent",
+        payload: { status: "completed" },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+  await writeFile(
+    join(sessionDir, "sess_child.jsonl"),
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-06-20T00:01:00.000Z",
+        sessionId: "sess_child",
+        payload: {
+          workflow: "coding",
+          startedAt: "2026-06-20T00:01:00.000Z",
+          continuation: {
+            sourceSessionId: "sess_parent",
+            rootSessionId: "sess_parent",
+            lineageSessionIds: ["sess_parent"],
+            degraded: false,
+          },
+        },
+      }),
+      JSON.stringify({
+        type: "session_finished",
+        ts: "2026-06-20T00:01:02.000Z",
+        sessionId: "sess_child",
+        payload: { status: "completed" },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+
+  const lineage = await buildSessionLineage(workspaceRoot, "sess_child");
+
+  expect(lineage.sessionIds).toEqual(["sess_parent", "sess_child"]);
+  expect(lineage.rootSessionId).toBe("sess_parent");
+  expect(lineage.sourceSessionId).toBe("sess_child");
+  expect(lineage.degraded).toBe(false);
+});
+
+test("marks Session Lineage degraded when an ancestor trace is missing", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-lineage-missing-"));
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(sessionDir, "sess_child.jsonl"),
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-06-20T00:01:00.000Z",
+        sessionId: "sess_child",
+        payload: {
+          workflow: "coding",
+          startedAt: "2026-06-20T00:01:00.000Z",
+          continuation: {
+            sourceSessionId: "sess_missing",
+            rootSessionId: "sess_missing",
+            lineageSessionIds: ["sess_missing"],
+            degraded: false,
+          },
+        },
+      }),
+      JSON.stringify({
+        type: "session_finished",
+        ts: "2026-06-20T00:01:02.000Z",
+        sessionId: "sess_child",
+        payload: { status: "completed" },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+
+  const lineage = await buildSessionLineage(workspaceRoot, "sess_child");
+
+  expect(lineage.sessionIds).toEqual(["sess_missing", "sess_child"]);
+  expect(lineage.degraded).toBe(true);
+  expect(lineage.incompleteReasons).toEqual([
+    "Ancestor Session trace is missing or unreadable: sess_missing",
+  ]);
 });

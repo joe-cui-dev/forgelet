@@ -12,6 +12,10 @@ import { DeepSeekModelClient } from "../models/providers/deepseek.js";
 import { explainSession, type SessionExplanation } from "../explain/index.js";
 import { acceptMemorySuggestion, suggestMemoryFromSession } from "../memory/index.js";
 import { listSessions, showSession } from "../sessions/index.js";
+import {
+  buildContinuationContext,
+  formatContinuationHeader,
+} from "../sessions/continuation.js";
 import type { MemorySuggestion, ModelClient, SessionAudit, WorkflowKind } from "../types.js";
 import type { ApprovalHandler, ApprovalRequest } from "../tools/toolRegistry.js";
 
@@ -78,6 +82,38 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
             : undefined,
         });
         return ok(result.summary);
+      }
+      case "resume": {
+        const continuationContext = await buildContinuationContext(
+          workspaceRoot,
+          command.sessionId,
+        );
+        if (continuationContext.sourceWorkflow !== "coding")
+          throw new Error("Writing Workflow resume is not available yet.");
+        const modelClient = await (
+          options.createLiveModelClient ?? createDeepSeekLiveModelClient
+        )({
+          workflow: "coding",
+          homeDir: options.homeDir,
+          workspaceRoot,
+          env: options.env ?? process.env,
+        });
+        const result = await runAgent({
+          workflow: "coding",
+          task: command.instruction,
+          contextFiles: [],
+          homeDir: options.homeDir,
+          workspaceRoot,
+          modelClient,
+          continuationSourceSessionId: command.sessionId,
+        });
+        return ok(
+          [
+            formatContinuationHeader(continuationContext, result.session.id),
+            "",
+            result.summary,
+          ].join("\n"),
+        );
       }
       case "config-get":
         return ok(JSON.stringify(await loadConfig({ homeDir: options.homeDir, workspaceRoot }), null, 2));

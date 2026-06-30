@@ -77,6 +77,112 @@ test("a coding Session can search, read, and finish through read-only tools", as
   expect(String(readResult.payload.preview)).toMatch(/needle/);
 });
 
+test("a Session Continuation includes Continuation Context in the first model input", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-continuation-"));
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(sessionDir, { recursive: true });
+  await mkdir(join(workspaceRoot, "src", "workflows"), { recursive: true });
+  await writeFile(
+    join(sessionDir, "sess_parent.jsonl"),
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-06-20T00:00:00.000Z",
+        sessionId: "sess_parent",
+        payload: {
+          workflow: "coding",
+          startedAt: "2026-06-20T00:00:00.000Z",
+          readScope: ["src/workflows"],
+        },
+      }),
+      JSON.stringify({
+        type: "user_task",
+        ts: "2026-06-20T00:00:00.000Z",
+        sessionId: "sess_parent",
+        payload: { task: "find the original clue" },
+      }),
+      JSON.stringify({
+        type: "context_attachment",
+        ts: "2026-06-20T00:00:00.000Z",
+        sessionId: "sess_parent",
+        payload: {
+          id: "ctx_1",
+          source: "file",
+          title: "draft.md",
+          uri: "draft.md",
+          mimeType: "text/markdown",
+          contentBytes: 100,
+          contentHash: "hash_parent",
+          preview: "parent attachment preview",
+          trustLevel: "workspace",
+        },
+      }),
+      JSON.stringify({
+        type: "final_summary",
+        ts: "2026-06-20T00:00:01.000Z",
+        sessionId: "sess_parent",
+        payload: { summary: "The inherited fact is cobalt." },
+      }),
+      JSON.stringify({
+        type: "session_finished",
+        ts: "2026-06-20T00:00:02.000Z",
+        sessionId: "sess_parent",
+        payload: { status: "completed" },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([
+    { content: "Continuing from cobalt.", toolCalls: [] },
+  ]);
+
+  const parentTracePath = join(sessionDir, "sess_parent.jsonl");
+  const parentTraceBefore = await readFile(parentTracePath, "utf8");
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "continue with the inherited clue",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+    continuationSourceSessionId: "sess_parent",
+  });
+
+  const firstUserMessage =
+    modelClient.turnInputs[0]?.messages.find((message) => message.role === "user")
+      ?.content ?? "";
+  expect(firstUserMessage).toMatch(/Continuation Context:/);
+  expect(firstUserMessage).toMatch(/sourceSessionId: sess_parent/);
+  expect(firstUserMessage).toMatch(/lineage: sess_parent/);
+  expect(firstUserMessage).toMatch(/sourceStatus: completed/);
+  expect(firstUserMessage).toMatch(/inheritedReadScope: src\/workflows/);
+  expect(firstUserMessage).toMatch(/priorTask: find the original clue/);
+  expect(firstUserMessage).toMatch(/sess_parent: The inherited fact is cobalt/);
+  expect(firstUserMessage).toMatch(/draft\.md hash=hash_parent/);
+  expect(firstUserMessage).not.toMatch(/parent attachment preview/);
+
+  await expect(readFile(parentTracePath, "utf8")).resolves.toBe(parentTraceBefore);
+  expect(result.tracePath).toBeDefined();
+  const childTrace = await readFile(result.tracePath ?? "", "utf8");
+  const events = childTrace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const started = events.find((event) => event.type === "session_started");
+  expect(started?.payload.continuation).toEqual({
+    sourceSessionId: "sess_parent",
+    rootSessionId: "sess_parent",
+    lineageSessionIds: ["sess_parent"],
+    degraded: false,
+  });
+  expect(events.map((event) => event.type)).toContain(
+    "session_continuation_started",
+  );
+  expect(events.map((event) => event.type)).toContain(
+    "continuation_context_loaded",
+  );
+});
+
 test("a creative writing Session returns a Revision Pack", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-creative-loop-"));
   await writeFile(join(workspaceRoot, "draft.md"), "The room was cold.\n", "utf8");

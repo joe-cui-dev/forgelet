@@ -40,6 +40,38 @@ test("parses actionable coding runs", () => {
   });
 });
 
+test("parses a Session Continuation resume command", () => {
+  expect(parseArgs(["resume", "sess_abc", "continue the task"])).toEqual({
+    kind: "resume",
+    sessionId: "sess_abc",
+    instruction: "continue the task",
+  });
+});
+
+test("rejects bare Session Continuation resume", () => {
+  expect(() => parseArgs(["resume", "sess_abc"])).toThrow(
+    /Usage: forge resume <sessionId> "<instruction>"/,
+  );
+});
+
+test("rejects unsupported Session Continuation shapes", () => {
+  expect(() => parseArgs(["write", "resume", "sess_abc", "continue"])).toThrow(
+    /Writing Workflow resume is not available yet/,
+  );
+  expect(() => parseArgs(["resume", "sess_abc", "--act", "continue"])).toThrow(
+    /Actionable Session Continuation is not available yet/,
+  );
+  expect(() =>
+    parseArgs(["resume", "sess_abc", "--reuse-context", "continue"]),
+  ).toThrow(/Context reload for Session Continuation is not available yet/);
+  expect(() => parseArgs(["resume", "sess_abc", "--model", "gpt-5", "continue"])).toThrow(
+    /Unsupported Session Continuation option: --model/,
+  );
+  expect(() => parseArgs(["resume", "sess_abc", "--budget", "0.25", "continue"])).toThrow(
+    /Unsupported Session Continuation option: --budget/,
+  );
+});
+
 test("rejects --allow-read without a path", () => {
   expect(() => parseArgs(["--allow-read"])).toThrow(
     /Missing value for --allow-read/,

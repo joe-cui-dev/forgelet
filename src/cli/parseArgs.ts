@@ -2,6 +2,7 @@ import type { CreativeStyle, WorkflowKind, WorkflowVariant } from "../types.js";
 
 export type ForgeCommand =
   | { kind: "run"; workflow: WorkflowKind; workflowVariant?: WorkflowVariant; creativeStyle?: CreativeStyle; task: string; contextFiles: string[]; allowedReadPaths?: string[]; model?: string; budgetUsd?: number; live: boolean; act: boolean }
+  | { kind: "resume"; sessionId: string; instruction: string }
   | { kind: "config-get" }
   | { kind: "config-set"; key: string; value: string }
   | { kind: "sessions-list" }
@@ -43,7 +44,13 @@ export function parseArgs(argv: string[]): ForgeCommand {
     return { kind: "explain", sessionId };
   }
 
+  if (first === "resume") {
+    return parseResume(args.slice(1));
+  }
+
   if (first === "write") {
+    if (args[1] === "resume")
+      throw new Error("Writing Workflow resume is not available yet.");
     return parseRun(args.slice(1), "writing");
   }
 
@@ -88,6 +95,21 @@ function parseMemory(args: string[]): ForgeCommand {
     return { kind: "memory-accept", suggestionId: args[1] ?? "" };
   }
   throw new Error("Usage: forge memory suggest <sessionId> | forge memory accept <suggestionId>");
+}
+
+function parseResume(args: string[]): ForgeCommand {
+  const sessionId = args[0];
+  if (args.includes("--act"))
+    throw new Error("Actionable Session Continuation is not available yet.");
+  if (args.includes("--reuse-context"))
+    throw new Error("Context reload for Session Continuation is not available yet.");
+  const unsupportedOption = args.slice(1).find((arg) => arg.startsWith("--"));
+  if (unsupportedOption)
+    throw new Error(`Unsupported Session Continuation option: ${unsupportedOption}`);
+  const instruction = args.slice(1).join(" ").trim();
+  if (!sessionId || !instruction)
+    throw new Error("Usage: forge resume <sessionId> \"<instruction>\"");
+  return { kind: "resume", sessionId, instruction };
 }
 
 function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
