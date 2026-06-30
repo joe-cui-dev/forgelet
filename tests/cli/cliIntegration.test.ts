@@ -791,6 +791,58 @@ test("CLI --live runs a creative writing Revision Pack Session", async () => {
   });
 });
 
+test("CLI --live runs prompt-only creative writing without context attachments", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-creative-brief-"),
+  );
+  const modelClient = new FakeModelClient([
+    { content: "Rain silvered the convenience store windows.", toolCalls: [] },
+  ]);
+
+  const result = await runCli(
+    [
+      "write",
+      "--live",
+      "--creative",
+      "--style",
+      "vivid",
+      "write a rain-soaked convenience store scene",
+    ],
+    {
+      workspaceRoot,
+      env: {},
+      createLiveModelClient: async (input) => {
+        expect(input.workflow).toBe("writing");
+        return modelClient;
+      },
+    },
+  );
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toMatch(/Workflow variant: creative/);
+  expect(result.stdout).toMatch(/Creative style: vivid/);
+  expect(result.stdout).toMatch(/Alternatives/);
+
+  const traceFiles = await readdir(join(workspaceRoot, ".forgelet", "sessions"));
+  const trace = await readFile(
+    join(workspaceRoot, ".forgelet", "sessions", traceFiles[0] ?? ""),
+    "utf8",
+  );
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const started = events.find((event) => event.type === "session_started");
+  expect(started.payload).toMatchObject({
+    workflow: "writing",
+    workflowVariant: "creative",
+    creativeStyle: "vivid",
+  });
+  expect(events.some((event) => event.type === "context_attachment")).toBe(
+    false,
+  );
+});
+
 test("CLI records repeated --allow-read entries as the Session Read Scope", async () => {
   const workspaceRoot = await mkdtemp(
     join(tmpdir(), "forgelet-cli-read-scope-"),

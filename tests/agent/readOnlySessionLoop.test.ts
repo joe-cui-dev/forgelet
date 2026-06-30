@@ -101,6 +101,46 @@ test("a creative writing Session returns a Revision Pack", async () => {
   expect(result.summary).toMatch(/The room breathed winter through the walls/);
 });
 
+test("a prompt-only creative writing Session returns a Revision Pack without context attachments", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-creative-brief-"));
+  const modelClient = new FakeModelClient([
+    { content: "Rain silvered the convenience store windows.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "writing",
+    workflowVariant: "creative",
+    creativeStyle: "vivid",
+    task: "write a rain-soaked convenience store scene",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  expect(result.summary).toMatch(/Critique/);
+  expect(result.summary).toMatch(/Revision/);
+  expect(result.summary).toMatch(/Alternatives/);
+  expect(result.summary).toMatch(/Notes/);
+  expect(result.summary).toMatch(/Rain silvered the convenience store windows/);
+
+  const firstUserMessage = modelClient.turnInputs[0]?.messages.find(
+    (message) => message.role === "user",
+  )?.content ?? "";
+  expect(firstUserMessage).toMatch(
+    /Creative brief: write a rain-soaked convenience store scene/,
+  );
+  expect(firstUserMessage).not.toMatch(/Context attachments:/);
+
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(events.some((event) => event.type === "context_attachment")).toBe(
+    false,
+  );
+});
+
 test("a Session Read Scope denies read_file outside the allowed paths", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-read-scope-"));
   await writeFile(join(workspaceRoot, "allowed.txt"), "allowed\n", "utf8");

@@ -94,11 +94,13 @@ Notes
 ...
 ```
 
-Use `--creative` with an explicit style for short-form creative rewriting. The
-first V2 creative slice requires at least one `--context` attachment and prints a
-Revision Pack to the terminal; it does not write revised prose back to files.
+Use `--creative` with an explicit style for short-form creative writing. The
+Creative Brief can stand alone for original drafting, or it can be combined with
+one or more `--context` attachments for revision. The command prints a Revision
+Pack to the terminal; it does not write revised prose back to files.
 
 ```bash
+forge write --live --creative --style vivid "write a rain-soaked convenience store scene"
 forge write --live --creative --style vivid --context scene.md "revise this scene"
 ```
 

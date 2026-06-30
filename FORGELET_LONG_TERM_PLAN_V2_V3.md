@@ -425,15 +425,17 @@ Promote the V1 Writing Workflow into the first useful V2 writing slice before im
 
 Acceptance criteria:
 
-- `forge write --creative --style <name> --context draft.md "<task>"` routes to the Writing Workflow.
-- The first implementation requires at least one `--context` attachment and does not accept inline pasted body text or stdin as the draft source.
+- `forge write --creative --style <name> "<creative brief>"` routes to the Writing Workflow.
+- `forge write --creative --style <name> --context draft.md "<task>"` remains the revision path for attached source text.
+- The first implementation accepts a prompt-level Creative Brief without requiring a `--context` attachment; it still does not accept stdin as the draft source.
+- The CLI validates structural inputs such as `--style`, but does not reject prompt-only creative briefs by guessing whether source text is missing.
 - The first implementation uses an explicit `--style <name>` option instead of inferring style only from the task text.
 - The first built-in style names are `vivid`, `tight`, `literary`, and `plain`; unknown style names produce a clear CLI error.
 - Creative writing output is normalized to a Revision Pack with `Critique`, `Revision`, `Alternatives`, and `Notes`.
 - `Alternatives` contains two default options: one more vivid/literary and one clearer/tighter.
 - The creative writing path remains text-first and does not receive workspace, git, shell, patch, or command tools.
 - The first implementation prints the Revision Pack to the terminal and records it in the Trace; it does not write revised prose back to workspace files or `.forgelet` artifacts.
-- Session and Trace metadata record `workflow: "writing"` with `workflowVariant: "creative"`.
+- Session and Trace metadata record `workflow: "writing"` with `workflowVariant: "creative"`; prompt-only creative drafting uses the Session task as the Creative Brief and does not add a separate Trace event.
 - This slice does not depend on `forge resume <sessionId>`; long-form Writing Project continuity should be designed after the short-form creative path is useful.
 - README documents the short-form creative writing path and names Writing Project continuity as a later goal.
 

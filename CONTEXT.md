@@ -21,11 +21,15 @@ The default V1 output shape for a **Writing Workflow**: Forgelet explains the ma
 _Avoid_: Final text only, writing chat reply
 
 **Creative Writing Workflow**:
-A **Writing Workflow** specialization for short-form prose polishing, rewriting, style variation, and creative drafting from user-provided text context. It should remain text-first and distinct from a full **Writing Project** until project continuity becomes necessary.
+A **Writing Workflow** specialization for short-form prose polishing, rewriting, style variation, and creative drafting from a **Creative Brief** and optional **Context Attachments**. It should remain text-first and distinct from a full **Writing Project** until project continuity becomes necessary.
 _Avoid_: Generic writing chat, document editor, long-form project state
 
+**Creative Brief**:
+The user's prompt-level creative intent for a **Creative Writing Workflow**, including subject, constraints, desired form, audience, or tone. A Creative Brief can stand alone for original drafting or accompany **Context Attachments** for revision.
+_Avoid_: Prompt blob, hidden context, document draft
+
 **Revision Pack**:
-The default V2 output shape for a **Creative Writing Workflow**: Forgelet returns a critique, one primary revision, two creative alternatives, and notes about the editing choices. A Revision Pack keeps short-form rewriting useful without requiring **Writing Project** continuity.
+The default V2 output shape for a **Creative Writing Workflow**: Forgelet returns a critique, one primary draft or revision, two creative alternatives, and notes about the editing choices. A Revision Pack keeps short-form creative work useful without requiring **Writing Project** continuity.
 _Avoid_: Single polished answer, variant-only response, editor chat
 
 **Writing Project**:
@@ -221,3 +225,7 @@ Domain expert: "Coding proves useful local action. Writing proves the kernel can
 Dev: "Should writing just return the polished paragraph?"
 
 Domain expert: "Not by default. V1 should return Critique and Revision so the user can see both the editing judgment and the proposed text."
+
+Dev: "Does creative writing require an attached draft?"
+
+Domain expert: "No. A Creative Brief can stand alone for original drafting, while Context Attachments provide source text or reference material when the user wants revision or transformation."

@@ -792,6 +792,8 @@ const buildMessages = (
   const contextAttachmentLines =
     formatContextAttachmentsForPrompt(contextAttachments);
   const durableMemoryLines = formatDurableMemoryForPrompt(durableMemory);
+  const taskLabel =
+    session.workflowVariant === "creative" ? "Creative brief" : "Task";
   const messages: ModelMessage[] = [
     {
       role: "system",
@@ -808,7 +810,7 @@ const buildMessages = (
           ? [`Creative style: ${session.creativeStyle}`]
           : []),
         `Stage: ${route.stage}`,
-        `Task: ${session.task}`,
+        `${taskLabel}: ${session.task}`,
         "",
         ...contextAttachmentLines,
         ...(contextAttachmentLines.length > 0 ? [""] : []),
@@ -955,7 +957,8 @@ const systemPromptFor = (
       ...common,
       "This is a Creative Writing Workflow variant.",
       `Style: ${session.creativeStyle ?? "plain"}.`,
-      "Use the provided context and Durable Memory, but do not request workspace, git, shell, patch, or command tools.",
+      "Use the Creative Brief, any provided Context Attachments, and Durable Memory, but do not request workspace, git, shell, patch, or command tools.",
+      "If the brief asks for revision but no source text is attached or included, state that limitation and produce the best original draft or useful next step from the brief.",
       "Return a Revision Pack with these headings: Critique, Revision, Alternatives, Notes.",
       "Alternatives must include exactly two options: one more vivid/literary and one clearer/tighter.",
     ].join("\n");

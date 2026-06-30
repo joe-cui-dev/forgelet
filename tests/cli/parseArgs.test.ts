@@ -88,10 +88,27 @@ test("parses a creative writing workflow variant", () => {
   });
 });
 
-test("rejects creative writing without context", () => {
-  expect(() =>
-    parseArgs(["write", "--creative", "--style", "vivid", "revise this"]),
-  ).toThrow(/--creative requires at least one --context/);
+test("parses a prompt-only creative writing workflow variant", () => {
+  expect(
+    parseArgs([
+      "write",
+      "--creative",
+      "--style",
+      "vivid",
+      "write a rain-soaked convenience store scene",
+    ]),
+  ).toEqual({
+    kind: "run",
+    workflow: "writing",
+    workflowVariant: "creative",
+    creativeStyle: "vivid",
+    task: "write a rain-soaked convenience store scene",
+    contextFiles: [],
+    model: undefined,
+    budgetUsd: undefined,
+    live: false,
+    act: false
+  });
 });
 
 test("rejects creative writing without a style", () => {

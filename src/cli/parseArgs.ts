@@ -161,8 +161,6 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
   if (!task) throw new Error(workflow === "writing" ? "Usage: forge write \"<task>\"" : "Usage: forge \"<task>\"");
   if (creativeStyle && workflowVariant !== "creative")
     throw new Error("--style is only available with --creative.");
-  if (workflowVariant === "creative" && contextFiles.length === 0)
-    throw new Error("--creative requires at least one --context attachment.");
   if (workflowVariant === "creative" && !creativeStyle)
     throw new Error("--creative requires --style <vivid|tight|literary|plain>.");
   return {
