@@ -758,6 +758,9 @@ test("CLI help documents the active observation config key", async () => {
   );
   expect(result.stdout).toMatch(/forge resume <sessionId> --act "<instruction>"/);
   expect(result.stdout).toMatch(
+    /forge write --creative --style vivid --continue \.forgelet\/writing\/chapter-1\.md "continue the next chapter"/,
+  );
+  expect(result.stdout).toMatch(
     /config set supports memoryFile, activeContext config keys, and provider API key env vars/,
   );
 });
@@ -811,6 +814,106 @@ test("CLI --live runs a read-only Session with an injected live model client", a
   expect(result.stdout).toMatch(/Forgelet session completed/);
   expect(result.stdout).toMatch(/Found needle in example.ts/);
   expect(modelClient.turnInputs.length).toBe(2);
+});
+
+test("CLI --live continues a saved creative Writing Artifact", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-writing-continuation-"));
+  await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"),
+    "Mara opened the brass door.\n",
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([
+    { content: "She stepped into a room full of rain.", toolCalls: [] },
+  ]);
+
+  const result = await runCli(
+    [
+      "write",
+      "--live",
+      "--creative",
+      "--style",
+      "vivid",
+      "--continue",
+      ".forgelet/writing/chapter-1.md",
+      "continue the next chapter",
+    ],
+    {
+      workspaceRoot,
+      env: {},
+      createLiveModelClient: async (input) => {
+        expect(input.workflow).toBe("writing");
+        expect(input.modelOverride).toBe(undefined);
+        return modelClient;
+      },
+    },
+  );
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toMatch(/Workflow: writing/);
+  expect(result.stdout).toMatch(/Workflow variant: creative/);
+  expect(result.stdout).toMatch(/Draft/);
+  expect(result.stdout).toMatch(/Writing artifact: \.forgelet\/writing\//);
+
+  const createdArtifactPath = result.stdout.match(
+    /Writing artifact: (\.forgelet\/writing\/[^ ]+)/,
+  )?.[1];
+  expect(createdArtifactPath).toBeTruthy();
+  expect(createdArtifactPath).not.toBe(".forgelet/writing/chapter-1.md");
+  await expect(
+    readFile(join(workspaceRoot, createdArtifactPath ?? ""), "utf8"),
+  ).resolves.toBe("She stepped into a room full of rain.\n");
+  await expect(
+    readFile(join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"), "utf8"),
+  ).resolves.toBe("Mara opened the brass door.\n");
+
+  const sessionFiles = await readdir(join(workspaceRoot, ".forgelet", "sessions"));
+  const trace = await readFile(
+    join(workspaceRoot, ".forgelet", "sessions", sessionFiles[0] ?? ""),
+    "utf8",
+  );
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(events.find((event) => event.type === "session_started")?.payload).toMatchObject({
+    workflow: "writing",
+    workflowVariant: "creative",
+    creativeInputKind: "continuation",
+  });
+  expect(events.find((event) => event.type === "context_attachment")?.payload).toMatchObject({
+    uri: ".forgelet/writing/chapter-1.md",
+    mimeType: "text/markdown",
+  });
+});
+
+test("CLI invalid Writing Artifact Continuation paths point users toward saved artifacts", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-writing-continuation-error-"));
+
+  const result = await runCli(
+    [
+      "write",
+      "--live",
+      "--creative",
+      "--style",
+      "vivid",
+      "--continue",
+      ".forgelet/writing/missing.md",
+      "continue the next chapter",
+    ],
+    {
+      workspaceRoot,
+      env: {},
+      createLiveModelClient: async () =>
+        new FakeModelClient([{ content: "unused", toolCalls: [] }]),
+    },
+  );
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toMatch(/Unable to read continuation artifact/);
+  expect(result.stderr).toMatch(/\.forgelet\/writing\//);
 });
 
 test("CLI resume runs a live read-only Session Continuation by default", async () => {

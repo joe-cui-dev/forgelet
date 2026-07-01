@@ -2,6 +2,7 @@ node_modules/
 dist/
 dist-test/
 .forgelet/sessions/
+.forgelet/writing/
 .forgelet/tmp/
 .env
 .env.*

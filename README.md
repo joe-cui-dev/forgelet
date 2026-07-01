@@ -104,6 +104,7 @@ by default without overwriting context attachments.
 ```bash
 forge write --live --creative --style vivid "write a rain-soaked convenience store scene"
 forge write --live --creative --style vivid --context scene.md "revise this scene"
+forge write --live --creative --style vivid --continue .forgelet/writing/chapter-1.md "continue the next chapter"
 ```
 
 Built-in styles are `vivid`, `tight`, `literary`, and `plain`.
@@ -131,6 +132,11 @@ Alternatives
 Notes
 ...
 ```
+
+Continue a saved Markdown Writing Artifact with `--continue`. The selected
+artifact is used as the prose source, repeated `--context` attachments are
+treated as supporting references, and the result is a new Draft Pack saved under
+`.forgelet/writing/` without overwriting the source artifact.
 
 Long-form Writing Project continuity is a later V2 design step; it is not a
 precondition for short-form creative rewriting.

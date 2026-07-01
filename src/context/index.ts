@@ -12,8 +12,13 @@ const supportedMimeTypes: Record<string, string> = {
   ".json": "application/json"
 };
 
-export async function loadContextAttachments(workspaceRoot: string, contextFiles: string[]): Promise<LoadedContextAttachment[]> {
+export async function loadContextAttachments(
+  workspaceRoot: string,
+  contextFiles: string[],
+  options: { startIndex?: number } = {},
+): Promise<LoadedContextAttachment[]> {
   const attachments: LoadedContextAttachment[] = [];
+  const startIndex = options.startIndex ?? 0;
 
   for (let index = 0; index < contextFiles.length; index += 1) {
     const filePath = contextFiles[index] ?? "";
@@ -26,7 +31,7 @@ export async function loadContextAttachments(workspaceRoot: string, contextFiles
 
     const content = await readFile(resolvedPath, "utf8");
     const attachment: ContextAttachment = {
-      id: `ctx_${index + 1}`,
+      id: `ctx_${startIndex + index + 1}`,
       source: "file",
       title: basename(filePath),
       uri: filePath,

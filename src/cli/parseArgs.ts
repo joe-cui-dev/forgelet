@@ -1,4 +1,9 @@
-import type { CreativeStyle, WorkflowKind, WorkflowVariant } from "../types.js";
+import type {
+  CreativeInputKind,
+  CreativeStyle,
+  WorkflowKind,
+  WorkflowVariant,
+} from "../types.js";
 
 export type ForgeCommand =
   | {
@@ -6,8 +11,10 @@ export type ForgeCommand =
       workflow: WorkflowKind;
       workflowVariant?: WorkflowVariant;
       creativeStyle?: CreativeStyle;
+      creativeInputKind?: CreativeInputKind;
       task: string;
       contextFiles: string[];
+      continuationFile?: string;
       allowedReadPaths?: string[];
       model?: string;
       budgetUsd?: number;
@@ -139,6 +146,7 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
   let budgetUsd: number | undefined;
   let workflowVariant: WorkflowVariant | undefined;
   let creativeStyle: CreativeStyle | undefined;
+  let continuationFile: string | undefined;
   let live = false;
   let act = false;
   const taskParts: string[] = [];
@@ -149,6 +157,18 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
       const value = args[++i];
       if (!value) throw new Error("Missing value for --context");
       contextFiles.push(value);
+      continue;
+    }
+    if (arg === "--continue") {
+      const value = args[++i];
+      if (!value) throw new Error("Missing value for --continue");
+      if (continuationFile)
+        throw new Error("Exactly one --continue artifact can be provided.");
+      if (!value.toLowerCase().endsWith(".md"))
+        throw new Error(
+          "--continue supports Markdown files only; pass a path such as .forgelet/writing/<artifact>.md.",
+        );
+      continuationFile = value;
       continue;
     }
     if (arg === "--allow-read") {
@@ -213,17 +233,31 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
     );
   if (creativeStyle && workflowVariant !== "creative")
     throw new Error("--style is only available with --creative.");
+  if (continuationFile && workflow !== "writing")
+    throw new Error("--continue is only available for the writing workflow.");
+  if (continuationFile && workflowVariant !== "creative")
+    throw new Error("--continue is only available with --creative.");
   if (workflowVariant === "creative" && !creativeStyle)
     throw new Error(
       "--creative requires --style <vivid|tight|literary|plain>.",
     );
+  const creativeInputKind: CreativeInputKind | undefined =
+    workflowVariant === "creative"
+      ? continuationFile
+        ? "continuation"
+        : contextFiles.length > 0
+          ? "revision"
+          : "draft"
+      : undefined;
   return {
     kind: "run",
     workflow,
     workflowVariant,
     creativeStyle,
+    creativeInputKind,
     task,
     contextFiles,
+    ...(continuationFile ? { continuationFile } : {}),
     ...(allowedReadPaths.length > 0 ? { allowedReadPaths } : {}),
     model,
     budgetUsd,

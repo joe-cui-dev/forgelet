@@ -121,6 +121,7 @@ test("parses a creative writing workflow variant", () => {
     workflow: "writing",
     workflowVariant: "creative",
     creativeStyle: "vivid",
+    creativeInputKind: "revision",
     task: "revise this scene",
     contextFiles: ["draft.md"],
     model: undefined,
@@ -144,6 +145,7 @@ test("parses a prompt-only creative writing workflow variant", () => {
     workflow: "writing",
     workflowVariant: "creative",
     creativeStyle: "vivid",
+    creativeInputKind: "draft",
     task: "write a rain-soaked convenience store scene",
     contextFiles: [],
     model: undefined,
@@ -151,6 +153,72 @@ test("parses a prompt-only creative writing workflow variant", () => {
     live: false,
     act: false
   });
+});
+
+test("parses a creative Writing Artifact Continuation", () => {
+  expect(
+    parseArgs([
+      "write",
+      "--creative",
+      "--style",
+      "vivid",
+      "--continue",
+      ".forgelet/writing/chapter-1.md",
+      "continue the next chapter",
+    ]),
+  ).toEqual({
+    kind: "run",
+    workflow: "writing",
+    workflowVariant: "creative",
+    creativeStyle: "vivid",
+    creativeInputKind: "continuation",
+    task: "continue the next chapter",
+    contextFiles: [],
+    continuationFile: ".forgelet/writing/chapter-1.md",
+    model: undefined,
+    budgetUsd: undefined,
+    live: false,
+    act: false
+  });
+});
+
+test("rejects misplaced Writing Artifact Continuation options", () => {
+  expect(() =>
+    parseArgs(["--continue", "chapter-1.md", "continue the next chapter"]),
+  ).toThrow(/--continue is only available for the writing workflow/);
+  expect(() =>
+    parseArgs(["write", "--continue", "chapter-1.md", "continue the next chapter"]),
+  ).toThrow(/--continue is only available with --creative/);
+});
+
+test("rejects malformed Writing Artifact Continuation options", () => {
+  expect(() =>
+    parseArgs(["write", "--creative", "--style", "vivid", "--continue"]),
+  ).toThrow(/Missing value for --continue/);
+  expect(() =>
+    parseArgs([
+      "write",
+      "--creative",
+      "--style",
+      "vivid",
+      "--continue",
+      "chapter-1.md",
+      "--continue",
+      "chapter-2.md",
+      "continue",
+    ]),
+  ).toThrow(/Exactly one --continue artifact/);
+  expect(() =>
+    parseArgs([
+      "write",
+      "--creative",
+      "--style",
+      "vivid",
+      "--continue",
+      "chapter-1.txt",
+      "continue",
+    ]),
+  ).toThrow(/--continue supports Markdown files only/);
 });
 
 test("rejects creative writing without a style", () => {

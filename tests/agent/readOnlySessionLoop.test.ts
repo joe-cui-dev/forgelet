@@ -584,6 +584,114 @@ test("a prompt-only Creative Brief returns only a Draft without context attachme
   });
 });
 
+test("a creative Writing Artifact Continuation labels the source separately in the model prompt", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-writing-continuation-"));
+  await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"),
+    "Mara opened the brass door.\n",
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([
+    { content: "She stepped into a room full of rain.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "writing",
+    workflowVariant: "creative",
+    creativeStyle: "vivid",
+    creativeInputKind: "continuation",
+    continuationFile: ".forgelet/writing/chapter-1.md",
+    task: "continue the next chapter",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const firstUserMessage = modelClient.turnInputs[0]?.messages.find(
+    (message) => message.role === "user",
+  )?.content ?? "";
+  expect(firstUserMessage).toMatch(/Continuation source:/);
+  expect(firstUserMessage).toMatch(/uri: \.forgelet\/writing\/chapter-1\.md/);
+  expect(firstUserMessage).toMatch(/Mara opened the brass door/);
+  expect(firstUserMessage).not.toMatch(/Context attachments:/);
+  expect(firstUserMessage).not.toMatch(/Additional context attachments:/);
+  expect(result.summary).toMatch(/She stepped into a room full of rain/);
+
+  const events = (await readFile(result.tracePath ?? "", "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const contextEvents = events.filter(
+    (event) => event.type === "context_attachment",
+  );
+  expect(contextEvents).toHaveLength(1);
+  expect(contextEvents[0]?.payload).toMatchObject({
+    uri: ".forgelet/writing/chapter-1.md",
+    mimeType: "text/markdown",
+  });
+});
+
+test("a creative Writing Artifact Continuation separates additional context attachments", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-writing-continuation-context-"));
+  await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"),
+    "Mara opened the brass door.\n",
+    "utf8",
+  );
+  const sourceBefore = await readFile(
+    join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"),
+    "utf8",
+  );
+  await writeFile(
+    join(workspaceRoot, "notes.md"),
+    "Keep the setting claustrophobic.\n",
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([
+    { content: "She stepped into a room full of rain.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "writing",
+    workflowVariant: "creative",
+    creativeStyle: "vivid",
+    creativeInputKind: "continuation",
+    continuationFile: ".forgelet/writing/chapter-1.md",
+    task: "continue the next chapter",
+    contextFiles: ["notes.md"],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const firstUserMessage = modelClient.turnInputs[0]?.messages.find(
+    (message) => message.role === "user",
+  )?.content ?? "";
+  expect(firstUserMessage).toMatch(/Continuation source:/);
+  expect(firstUserMessage).toMatch(/uri: \.forgelet\/writing\/chapter-1\.md/);
+  expect(firstUserMessage).toMatch(/Additional context attachments:/);
+  expect(firstUserMessage).toMatch(/uri: notes\.md/);
+  expect(firstUserMessage).toMatch(/Keep the setting claustrophobic/);
+  expect(result.summary).toMatch(/Draft/);
+  expect(result.summary).not.toMatch(/Critique/);
+  expect(result.summary).not.toMatch(/Revision/);
+  expect(result.summary).not.toMatch(/Alternatives/);
+  expect(result.summary).not.toMatch(/Notes/);
+  expect(result.summary).toMatch(/She stepped into a room full of rain/);
+  expect(result.writingArtifact).toMatchObject({
+    contentKind: "draft",
+  });
+  const artifact = await readFile(
+    join(workspaceRoot, result.writingArtifact?.path ?? ""),
+    "utf8",
+  );
+  expect(artifact).toBe("She stepped into a room full of rain.\n");
+  await expect(
+    readFile(join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"), "utf8"),
+  ).resolves.toBe(sourceBefore);
+});
+
 test("a Session Read Scope denies read_file outside the allowed paths", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-read-scope-"));
   await writeFile(join(workspaceRoot, "allowed.txt"), "allowed\n", "utf8");

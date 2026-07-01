@@ -1,5 +1,6 @@
 import type {
   AgentSession,
+  CreativeInputKind,
   CreativeStyle,
   ModelClient,
   WritingArtifact,
@@ -14,8 +15,10 @@ export interface RunAgentInput {
   workflow?: WorkflowKind;
   workflowVariant?: WorkflowVariant;
   creativeStyle?: CreativeStyle;
+  creativeInputKind?: CreativeInputKind;
   task: string;
   contextFiles: string[];
+  continuationFile?: string;
   allowedReadPaths?: string[];
   model?: string;
   budgetUsd?: number;
@@ -40,8 +43,10 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     workflow: input.workflow ?? "coding",
     workflowVariant: input.workflowVariant,
     creativeStyle: input.creativeStyle,
+    creativeInputKind: input.creativeInputKind,
     task: input.task,
     contextFiles: input.contextFiles,
+    continuationFile: input.continuationFile,
     allowedReadPaths: input.allowedReadPaths,
     model: input.model,
     budgetUsd: input.budgetUsd,

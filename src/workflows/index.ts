@@ -4,6 +4,7 @@ import type {
   BudgetLimits,
   BudgetUsage,
   Capability,
+  CreativeInputKind,
   CreativeStyle,
   LoadedContextAttachment,
   ModelClient,
@@ -48,8 +49,10 @@ export interface RunWorkflowInput {
   workflow: WorkflowKind;
   workflowVariant?: WorkflowVariant;
   creativeStyle?: CreativeStyle;
+  creativeInputKind?: CreativeInputKind;
   task: string;
   contextFiles: string[];
+  continuationFile?: string;
   allowedReadPaths?: string[];
   model?: string;
   budgetUsd?: number;
@@ -79,6 +82,7 @@ interface ActLoopRoute {
 interface RunReadOnlyLoopInput {
   modelClient: ModelClient;
   session: AgentSession;
+  continuationAttachment?: LoadedContextAttachment;
   contextAttachments: LoadedContextAttachment[];
   durableMemory?: LoadedDurableMemory;
   workspaceRoot: string;
@@ -139,6 +143,15 @@ export const runWorkflowSession = async (
         input.continuationSourceSessionId,
       )
     : undefined;
+  const creativeInputKind =
+    input.workflowVariant === "creative"
+      ? input.creativeInputKind ??
+        (input.continuationFile
+          ? "continuation"
+          : input.contextFiles.length > 0
+            ? "revision"
+            : "draft")
+      : undefined;
   const readScope = await normalizeSessionReadScope(
     input.workspaceRoot,
     input.allowedReadPaths ?? continuationContext?.inheritedReadScope,
@@ -161,10 +174,13 @@ export const runWorkflowSession = async (
     input.act && input.workflow === "coding"
       ? await gitStatusPaths(input.workspaceRoot)
       : new Set<string>();
-  const contextAttachments = await loadContextAttachments(
-    input.workspaceRoot,
-    input.contextFiles,
-  );
+  const loadedContextAttachments = await loadWritingContextAttachments(input);
+  const continuationAttachment = input.continuationFile
+    ? loadedContextAttachments[0]
+    : undefined;
+  const contextAttachments = input.continuationFile
+    ? loadedContextAttachments.slice(1)
+    : loadedContextAttachments;
   const durableMemory = input.modelClient
     ? await loadDurableMemory(input.workspaceRoot)
     : undefined;
@@ -184,6 +200,7 @@ export const runWorkflowSession = async (
     workflow: input.workflow,
     ...(input.workflowVariant ? { workflowVariant: input.workflowVariant } : {}),
     ...(input.creativeStyle ? { creativeStyle: input.creativeStyle } : {}),
+    ...(creativeInputKind ? { creativeInputKind } : {}),
     task: input.task,
     taskHash,
     ...(readScope ? { readScope } : {}),
@@ -197,6 +214,7 @@ export const runWorkflowSession = async (
       workflow: input.workflow,
       ...(input.workflowVariant ? { workflowVariant: input.workflowVariant } : {}),
       ...(input.creativeStyle ? { creativeStyle: input.creativeStyle } : {}),
+      ...(creativeInputKind ? { creativeInputKind } : {}),
       startedAt: now,
       taskHash,
       ...(readScope ? { readScope } : {}),
@@ -236,7 +254,7 @@ export const runWorkflowSession = async (
       ),
     );
   }
-  for (const contextAttachment of contextAttachments) {
+  for (const contextAttachment of loadedContextAttachments) {
     await traceWriter.append(
       createTraceEvent(
         sessionId,
@@ -278,6 +296,7 @@ export const runWorkflowSession = async (
       execution = await runReadOnlyLoop({
         modelClient: input.modelClient,
         session,
+        continuationAttachment,
         contextAttachments,
         durableMemory,
         workspaceRoot: input.workspaceRoot,
@@ -343,6 +362,7 @@ export const runWorkflowSession = async (
             workspaceRoot: input.workspaceRoot,
             session,
             finalContent: execution.finalContent,
+            creativeInputKind,
             contextAttachmentCount: contextAttachments.length,
           })
         : undefined;
@@ -431,6 +451,31 @@ export const runWorkflowSession = async (
     summary: details.join("\n"),
     tracePath: traceWriter.tracePath,
   };
+};
+
+const loadWritingContextAttachments = async (
+  input: RunWorkflowInput,
+): Promise<LoadedContextAttachment[]> => {
+  if (!input.continuationFile)
+    return loadContextAttachments(input.workspaceRoot, input.contextFiles);
+
+  let continuationAttachments: LoadedContextAttachment[];
+  try {
+    continuationAttachments = await loadContextAttachments(input.workspaceRoot, [
+      input.continuationFile,
+    ]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Unable to read continuation artifact: ${input.continuationFile}. Pass an explicit Markdown artifact path, such as .forgelet/writing/<artifact>.md. ${message}`,
+    );
+  }
+  const contextAttachments = await loadContextAttachments(
+    input.workspaceRoot,
+    input.contextFiles,
+    { startIndex: continuationAttachments.length },
+  );
+  return [...continuationAttachments, ...contextAttachments];
 };
 
 const modelExecutionFailurePayload = (
@@ -638,10 +683,14 @@ const runReadOnlyLoop = async (
       },
     },
   );
-  const promptOnlyCreativeBrief =
+  const creativeDraftLike =
     input.session.workflowVariant === "creative" &&
-    input.contextAttachments.length === 0;
-  const tools = promptOnlyCreativeBrief
+    (input.session.creativeInputKind === "draft" ||
+      input.session.creativeInputKind === "continuation" ||
+      (!input.session.creativeInputKind &&
+        !input.continuationAttachment &&
+        input.contextAttachments.length === 0));
+  const tools = creativeDraftLike
     ? []
     : toolRegistry.listTools(grantedCapabilities);
   const conversation: ModelMessage[] = [];
@@ -688,6 +737,7 @@ const runReadOnlyLoop = async (
       input.session,
       input.plan,
       input.route,
+      input.continuationAttachment,
       input.contextAttachments,
       input.durableMemory,
       input.continuationContext,
@@ -832,7 +882,6 @@ const runReadOnlyLoop = async (
       finalContent = normalizeFinalContentForWorkflow(
         input.session,
         output.content ?? "",
-        input.contextAttachments.length,
       );
       input.plan.items = input.plan.items.map((item) => ({
         ...item,
@@ -1129,6 +1178,7 @@ const buildMessages = (
   session: AgentSession,
   plan: AgentPlan,
   route: ActLoopRoute,
+  continuationAttachment: LoadedContextAttachment | undefined,
   contextAttachments: LoadedContextAttachment[],
   durableMemory: LoadedDurableMemory | undefined,
   continuationContext: ContinuationContext | undefined,
@@ -1140,8 +1190,19 @@ const buildMessages = (
   finalOnly = false,
   finalToolTurn = false,
 ): ModelMessage[] => {
+  const continuationSourceLines = continuationAttachment
+    ? formatContextAttachmentsForPrompt(
+        [continuationAttachment],
+        "Continuation source",
+      )
+    : [];
   const contextAttachmentLines =
-    formatContextAttachmentsForPrompt(contextAttachments);
+    formatContextAttachmentsForPrompt(
+      contextAttachments,
+      continuationAttachment
+        ? "Additional context attachments"
+        : "Context attachments",
+    );
   const durableMemoryLines = formatDurableMemoryForPrompt(durableMemory);
   const continuationContextLines =
     formatContinuationContextForPrompt(continuationContext);
@@ -1154,7 +1215,6 @@ const buildMessages = (
         session,
         act,
         finalOnly,
-        contextAttachments.length,
       ),
     },
     {
@@ -1172,6 +1232,8 @@ const buildMessages = (
         "",
         ...continuationContextLines,
         ...(continuationContextLines.length > 0 ? [""] : []),
+        ...continuationSourceLines,
+        ...(continuationSourceLines.length > 0 ? [""] : []),
         ...contextAttachmentLines,
         ...(contextAttachmentLines.length > 0 ? [""] : []),
         ...durableMemoryLines,
@@ -1232,11 +1294,16 @@ const isUsableFinalContent = (content: string): boolean => {
 const normalizeFinalContentForWorkflow = (
   session: AgentSession,
   content: string,
-  contextAttachmentCount = 0,
 ): string => {
   if (session.workflow !== "writing") return content;
   if (session.workflowVariant === "creative") {
-    if (contextAttachmentCount === 0) {
+    const creativeInputKind =
+      session.creativeInputKind ??
+      ("revision" as CreativeInputKind);
+    if (
+      creativeInputKind === "draft" ||
+      creativeInputKind === "continuation"
+    ) {
       if (hasMarkdownHeading(content, "Draft")) return content;
       return [
         "Draft",
@@ -1293,7 +1360,6 @@ const systemPromptFor = (
   session: AgentSession,
   act: boolean,
   finalOnly = false,
-  contextAttachmentCount = 0,
 ): string => {
   const common = [
     "You are running inside the Forgelet Agent Kernel.",
@@ -1321,13 +1387,24 @@ const systemPromptFor = (
       "This is a read-only Coding Workflow Session.",
       "Read-only tools may inspect workspace content; do not claim to write files or run commands.",
     ].join("\n");
-  if (session.workflowVariant === "creative" && contextAttachmentCount === 0)
+  if (session.workflowVariant === "creative" && session.creativeInputKind === "draft")
     return [
       ...common,
       "This is a Creative Writing Workflow variant.",
       `Style: ${session.creativeStyle ?? "plain"}.`,
       "Use the Creative Brief and Durable Memory for original drafting, but do not request workspace, git, shell, patch, or command tools.",
       "Return only a Draft heading followed by the drafted prose.",
+    ].join("\n");
+  if (
+    session.workflowVariant === "creative" &&
+    session.creativeInputKind === "continuation"
+  )
+    return [
+      ...common,
+      "This is a Creative Writing Workflow variant.",
+      `Style: ${session.creativeStyle ?? "plain"}.`,
+      "Use the Creative Brief, Continuation source, Additional context attachments, and Durable Memory to continue the source prose, but do not request workspace, git, shell, patch, or command tools.",
+      "Return only a Draft heading followed by the continued prose.",
     ].join("\n");
   if (session.workflowVariant === "creative")
     return [
@@ -1371,10 +1448,11 @@ const formatDurableMemoryForPrompt = (
 
 const formatContextAttachmentsForPrompt = (
   attachments: LoadedContextAttachment[],
+  title: string,
 ): string[] => {
   if (attachments.length === 0) return [];
 
-  const lines = ["Context attachments:"];
+  const lines = [`${title}:`];
   let remainingBudget = CONTEXT_ATTACHMENTS_PROMPT_LIMIT_BYTES;
 
   attachments.forEach(({ attachment, content }) => {
@@ -1523,10 +1601,12 @@ const writeWritingArtifact = async (input: {
   workspaceRoot: string;
   session: AgentSession;
   finalContent: string;
+  creativeInputKind?: CreativeInputKind;
   contextAttachmentCount: number;
 }): Promise<WritingArtifact> => {
   const contentKind = writingArtifactContentKind(
     input.session,
+    input.creativeInputKind,
     input.contextAttachmentCount,
   );
   const heading = contentKind === "draft" ? "Draft" : "Revision";
@@ -1551,8 +1631,14 @@ const writeWritingArtifact = async (input: {
 
 const writingArtifactContentKind = (
   session: AgentSession,
+  creativeInputKind: CreativeInputKind | undefined,
   contextAttachmentCount: number,
 ): WritingArtifact["contentKind"] => {
+  if (
+    session.workflowVariant === "creative" &&
+    (creativeInputKind === "draft" || creativeInputKind === "continuation")
+  )
+    return "draft";
   if (session.workflowVariant === "creative" && contextAttachmentCount === 0)
     return "draft";
   return "revision";

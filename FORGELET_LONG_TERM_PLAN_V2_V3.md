@@ -441,6 +441,28 @@ Acceptance criteria:
 - This slice does not depend on `forge resume <sessionId>`; long-form Writing Project continuity should be designed after the short-form creative path is useful.
 - README documents the short-form creative writing path and names Writing Project continuity as a later goal.
 
+### V2 Issue 0a: Continue saved creative writing artifacts
+
+Let users continue from a saved **Writing Artifact** before introducing full **Writing Project** continuity.
+
+Execution plan: [Writing Artifact Continuation Execution Plan](./docs/writing-artifact-continuation-execution-plan.md).
+
+Acceptance criteria:
+
+- `forge write --creative --style <name> --continue <artifact.md> "<creative brief>"` routes to the Writing Workflow.
+- `<artifact.md>` can point at a saved Markdown article under `.forgelet/writing/` or another explicit Markdown file path.
+- The first implementation requires an explicit path and does not add an interactive picker or artifact listing command.
+- Missing or invalid paths produce a clear error that points users toward saved artifacts under `.forgelet/writing/`.
+- Exactly one `--continue` artifact can be provided; repeated `--continue` flags produce a clear CLI error.
+- `--continue` can be combined with repeated `--context` attachments. The continuation artifact is the prose source to extend, while `--context` files are supporting references such as setting notes, character notes, or style constraints.
+- The implementation carries an internal creative input discriminant such as `creativeInputKind: "draft" | "revision" | "continuation"` so prompt shape, output normalization, and artifact writing do not infer continuation behavior only from attachment counts.
+- The selected artifact reuses the existing `ContextAttachment` loading and Trace path, with provenance, hash, size, and preview recorded in the Trace.
+- The model-facing prompt separates `Continuation source` from `Additional context attachments` so the selected artifact is used for continuing prose rather than critiquing or revising by default.
+- The first implementation does not add a separate `writing_artifact_source` Trace event; that can be introduced later if artifact continuation needs richer read models.
+- The command uses the existing Creative Writing CLI surface rather than `forge resume`, because this continues prose from an artifact rather than continuing a prior Session.
+- The first implementation produces a Draft Pack with one continued draft and saves it as a new `.forgelet/writing/` artifact without overwriting the selected artifact.
+- This slice remains short-form artifact continuation and does not create a long-form Writing Project model, chapter registry, or persistent story bible.
+
 ### V2 Issue 1: Add browser context attachment interface
 
 Implement browser-origin `ContextAttachment` support without connecting a real browser yet.

@@ -29,12 +29,20 @@ The user's prompt-level creative intent for a **Creative Writing Workflow**, inc
 _Avoid_: Prompt blob, hidden context, document draft
 
 **Draft Pack**:
-The default V2 output shape for prompt-only creative drafting without **Context Attachments**: Forgelet returns only one primary draft. A Draft Pack avoids pretending there is existing source text to critique or revise, and avoids extra variants or process notes when the user asked for original creation.
+The default V2 output shape for original creative drafting or **Writing Artifact Continuation** when the user is asking for new prose rather than revision: Forgelet returns only one primary draft. A Draft Pack avoids pretending there is existing source text to critique or revise, and avoids extra variants or process notes when the user asked for creation or continuation.
 _Avoid_: Critique with no source text, revision without a draft, variants by default, process notes by default
 
 **Revision Pack**:
 The default V2 output shape for creative rewriting with **Context Attachments**: Forgelet returns a critique, one primary revision, two creative alternatives, and notes about the editing choices. A Revision Pack keeps short-form creative work useful without requiring **Writing Project** continuity.
 _Avoid_: Single polished answer, variant-only response, editor chat
+
+**Writing Artifact**:
+A human-facing prose result produced by a **Writing Workflow**, such as a draft or revision, that can be read, reused, or selected as source material for later writing work.
+_Avoid_: Trace event, hidden memory, context file
+
+**Writing Artifact Continuation**:
+A new **Creative Writing Workflow** Session that uses a prior **Writing Artifact** as the source text for continuing prose. It produces a new writing result without reopening the prior **Session**, mutating its **Trace**, or becoming a full **Writing Project**.
+_Avoid_: Session Continuation, appended trace, project continuity
 
 **Writing Project**:
 A long-form creative work boundary such as a novel, serialized essay, or chapter-based manuscript where continuity across characters, setting, outline, style, and prior chapters matters. A Writing Project can use **Context Attachments** and the **Knowledge Library**, but it is not the same as one **Session**.
