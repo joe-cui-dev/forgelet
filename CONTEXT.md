@@ -28,8 +28,12 @@ _Avoid_: Generic writing chat, document editor, long-form project state
 The user's prompt-level creative intent for a **Creative Writing Workflow**, including subject, constraints, desired form, audience, or tone. A Creative Brief can stand alone for original drafting or accompany **Context Attachments** for revision.
 _Avoid_: Prompt blob, hidden context, document draft
 
+**Draft Pack**:
+The default V2 output shape for prompt-only creative drafting without **Context Attachments**: Forgelet returns one primary draft, two creative variants, and notes about the drafting choices. A Draft Pack avoids pretending there is existing source text to critique or revise.
+_Avoid_: Critique with no source text, revision without a draft, single polished answer
+
 **Revision Pack**:
-The default V2 output shape for a **Creative Writing Workflow**: Forgelet returns a critique, one primary draft or revision, two creative alternatives, and notes about the editing choices. A Revision Pack keeps short-form creative work useful without requiring **Writing Project** continuity.
+The default V2 output shape for creative rewriting with **Context Attachments**: Forgelet returns a critique, one primary revision, two creative alternatives, and notes about the editing choices. A Revision Pack keeps short-form creative work useful without requiring **Writing Project** continuity.
 _Avoid_: Single polished answer, variant-only response, editor chat
 
 **Writing Project**:

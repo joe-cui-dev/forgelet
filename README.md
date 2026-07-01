@@ -96,8 +96,9 @@ Notes
 
 Use `--creative` with an explicit style for short-form creative writing. The
 Creative Brief can stand alone for original drafting, or it can be combined with
-one or more `--context` attachments for revision. The command prints a Revision
-Pack to the terminal; it does not write revised prose back to files.
+one or more `--context` attachments for revision. The command prints a Draft
+Pack for prompt-only briefs or a Revision Pack for attached source text; it does
+not write prose back to files.
 
 ```bash
 forge write --live --creative --style vivid "write a rain-soaked convenience store scene"
@@ -106,7 +107,21 @@ forge write --live --creative --style vivid --context scene.md "revise this scen
 
 Built-in styles are `vivid`, `tight`, `literary`, and `plain`.
 
-Creative writing output is shaped as:
+Prompt-only creative drafting output is shaped as:
+
+```text
+Draft
+...
+
+Variants
+1. ...
+2. ...
+
+Notes
+...
+```
+
+Creative writing with `--context` output is shaped as:
 
 ```text
 Critique

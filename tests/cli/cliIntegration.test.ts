@@ -1074,7 +1074,12 @@ test("CLI --live runs prompt-only creative writing without context attachments",
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toMatch(/Workflow variant: creative/);
   expect(result.stdout).toMatch(/Creative style: vivid/);
-  expect(result.stdout).toMatch(/Alternatives/);
+  expect(result.stdout).toMatch(/Draft/);
+  expect(result.stdout).toMatch(/Variants/);
+  expect(result.stdout).toMatch(/Notes/);
+  expect(result.stdout).not.toMatch(/Critique/);
+  expect(result.stdout).not.toMatch(/Revision/);
+  expect(result.stdout).not.toMatch(/Alternatives/);
 
   const traceFiles = await readdir(join(workspaceRoot, ".forgelet", "sessions"));
   const trace = await readFile(

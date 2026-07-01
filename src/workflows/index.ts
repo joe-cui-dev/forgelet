@@ -462,7 +462,12 @@ const runReadOnlyLoop = async (
     [...createReadOnlyTools(input.plan), ...actionableTools],
     { approvalHandler: input.approvalHandler },
   );
-  const tools = toolRegistry.listTools(grantedCapabilities);
+  const promptOnlyCreativeBrief =
+    input.session.workflowVariant === "creative" &&
+    input.contextAttachments.length === 0;
+  const tools = promptOnlyCreativeBrief
+    ? []
+    : toolRegistry.listTools(grantedCapabilities);
   const conversation: ModelMessage[] = [];
   const audit: RunAuditState = {
     changedFiles: new Set(),
@@ -617,6 +622,7 @@ const runReadOnlyLoop = async (
       finalContent = normalizeFinalContentForWorkflow(
         input.session,
         output.content ?? "",
+        input.contextAttachments.length,
       );
       input.plan.items = input.plan.items.map((item) => ({
         ...item,
@@ -908,7 +914,12 @@ const buildMessages = (
   const messages: ModelMessage[] = [
     {
       role: "system",
-      content: systemPromptFor(session, act, finalOnly),
+      content: systemPromptFor(
+        session,
+        act,
+        finalOnly,
+        contextAttachments.length,
+      ),
     },
     {
       role: "user",
@@ -985,9 +996,29 @@ const isUsableFinalContent = (content: string): boolean => {
 const normalizeFinalContentForWorkflow = (
   session: AgentSession,
   content: string,
+  contextAttachmentCount = 0,
 ): string => {
   if (session.workflow !== "writing") return content;
   if (session.workflowVariant === "creative") {
+    if (contextAttachmentCount === 0) {
+      if (
+        hasMarkdownHeading(content, "Draft") &&
+        hasMarkdownHeading(content, "Variants") &&
+        hasMarkdownHeading(content, "Notes")
+      )
+        return content;
+      return [
+        "Draft",
+        content.trim() || "(empty)",
+        "",
+        "Variants",
+        "1. No vivid/literary variant was provided by the model.",
+        "2. No clearer/tighter variant was provided by the model.",
+        "",
+        "Notes",
+        "No additional notes were provided.",
+      ].join("\n");
+    }
     if (
       hasMarkdownHeading(content, "Critique") &&
       hasMarkdownHeading(content, "Revision") &&
@@ -1038,6 +1069,7 @@ const systemPromptFor = (
   session: AgentSession,
   act: boolean,
   finalOnly = false,
+  contextAttachmentCount = 0,
 ): string => {
   const common = [
     "You are running inside the Forgelet Agent Kernel.",
@@ -1064,6 +1096,15 @@ const systemPromptFor = (
       ...common,
       "This is a read-only Coding Workflow Session.",
       "Read-only tools may inspect workspace content; do not claim to write files or run commands.",
+    ].join("\n");
+  if (session.workflowVariant === "creative" && contextAttachmentCount === 0)
+    return [
+      ...common,
+      "This is a Creative Writing Workflow variant.",
+      `Style: ${session.creativeStyle ?? "plain"}.`,
+      "Use the Creative Brief and Durable Memory for original drafting, but do not request workspace, git, shell, patch, or command tools.",
+      "Return a Draft Pack with these headings: Draft, Variants, Notes.",
+      "Variants must include exactly two options: one more vivid/literary and one clearer/tighter.",
     ].join("\n");
   if (session.workflowVariant === "creative")
     return [

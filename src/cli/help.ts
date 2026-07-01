@@ -27,7 +27,7 @@ Usage:
 
 Forgelet V1 runs scaffolded Sessions by default. Use --live to run a real DeepSeek-backed Session. Repeat --allow-read with workspace-relative file or directory paths to constrain workspace and Git reads for one Session. Add --act for coding runs that may request confirmed file edits and configured commands.
 
-Writing runs return Critique, Revision, and Notes. Creative writing runs use a Creative Brief with optional context and return Critique, Revision, Alternatives, and Notes. Styles: vivid, tight, literary, plain.
+Writing runs return Critique, Revision, and Notes. Creative writing runs use a Creative Brief with optional context: prompt-only briefs return Draft, Variants, and Notes; context-backed revisions return Critique, Revision, Alternatives, and Notes. Styles: vivid, tight, literary, plain.
 Session Continuation supports live Coding Workflow resume. Use plain resume for read-only continuation, or resume --act to request confirmed file edits and configured commands in the new child Session.
 V1 config set supports memoryFile, activeContext config keys, and provider API key env vars.`;
 }

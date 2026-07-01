@@ -23,11 +23,11 @@ The core principle stays the same across versions:
 
 ## Version Summary
 
-| Version | Theme | Main Outcome |
-| --- | --- | --- |
-| V1 | Agent kernel with coding first | Forgelet can complete small repo tasks and validate a text-only writing workflow skeleton. |
-| V2 | Writing, knowledge, and developer workbench | Forgelet can use browser/file/issue context, resume sessions, curate memory, support richer coding workflows, and create source-linked writing/learning outputs. |
-| V3 | Personal platform with local creative tools | Forgelet can support plugins/MCP, local creative tools, personal workflows, calendar/tasks, and multi-surface usage. |
+| Version | Theme                                       | Main Outcome                                                                                                                                                     |
+| ------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| V1      | Agent kernel with coding first              | Forgelet can complete small repo tasks and validate a text-only writing workflow skeleton.                                                                       |
+| V2      | Writing, knowledge, and developer workbench | Forgelet can use browser/file/issue context, resume sessions, curate memory, support richer coding workflows, and create source-linked writing/learning outputs. |
+| V3      | Personal platform with local creative tools | Forgelet can support plugins/MCP, local creative tools, personal workflows, calendar/tasks, and multi-surface usage.                                             |
 
 ## V2: Writing, Knowledge, and Developer Workbench
 
@@ -183,6 +183,7 @@ forge notes search --scope project "workflow graph design"
 **Capabilities**
 
 - Critique and revise drafts
+- Produce a Draft Pack for prompt-only creative drafting via `forge write --creative --style <name>`
 - Produce a Revision Pack for short-form creative rewriting via `forge write --creative --style <name>`
 - Summarize articles and papers with source links
 - Extract concepts and open questions
@@ -419,7 +420,7 @@ Forgelet V2 succeeds when it can handle both of these daily workflows:
 
 ## V2 Implementation Issues
 
-### V2 Issue 0: Add creative writing Revision Pack
+### V2 Issue 0: Add creative writing Draft and Revision Packs
 
 Promote the V1 Writing Workflow into the first useful V2 writing slice before implementing full Session resume or Writing Project continuity.
 
@@ -431,10 +432,12 @@ Acceptance criteria:
 - The CLI validates structural inputs such as `--style`, but does not reject prompt-only creative briefs by guessing whether source text is missing.
 - The first implementation uses an explicit `--style <name>` option instead of inferring style only from the task text.
 - The first built-in style names are `vivid`, `tight`, `literary`, and `plain`; unknown style names produce a clear CLI error.
-- Creative writing output is normalized to a Revision Pack with `Critique`, `Revision`, `Alternatives`, and `Notes`.
+- Prompt-only creative writing output is normalized to a Draft Pack with `Draft`, `Variants`, and `Notes`.
+- Creative writing with `--context` is normalized to a Revision Pack with `Critique`, `Revision`, `Alternatives`, and `Notes`.
 - `Alternatives` contains two default options: one more vivid/literary and one clearer/tighter.
+- `Variants` contains two default options: one more vivid/literary and one clearer/tighter.
 - The creative writing path remains text-first and does not receive workspace, git, shell, patch, or command tools.
-- The first implementation prints the Revision Pack to the terminal and records it in the Trace; it does not write revised prose back to workspace files or `.forgelet` artifacts.
+- The first implementation prints the Draft Pack or Revision Pack to the terminal and records it in the Trace; it does not write prose back to workspace files or `.forgelet` artifacts.
 - Session and Trace metadata record `workflow: "writing"` with `workflowVariant: "creative"`; prompt-only creative drafting uses the Session task as the Creative Brief and does not add a separate Trace event.
 - This slice does not depend on `forge resume <sessionId>`; long-form Writing Project continuity should be designed after the short-form creative path is useful.
 - README documents the short-form creative writing path and names Writing Project continuity as a later goal.
@@ -464,10 +467,6 @@ Acceptance criteria:
 ### V2 Issue 3: Implement session resume
 
 Allow Forgelet to continue from a prior Session through an explicit Session Continuation.
-
-Detailed execution plan: [`docs/session-continuation-execution-plan.md`](docs/session-continuation-execution-plan.md).
-
-Actionable continuation plan: [`docs/actionable-session-continuation-execution-plan.md`](docs/actionable-session-continuation-execution-plan.md).
 
 Acceptance criteria:
 

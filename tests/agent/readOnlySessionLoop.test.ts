@@ -295,9 +295,15 @@ test("a creative writing Session returns a Revision Pack", async () => {
   expect(result.summary).toMatch(/Alternatives/);
   expect(result.summary).toMatch(/Notes/);
   expect(result.summary).toMatch(/The room breathed winter through the walls/);
+
+  const systemMessage = modelClient.turnInputs[0]?.messages.find(
+    (message) => message.role === "system",
+  )?.content ?? "";
+  expect(systemMessage).toMatch(/Return a Revision Pack/);
+  expect(systemMessage).not.toMatch(/Return a Draft Pack/);
 });
 
-test("a prompt-only creative writing Session returns a Revision Pack without context attachments", async () => {
+test("a prompt-only Creative Brief returns a Draft Pack without context attachments", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-creative-brief-"));
   const modelClient = new FakeModelClient([
     { content: "Rain silvered the convenience store windows.", toolCalls: [] },
@@ -313,10 +319,12 @@ test("a prompt-only creative writing Session returns a Revision Pack without con
     modelClient,
   });
 
-  expect(result.summary).toMatch(/Critique/);
-  expect(result.summary).toMatch(/Revision/);
-  expect(result.summary).toMatch(/Alternatives/);
+  expect(result.summary).toMatch(/Draft/);
+  expect(result.summary).toMatch(/Variants/);
   expect(result.summary).toMatch(/Notes/);
+  expect(result.summary).not.toMatch(/Critique/);
+  expect(result.summary).not.toMatch(/Revision/);
+  expect(result.summary).not.toMatch(/Alternatives/);
   expect(result.summary).toMatch(/Rain silvered the convenience store windows/);
 
   const firstUserMessage = modelClient.turnInputs[0]?.messages.find(
@@ -326,6 +334,12 @@ test("a prompt-only creative writing Session returns a Revision Pack without con
     /Creative brief: write a rain-soaked convenience store scene/,
   );
   expect(firstUserMessage).not.toMatch(/Context attachments:/);
+  const systemMessage = modelClient.turnInputs[0]?.messages.find(
+    (message) => message.role === "system",
+  )?.content ?? "";
+  expect(systemMessage).toMatch(/Return a Draft Pack/);
+  expect(systemMessage).not.toMatch(/Return a Revision Pack/);
+  expect(modelClient.turnInputs[0]?.tools).toEqual([]);
 
   const trace = await readFile(result.tracePath ?? "", "utf8");
   const events = trace
