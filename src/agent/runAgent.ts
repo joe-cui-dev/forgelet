@@ -2,6 +2,7 @@ import type {
   AgentSession,
   CreativeStyle,
   ModelClient,
+  WritingArtifact,
   WorkflowKind,
   WorkflowVariant,
 } from "../types.js";
@@ -31,6 +32,7 @@ export interface RunAgentResult {
   session: AgentSession;
   summary: string;
   tracePath?: string;
+  writingArtifact?: WritingArtifact;
 }
 
 export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {

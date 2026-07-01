@@ -503,6 +503,15 @@ test("a creative writing Session returns a Revision Pack", async () => {
   expect(result.summary).toMatch(/Alternatives/);
   expect(result.summary).toMatch(/Notes/);
   expect(result.summary).toMatch(/The room breathed winter through the walls/);
+  expect(result.summary).toMatch(/Writing artifact: \.forgelet\/writing\//);
+  expect(result.writingArtifact).toMatchObject({
+    contentKind: "revision",
+  });
+  const artifact = await readFile(
+    join(workspaceRoot, result.writingArtifact?.path ?? ""),
+    "utf8",
+  );
+  expect(artifact).toBe("The room breathed winter through the walls.\n");
 
   const systemMessage = modelClient.turnInputs[0]?.messages.find(
     (message) => message.role === "system",
@@ -534,6 +543,15 @@ test("a prompt-only Creative Brief returns only a Draft without context attachme
   expect(result.summary).not.toMatch(/Variants/);
   expect(result.summary).not.toMatch(/Notes/);
   expect(result.summary).toMatch(/Rain silvered the convenience store windows/);
+  expect(result.summary).toMatch(/Writing artifact: \.forgelet\/writing\//);
+  expect(result.writingArtifact).toMatchObject({
+    contentKind: "draft",
+  });
+  const artifact = await readFile(
+    join(workspaceRoot, result.writingArtifact?.path ?? ""),
+    "utf8",
+  );
+  expect(artifact).toBe("Rain silvered the convenience store windows.\n");
 
   const firstUserMessage = modelClient.turnInputs[0]?.messages.find(
     (message) => message.role === "user",
@@ -559,6 +577,11 @@ test("a prompt-only Creative Brief returns only a Draft without context attachme
   expect(events.some((event) => event.type === "context_attachment")).toBe(
     false,
   );
+  const artifactEvent = events.find((event) => event.type === "writing_artifact");
+  expect(artifactEvent?.payload).toMatchObject({
+    path: result.writingArtifact?.path,
+    contentKind: "draft",
+  });
 });
 
 test("a Session Read Scope denies read_file outside the allowed paths", async () => {

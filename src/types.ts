@@ -65,6 +65,12 @@ export interface SessionAudit {
   tracePath: string;
 }
 
+export interface WritingArtifact {
+  path: string;
+  contentKind: "draft" | "revision" | "final";
+  contentBytes: number;
+}
+
 export interface AuditChangeGroups {
   inheritedForgeletChanged?: string[];
   forgeletChanged: string[];

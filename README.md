@@ -97,8 +97,9 @@ Notes
 Use `--creative` with an explicit style for short-form creative writing. The
 Creative Brief can stand alone for original drafting, or it can be combined with
 one or more `--context` attachments for revision. The command prints a Draft
-Pack for prompt-only briefs or a Revision Pack for attached source text; it does
-not write prose back to files.
+Pack for prompt-only briefs or a Revision Pack for attached source text. Live
+writing Sessions also save the drafted or revised prose to `.forgelet/writing/`
+by default without overwriting context attachments.
 
 ```bash
 forge write --live --creative --style vivid "write a rain-soaked convenience store scene"

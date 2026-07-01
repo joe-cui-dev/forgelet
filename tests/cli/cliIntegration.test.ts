@@ -1093,6 +1093,13 @@ test("CLI --live runs a creative writing Revision Pack Session", async () => {
   expect(result.stdout).toMatch(/Workflow variant: creative/);
   expect(result.stdout).toMatch(/Creative style: vivid/);
   expect(result.stdout).toMatch(/Alternatives/);
+  expect(result.stdout).toMatch(/Writing artifact: \.forgelet\/writing\//);
+
+  const artifactFiles = await readdir(join(workspaceRoot, ".forgelet", "writing"));
+  expect(artifactFiles).toHaveLength(1);
+  await expect(
+    readFile(join(workspaceRoot, ".forgelet", "writing", artifactFiles[0] ?? ""), "utf8"),
+  ).resolves.toBe("The room breathed winter through the walls.\n");
 
   const traceFiles = await readdir(join(workspaceRoot, ".forgelet", "sessions"));
   const trace = await readFile(
@@ -1147,6 +1154,13 @@ test("CLI --live runs prompt-only creative writing without context attachments",
   expect(result.stdout).not.toMatch(/Alternatives/);
   expect(result.stdout).not.toMatch(/Variants/);
   expect(result.stdout).not.toMatch(/Notes/);
+  expect(result.stdout).toMatch(/Writing artifact: \.forgelet\/writing\//);
+
+  const artifactFiles = await readdir(join(workspaceRoot, ".forgelet", "writing"));
+  expect(artifactFiles).toHaveLength(1);
+  await expect(
+    readFile(join(workspaceRoot, ".forgelet", "writing", artifactFiles[0] ?? ""), "utf8"),
+  ).resolves.toBe("Rain silvered the convenience store windows.\n");
 
   const traceFiles = await readdir(join(workspaceRoot, ".forgelet", "sessions"));
   const trace = await readFile(

@@ -15,11 +15,14 @@ import type {
   SessionAudit,
   ToolObservation,
   TraceEvent,
+  WritingArtifact,
   WorkflowKind,
   WorkflowVariant,
 } from "../types.js";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join, relative } from "node:path";
 import { loadConfig, routeModel } from "../config/index.js";
 import { loadContextAttachments } from "../context/index.js";
 import { compactConversationInPlace } from "../conversation/compaction.js";
@@ -63,6 +66,7 @@ export interface RunWorkflowResult {
   session: AgentSession;
   summary: string;
   tracePath: string;
+  writingArtifact?: WritingArtifact;
 }
 
 interface ActLoopRoute {
@@ -100,6 +104,7 @@ interface RunReadOnlyLoopResult {
   status: SessionFinishStatus;
   reason?: SessionStopReason;
   summary: string;
+  finalContent?: string;
   audit?: SessionAudit;
 }
 
@@ -118,9 +123,9 @@ const CONTEXT_ATTACHMENTS_PROMPT_LIMIT_BYTES = 60 * 1024;
 
 /**
  * Runs a Forgelet workflow session with the given input, returning the final
- * session state and a human-readable summary. The workflow graph is executed in
- * a read-only mode: the model can call tools to inspect context and update its
- * plan, but cannot perform any actions that would change the system state.
+ * session state and a human-readable summary. The model can call only the tools
+ * granted to its workflow; writing artifacts are produced by Forgelet after the
+ * model returns final content.
  */
 export const runWorkflowSession = async (
   input: RunWorkflowInput,
@@ -330,9 +335,35 @@ export const runWorkflowSession = async (
       throw error;
     }
 
+    const writingArtifact =
+      execution.status === "completed" &&
+      input.workflow === "writing" &&
+      execution.finalContent
+        ? await writeWritingArtifact({
+            workspaceRoot: input.workspaceRoot,
+            session,
+            finalContent: execution.finalContent,
+            contextAttachmentCount: contextAttachments.length,
+          })
+        : undefined;
+    const executionSummary = writingArtifact
+      ? appendWritingArtifactLine(execution.summary, writingArtifact)
+      : execution.summary;
+
+    if (writingArtifact)
+      await traceWriter.append(
+        createTraceEvent(
+          sessionId,
+          "writing_artifact",
+          new Date().toISOString(),
+          writingArtifact as unknown as Record<string, unknown>,
+        ),
+      );
+
     await traceWriter.append(
       createTraceEvent(sessionId, "final_summary", new Date().toISOString(), {
-        summary: withTracePath(execution.summary, traceWriter.tracePath),
+        summary: withTracePath(executionSummary, traceWriter.tracePath),
+        ...(writingArtifact ? { writingArtifact } : {}),
         ...(execution.audit ? { audit: execution.audit } : {}),
       }),
     );
@@ -356,8 +387,9 @@ export const runWorkflowSession = async (
 
     return {
       session,
-      summary: withTracePath(execution.summary, traceWriter.tracePath),
+      summary: withTracePath(executionSummary, traceWriter.tracePath),
       tracePath: traceWriter.tracePath,
+      ...(writingArtifact ? { writingArtifact } : {}),
     };
   }
 
@@ -819,6 +851,7 @@ const runReadOnlyLoop = async (
           usage,
           sessionAudit,
         ),
+        finalContent,
         audit: sessionAudit,
       };
     }
@@ -1485,6 +1518,102 @@ const formatAuditFooter = (audit: SessionAudit): string => {
 
 const formatList = (items: string[]): string =>
   items.length > 0 ? items.join(", ") : "none";
+
+const writeWritingArtifact = async (input: {
+  workspaceRoot: string;
+  session: AgentSession;
+  finalContent: string;
+  contextAttachmentCount: number;
+}): Promise<WritingArtifact> => {
+  const contentKind = writingArtifactContentKind(
+    input.session,
+    input.contextAttachmentCount,
+  );
+  const heading = contentKind === "draft" ? "Draft" : "Revision";
+  const body =
+    (extractKnownWritingSection(input.finalContent, heading) ??
+      input.finalContent.trim()) ||
+    "(empty)";
+  const content = ensureTrailingNewline(body);
+  const artifactDir = join(input.workspaceRoot, ".forgelet", "writing");
+  await mkdir(artifactDir, { recursive: true });
+  const artifactPath = join(
+    artifactDir,
+    `${slugTaskForFilename(input.session.task)}-${input.session.id}.md`,
+  );
+  await writeFile(artifactPath, content, "utf8");
+  return {
+    path: relative(input.workspaceRoot, artifactPath),
+    contentKind,
+    contentBytes: Buffer.byteLength(content, "utf8"),
+  };
+};
+
+const writingArtifactContentKind = (
+  session: AgentSession,
+  contextAttachmentCount: number,
+): WritingArtifact["contentKind"] => {
+  if (session.workflowVariant === "creative" && contextAttachmentCount === 0)
+    return "draft";
+  return "revision";
+};
+
+const KNOWN_WRITING_HEADINGS = new Set([
+  "draft",
+  "critique",
+  "revision",
+  "alternatives",
+  "notes",
+]);
+
+const extractKnownWritingSection = (
+  content: string,
+  heading: "Draft" | "Revision",
+): string | undefined => {
+  const lines = content.split(/\r?\n/);
+  const startIndex = lines.findIndex(
+    (line) => normalizeWritingHeading(line) === heading.toLowerCase(),
+  );
+  if (startIndex === -1) return undefined;
+  const endIndex = lines.findIndex(
+    (line, index) =>
+      index > startIndex &&
+      KNOWN_WRITING_HEADINGS.has(normalizeWritingHeading(line)),
+  );
+  return lines
+    .slice(startIndex + 1, endIndex === -1 ? lines.length : endIndex)
+    .join("\n")
+    .trim();
+};
+
+const normalizeWritingHeading = (line: string): string =>
+  line
+    .trim()
+    .replace(/^#{1,6}\s*/, "")
+    .trim()
+    .toLowerCase();
+
+const slugTaskForFilename = (task: string): string => {
+  const slug = task
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48)
+    .replace(/-+$/g, "");
+  return slug || "writing";
+};
+
+const ensureTrailingNewline = (content: string): string =>
+  content.endsWith("\n") ? content : `${content}\n`;
+
+const appendWritingArtifactLine = (
+  summary: string,
+  artifact: WritingArtifact,
+): string =>
+  [
+    summary,
+    `Writing artifact: ${artifact.path} (${artifact.contentKind}, ${artifact.contentBytes} bytes)`,
+  ].join("\n");
 
 const withTracePath = (summary: string, tracePath: string): string => {
   return summary.includes("\nTrace: ")
