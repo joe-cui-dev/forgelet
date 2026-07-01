@@ -6,6 +6,7 @@ import { tmpdir } from "os";
 import { runAgent } from "../../src/agent/runAgent.js";
 import { runCli } from "../../src/cli/index.js";
 import { FakeModelClient } from "../../src/models/testing/index.js";
+import type { SessionLiveEvent } from "../../src/sessionLiveView/index.js";
 
 test("CLI lists and shows project sessions", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-"));
@@ -538,6 +539,42 @@ test("CLI entrypoint runs when invoked through an npm-link style symlink", async
   expect(result.stderr).toBe("");
   expect(result.stdout).toMatch(/Forgelet/);
   expect(result.stdout).toMatch(/--live/);
+});
+
+test("CLI can inject a Session Live View sink without changing stdout", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-live-"));
+  const liveEvents: SessionLiveEvent[] = [];
+
+  const result = await runCli(["--live", "summarize the repo"], {
+    workspaceRoot,
+    createLiveModelClient: async () =>
+      new FakeModelClient([
+        { content: "The repo is ready.", toolCalls: [], finishReason: "stop" },
+      ]),
+    onLiveEvent: (event) => {
+      liveEvents.push(event);
+    },
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toMatch(/The repo is ready\./);
+  expect(result.stdout).not.toMatch(/Model turn 1 started/);
+  expect(liveEvents).toEqual(
+    expect.arrayContaining([
+      {
+        type: "session_started",
+        workflow: "coding",
+        task: "summarize the repo",
+      },
+      {
+        type: "model_turn_started",
+        turnIndex: 0,
+        model: "deepseek-v4-flash",
+      },
+      { type: "session_finished", status: "completed" },
+    ]),
+  );
 });
 
 function execNode(

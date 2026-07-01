@@ -38,12 +38,20 @@ export interface ApprovalRequest {
 export interface ToolRegistryOptions {
   permissionPolicy?: PermissionPolicy;
   approvalHandler?: ApprovalHandler;
+  onPermissionDecision?(event: ToolRegistryPermissionEvent): Promise<void> | void;
+  onToolExecutionStart?(toolCall: ModelToolCall): Promise<void> | void;
 }
 
 export interface ToolRegistryExecution {
   observation: ToolObservation;
   permissionDecision: PermissionDecision;
   approvalDecision?: ApprovalDecision;
+  capability?: Capability;
+}
+
+export interface ToolRegistryPermissionEvent {
+  toolCall: ModelToolCall;
+  permissionDecision: PermissionDecision;
   capability?: Capability;
 }
 
@@ -83,13 +91,19 @@ export const createToolRegistry = (
       }
       if (!ctx.grantedCapabilities.includes(tool.capability)) {
         const message = `Capability not granted: ${tool.capability}`;
+        const permissionDecision: PermissionDecision = {
+          kind: "deny",
+          riskTier: "forbidden",
+          reason: message,
+        };
+        await options.onPermissionDecision?.({
+          toolCall,
+          permissionDecision,
+          capability: tool.capability,
+        });
         return {
           observation: deniedToolObservation(toolCall.id, toolCall.name, message),
-          permissionDecision: {
-            kind: "deny",
-            riskTier: "forbidden",
-            reason: message,
-          },
+          permissionDecision,
           capability: tool.capability,
         };
       }
@@ -105,6 +119,11 @@ export const createToolRegistry = (
             targets: [],
           };
       const permissionDecision = await permissionPolicy.decide(request);
+      await options.onPermissionDecision?.({
+        toolCall,
+        permissionDecision,
+        capability: tool.capability,
+      });
       if (permissionDecision.kind === "deny") {
         return {
           observation: deniedToolObservation(
@@ -142,6 +161,7 @@ export const createToolRegistry = (
         }
       }
       try {
+        await options.onToolExecutionStart?.(toolCall);
         const result = await tool.execute(toolCall.input, ctx);
         return {
           observation: toolResultToObservation(

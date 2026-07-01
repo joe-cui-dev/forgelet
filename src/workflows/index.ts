@@ -25,6 +25,7 @@ import { loadContextAttachments } from "../context/index.js";
 import { compactConversationInPlace } from "../conversation/compaction.js";
 import { loadDurableMemory, type LoadedDurableMemory } from "../memory/index.js";
 import { normalizeSessionReadScope } from "../readScope/index.js";
+import type { SessionLiveEvent, SessionLiveEventSink } from "../sessionLiveView/index.js";
 import {
   buildContinuationContext,
   continuationContextTracePayload,
@@ -55,6 +56,7 @@ export interface RunWorkflowInput {
   act?: boolean;
   continuationSourceSessionId?: string;
   approvalHandler?: ApprovalHandler;
+  onLiveEvent?: SessionLiveEventSink;
 }
 
 export interface RunWorkflowResult {
@@ -90,6 +92,7 @@ interface RunReadOnlyLoopInput {
   tracePath: string;
   continuationContext?: ContinuationContext;
   approvalHandler?: ApprovalHandler;
+  onLiveEvent?: SessionLiveEventSink;
   appendTrace(type: string, payload: Record<string, unknown>): Promise<void>;
 }
 
@@ -136,6 +139,15 @@ export const runWorkflowSession = async (
     input.allowedReadPaths ?? continuationContext?.inheritedReadScope,
   );
   const traceWriter = await createTraceWriter(input.workspaceRoot, sessionId);
+  await emitLiveEvent(input.onLiveEvent, {
+    type: "session_started",
+    workflow: input.workflow,
+    task: input.task,
+  });
+  await emitLiveEvent(input.onLiveEvent, {
+    type: "trace_path",
+    tracePath: traceWriter.tracePath,
+  });
   const config = await loadConfig({
     homeDir: input.homeDir,
     workspaceRoot: input.workspaceRoot,
@@ -283,6 +295,7 @@ export const runWorkflowSession = async (
         tracePath: traceWriter.tracePath,
         continuationContext,
         approvalHandler: input.approvalHandler,
+        onLiveEvent: input.onLiveEvent,
         appendTrace: (type, payload) =>
           traceWriter.append(
             createTraceEvent(sessionId, type, new Date().toISOString(), payload),
@@ -309,6 +322,11 @@ export const runWorkflowSession = async (
           },
         ),
       );
+      await emitLiveEvent(input.onLiveEvent, {
+        type: "session_finished",
+        status: "failed",
+        reason: "model_execution_error",
+      });
       throw error;
     }
 
@@ -330,6 +348,11 @@ export const runWorkflowSession = async (
         },
       ),
     );
+    await emitLiveEvent(input.onLiveEvent, {
+      type: "session_finished",
+      status: execution.status,
+      ...(execution.reason ? { reason: execution.reason } : {}),
+    });
 
     return {
       session,
@@ -343,6 +366,10 @@ export const runWorkflowSession = async (
       summary: "Execution is scaffolded; no model turn was run.",
     }),
   );
+  await emitLiveEvent(input.onLiveEvent, {
+    type: "session_finished",
+    status: "completed",
+  });
   await traceWriter.append(
     createTraceEvent(sessionId, "session_finished", now, {
       status: "completed",
@@ -494,6 +521,32 @@ const createTraceEvent = (
   return { type, ts, sessionId, payload };
 };
 
+const emitLiveEvent = async (
+  sink: SessionLiveEventSink | undefined,
+  event: SessionLiveEvent,
+): Promise<void> => {
+  if (sink) await sink(event);
+};
+
+const liveToolTarget = (toolCall: ModelToolCall): string | undefined => {
+  if (!isRecord(toolCall.input)) return undefined;
+  if (typeof toolCall.input.path === "string") return toolCall.input.path;
+  if (typeof toolCall.input.query === "string") return toolCall.input.query;
+  if (typeof toolCall.input.command === "string") return toolCall.input.command;
+  return undefined;
+};
+
+const liveCommand = (toolCall: ModelToolCall): string | undefined => {
+  if (toolCall.name !== "run_command") return undefined;
+  if (!isRecord(toolCall.input)) return undefined;
+  return typeof toolCall.input.command === "string"
+    ? toolCall.input.command
+    : undefined;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
 /** Runs the core act loop of the workflow graph, where the model generates text
  * and calls tools in a loop until it returns final content with no tool calls, or
  * a budget limit is exceeded. The model can only call tools that are consistent
@@ -534,7 +587,24 @@ const runReadOnlyLoop = async (
       : [];
   const toolRegistry = createToolRegistry(
     [...createReadOnlyTools(input.plan), ...actionableTools],
-    { approvalHandler: input.approvalHandler },
+    {
+      approvalHandler: input.approvalHandler,
+      onPermissionDecision: async (event) => {
+        await emitLiveEvent(input.onLiveEvent, {
+          type: "permission_checkpoint",
+          toolName: event.toolCall.name,
+          decision: event.permissionDecision.kind,
+        });
+      },
+      onToolExecutionStart: async (toolCall) => {
+        const command = liveCommand(toolCall);
+        if (command)
+          await emitLiveEvent(input.onLiveEvent, {
+            type: "command_started",
+            command,
+          });
+      },
+    },
   );
   const promptOnlyCreativeBrief =
     input.session.workflowVariant === "creative" &&
@@ -601,6 +671,11 @@ const runReadOnlyLoop = async (
     );
     let output: ModelTurnOutput;
     try {
+      await emitLiveEvent(input.onLiveEvent, {
+        type: "model_turn_started",
+        turnIndex,
+        model: input.route.model,
+      });
       output = await input.modelClient.createTurn({
         task: input.session.task,
         messages,
@@ -632,6 +707,12 @@ const runReadOnlyLoop = async (
       usage: output.usage,
       finishReason: output.finishReason,
       finalOnly,
+    });
+    await emitLiveEvent(input.onLiveEvent, {
+      type: "model_turn_finished",
+      turnIndex,
+      model: input.route.model,
+      toolCallCount: output.toolCalls.length,
     });
     await input.appendTrace("budget_update", { usage, limits: input.limits });
 
@@ -745,6 +826,7 @@ const runReadOnlyLoop = async (
         workspaceRoot: input.workspaceRoot,
         grantedCapabilities,
         readScope: input.readScope,
+        onLiveEvent: input.onLiveEvent,
         appendTrace: input.appendTrace,
       });
       recordAuditObservation(audit, observation);
@@ -871,8 +953,16 @@ const executeToolCall = async (input: {
   workspaceRoot: string;
   grantedCapabilities: Capability[];
   readScope?: string[];
+  onLiveEvent?: SessionLiveEventSink;
   appendTrace(type: string, payload: Record<string, unknown>): Promise<void>;
 }): Promise<ToolObservation> => {
+  const target = liveToolTarget(input.toolCall);
+  await emitLiveEvent(input.onLiveEvent, {
+    type: "tool_call_started",
+    toolName: input.toolCall.name,
+    ...(target ? { target } : {}),
+  });
+  const command = liveCommand(input.toolCall);
   await input.appendTrace("tool_call", {
     id: input.toolCall.id,
     name: input.toolCall.name,
@@ -905,6 +995,22 @@ const executeToolCall = async (input: {
     "tool_result",
     traceToolObservation(execution.observation),
   );
+  if (command)
+    await emitLiveEvent(input.onLiveEvent, {
+      type: "command_finished",
+      command,
+      exitCode:
+        typeof execution.observation.metadata.exitCode === "number"
+          ? execution.observation.metadata.exitCode
+          : null,
+      timedOut: execution.observation.metadata.timedOut === true,
+    });
+  await emitLiveEvent(input.onLiveEvent, {
+    type: "tool_call_finished",
+    toolName: input.toolCall.name,
+    ok: execution.observation.ok,
+    summary: execution.observation.summary,
+  });
   // Plan changes are trace-worthy Session state, not just tool output.
   if (execution.observation.ok && input.toolCall.name === "update_plan")
     await input.appendTrace("plan_update", { plan: input.session.plan });

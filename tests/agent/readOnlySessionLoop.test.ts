@@ -5,6 +5,7 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { runAgent } from "../../src/agent/runAgent.js";
 import { FakeModelClient } from "../../src/models/testing/index.js";
+import type { SessionLiveEvent } from "../../src/sessionLiveView/index.js";
 
 test("a coding Session can search, read, and finish through read-only tools", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-readonly-"));
@@ -85,6 +86,94 @@ test("a coding Session can search, read, and finish through read-only tools", as
   expect(finalModelTurn?.payload.finishReason).toBe("stop");
 });
 
+test("a model-backed coding Session emits Session Live View events without writing them to the trace", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-live-view-"));
+  await writeFile(
+    join(workspaceRoot, "example.ts"),
+    "export const answer = 'needle';\n",
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        { id: "call_read", name: "read_file", input: { path: "example.ts" } },
+      ],
+    },
+    {
+      content: "The answer is defined in example.ts.",
+      toolCalls: [],
+      finishReason: "stop",
+    },
+  ]);
+  const liveEvents: SessionLiveEvent[] = [];
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "find the answer",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+    onLiveEvent: (event) => {
+      liveEvents.push(event);
+    },
+  });
+
+  expect(liveEvents).toEqual([
+    {
+      type: "session_started",
+      workflow: "coding",
+      task: "find the answer",
+    },
+    { type: "trace_path", tracePath: result.tracePath },
+    {
+      type: "model_turn_started",
+      turnIndex: 0,
+      model: "deepseek-v4-flash",
+    },
+    {
+      type: "model_turn_finished",
+      turnIndex: 0,
+      model: "deepseek-v4-flash",
+      toolCallCount: 1,
+    },
+    {
+      type: "tool_call_started",
+      toolName: "read_file",
+      target: "example.ts",
+    },
+    {
+      type: "permission_checkpoint",
+      toolName: "read_file",
+      decision: "allow",
+    },
+    {
+      type: "tool_call_finished",
+      toolName: "read_file",
+      ok: true,
+      summary: "Read example.ts.",
+    },
+    {
+      type: "model_turn_started",
+      turnIndex: 1,
+      model: "deepseek-v4-flash",
+    },
+    {
+      type: "model_turn_finished",
+      turnIndex: 1,
+      model: "deepseek-v4-flash",
+      toolCallCount: 0,
+    },
+    { type: "session_finished", status: "completed" },
+  ]);
+
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const eventTypes = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line).type);
+  expect(eventTypes).not.toContain("session_live_event");
+});
+
 test("a model execution failure records the failed model turn before rethrowing", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-model-failure-"));
   const modelClient = {
@@ -115,6 +204,7 @@ test("a model execution failure records the failed model turn before rethrowing"
       );
     },
   };
+  const liveEvents: SessionLiveEvent[] = [];
 
   await expect(
     runAgent({
@@ -125,6 +215,9 @@ test("a model execution failure records the failed model turn before rethrowing"
       contextFiles: [],
       workspaceRoot,
       modelClient,
+      onLiveEvent: (event) => {
+        liveEvents.push(event);
+      },
     }),
   ).rejects.toThrow("DeepSeek API response aborted before completion.");
 
@@ -187,6 +280,11 @@ test("a model execution failure records the failed model turn before rethrowing"
       responseBytes: 11,
       responsePreview: '{"choices":',
     },
+  });
+  expect(liveEvents).toContainEqual({
+    type: "session_finished",
+    status: "failed",
+    reason: "model_execution_error",
   });
 });
 
@@ -978,6 +1076,7 @@ test("an actionable coding Session can patch, run a configured command, inspect 
     { toolCalls: [{ id: "call_diff", name: "git_diff", input: {} }] },
     { content: "Changed example.txt and verified the result.", toolCalls: [] },
   ]);
+  const liveEvents: SessionLiveEvent[] = [];
 
   const result = await runAgent({
     workflow: "coding",
@@ -990,6 +1089,9 @@ test("an actionable coding Session can patch, run a configured command, inspect 
       status: "approved",
       reason: "Approved by test.",
     }),
+    onLiveEvent: (event) => {
+      liveEvents.push(event);
+    },
   });
 
   expect(modelClient.turnInputs[0]?.tools.map((tool) => tool.name)).toEqual([
@@ -1012,6 +1114,25 @@ test("an actionable coding Session can patch, run a configured command, inspect 
     new RegExp(`Command: ${escapeRegExp(command)} \\(exit 0\\)`),
   );
   expect(result.summary).toMatch(/Trace:/);
+  expect(liveEvents).toContainEqual({
+    type: "permission_checkpoint",
+    toolName: "apply_patch",
+    decision: "confirm",
+  });
+  expect(liveEvents).toContainEqual({
+    type: "command_started",
+    command,
+  });
+  expect(liveEvents).toContainEqual({
+    type: "command_finished",
+    command,
+    exitCode: 0,
+    timedOut: false,
+  });
+  expect(liveEvents).toContainEqual({
+    type: "session_finished",
+    status: "completed",
+  });
 
   const trace = await readFile(result.tracePath ?? "", "utf8");
   const events = trace

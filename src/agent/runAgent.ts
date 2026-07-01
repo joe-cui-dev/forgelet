@@ -7,6 +7,7 @@ import type {
 } from "../types.js";
 import type { ApprovalHandler } from "../tools/toolRegistry.js";
 import { runWorkflowSession } from "../workflows/index.js";
+import type { SessionLiveEventSink } from "../sessionLiveView/index.js";
 
 export interface RunAgentInput {
   workflow?: WorkflowKind;
@@ -23,6 +24,7 @@ export interface RunAgentInput {
   act?: boolean;
   continuationSourceSessionId?: string;
   approvalHandler?: ApprovalHandler;
+  onLiveEvent?: SessionLiveEventSink;
 }
 
 export interface RunAgentResult {
@@ -47,5 +49,6 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     act: input.act,
     continuationSourceSessionId: input.continuationSourceSessionId,
     approvalHandler: input.approvalHandler,
+    onLiveEvent: input.onLiveEvent,
   });
 }

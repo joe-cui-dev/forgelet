@@ -16,6 +16,10 @@ import {
   buildContinuationContext,
   formatContinuationHeader,
 } from "../sessions/continuation.js";
+import {
+  createTerminalSessionLiveEventSink,
+  type SessionLiveEventSink,
+} from "../sessionLiveView/index.js";
 import type { MemorySuggestion, ModelClient, SessionAudit, WorkflowKind } from "../types.js";
 import type { ApprovalHandler, ApprovalRequest } from "../tools/toolRegistry.js";
 
@@ -27,6 +31,7 @@ export interface RunCliOptions {
     input: CreateLiveModelClientInput,
   ) => Promise<ModelClient>;
   approvalHandler?: ApprovalHandler;
+  onLiveEvent?: SessionLiveEventSink;
 }
 
 export interface RunCliResult {
@@ -80,6 +85,7 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
           approvalHandler: command.act
             ? options.approvalHandler ?? createTerminalApprovalHandler()
             : undefined,
+          onLiveEvent: command.live ? options.onLiveEvent : undefined,
         });
         return ok(result.summary);
       }
@@ -110,6 +116,7 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
           approvalHandler: command.act
             ? options.approvalHandler ?? createTerminalApprovalHandler()
             : undefined,
+          onLiveEvent: options.onLiveEvent,
         });
         return ok(
           [
@@ -154,7 +161,7 @@ function createTerminalApprovalHandler(): ApprovalHandler {
     const prompt = formatApprovalPrompt(request);
     const readline = createInterface({
       input: process.stdin,
-      output: process.stdout,
+      output: process.stderr,
     });
     try {
       let answer = await readline.question(`${prompt}\nApprove? [y/N${request.toolCall.name === "apply_patch" ? "/s" : ""}] `);
@@ -162,7 +169,7 @@ function createTerminalApprovalHandler(): ApprovalHandler {
         const patch = isRecord(request.toolCall.input) && typeof request.toolCall.input.patch === "string"
           ? request.toolCall.input.patch
           : "";
-        if (patch) process.stdout.write(`\n${patch}\n`);
+        if (patch) process.stderr.write(`\n${patch}\n`);
         answer = await readline.question("Approve? [y/N] ");
         return {
           status: answer.toLowerCase() === "y" ? "approved" : "rejected",
@@ -428,7 +435,13 @@ function formatList(items: string[]): string {
 }
 
 async function main(): Promise<void> {
-  const result = await runCli(process.argv.slice(2));
+  const terminalLiveView =
+    process.stdout.isTTY && process.stderr.isTTY
+      ? createTerminalSessionLiveEventSink((line) => process.stderr.write(line))
+      : undefined;
+  const result = await runCli(process.argv.slice(2), {
+    onLiveEvent: terminalLiveView,
+  });
   if (result.stdout) console.log(result.stdout);
   if (result.stderr) console.error(result.stderr);
   process.exitCode = result.exitCode;
