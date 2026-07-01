@@ -24,7 +24,11 @@ test("a coding Session can search, read, and finish through read-only tools", as
         { id: "call_read", name: "read_file", input: { path: "example.ts" } },
       ],
     },
-    { content: "The answer is defined in example.ts.", toolCalls: [] },
+    {
+      content: "The answer is defined in example.ts.",
+      toolCalls: [],
+      finishReason: "stop",
+    },
   ]);
 
   const result = await runAgent({
@@ -70,18 +74,45 @@ test("a coding Session can search, read, and finish through read-only tools", as
     (event) =>
       event.type === "tool_result" && event.payload.toolName === "read_file",
   );
+  const finalModelTurn = events
+    .filter((event) => event.type === "model_turn")
+    .at(-1);
   expect(readResult).toBeTruthy();
   expect(readResult.payload.ok).toBe(true);
   expect(readResult.payload.path).toBe("example.ts");
   expect("content" in readResult.payload).toBe(false);
   expect(String(readResult.payload.preview)).toMatch(/needle/);
+  expect(finalModelTurn?.payload.finishReason).toBe("stop");
 });
 
-test("a model execution failure is recorded in the Session trace before rethrowing", async () => {
+test("a model execution failure records the failed model turn before rethrowing", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-model-failure-"));
   const modelClient = {
+    turnCount: 0,
     async createTurn() {
-      throw new Error("DeepSeek API response aborted before completion.");
+      this.turnCount += 1;
+      if (this.turnCount === 1) {
+        return {
+          toolCalls: [
+            {
+              id: "call_plan",
+              name: "update_plan",
+              input: { items: [{ step: "Draft", status: "in_progress" }] },
+            },
+          ],
+        };
+      }
+      throw Object.assign(
+        new Error("DeepSeek API response aborted before completion."),
+        {
+          statusCode: 200,
+          causeCategory: "response_aborted",
+          phase: "response",
+          elapsedMs: 60576,
+          responseBytes: 11,
+          responsePreview: '{"choices":',
+        },
+      );
     },
   };
 
@@ -109,7 +140,25 @@ test("a model execution failure is recorded in the Session trace before rethrowi
     .map((line) => JSON.parse(line));
   const finalSummary = events.find((event) => event.type === "final_summary");
   const finished = events.find((event) => event.type === "session_finished");
+  const modelTurnError = events.find(
+    (event) => event.type === "model_turn_error",
+  );
 
+  expect(modelTurnError?.payload).toMatchObject({
+    turnIndex: 1,
+    model: "deepseek-v4-flash",
+    finalOnly: false,
+    error: {
+      message: "DeepSeek API response aborted before completion.",
+      name: "Error",
+      statusCode: 200,
+      causeCategory: "response_aborted",
+      phase: "response",
+      elapsedMs: 60576,
+      responseBytes: 11,
+      responsePreview: '{"choices":',
+    },
+  });
   expect(finalSummary?.payload).toMatchObject({
     summary: expect.stringContaining(
       "Forgelet session failed: DeepSeek API response aborted before completion.",
@@ -117,6 +166,12 @@ test("a model execution failure is recorded in the Session trace before rethrowi
     error: {
       message: "DeepSeek API response aborted before completion.",
       name: "Error",
+      statusCode: 200,
+      causeCategory: "response_aborted",
+      phase: "response",
+      elapsedMs: 60576,
+      responseBytes: 11,
+      responsePreview: '{"choices":',
     },
   });
   expect(finished?.payload).toMatchObject({
@@ -125,6 +180,12 @@ test("a model execution failure is recorded in the Session trace before rethrowi
     error: {
       message: "DeepSeek API response aborted before completion.",
       name: "Error",
+      statusCode: 200,
+      causeCategory: "response_aborted",
+      phase: "response",
+      elapsedMs: 60576,
+      responseBytes: 11,
+      responsePreview: '{"choices":',
     },
   });
 });

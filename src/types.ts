@@ -144,6 +144,7 @@ export interface ModelToolCall {
 export interface ModelTurnOutput {
   content?: string;
   toolCalls: ModelToolCall[];
+  finishReason?: string;
   usage?: ModelUsage;
 }
 

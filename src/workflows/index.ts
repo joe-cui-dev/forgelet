@@ -9,6 +9,7 @@ import type {
   ModelClient,
   ModelMessage,
   ModelToolCall,
+  ModelTurnOutput,
   SessionFinishStatus,
   SessionStopReason,
   SessionAudit,
@@ -376,15 +377,88 @@ export const runWorkflowSession = async (
 const modelExecutionFailurePayload = (
   error: unknown,
   tracePath: string,
-): { summary: string; error: { message: string; name?: string } } => {
+): { summary: string; error: ReturnType<typeof modelErrorTracePayload> } => {
+  const traceError = modelErrorTracePayload(error);
+  return {
+    summary: withTracePath(
+      `Forgelet session failed: ${traceError.message}`,
+      tracePath,
+    ),
+    error: traceError,
+  };
+};
+
+const modelErrorTracePayload = (
+  error: unknown,
+): {
+  message: string;
+  name?: string;
+  code?: string;
+  causeCategory?: string;
+  phase?: string;
+  elapsedMs?: number;
+  statusCode?: number;
+  responseBytes?: number;
+  responsePreview?: string;
+  providerErrorMessage?: string;
+  providerErrorType?: string;
+  providerErrorCode?: string;
+  diagnosticHint?: string;
+} => {
   const message = error instanceof Error ? error.message : String(error);
   const name = error instanceof Error ? error.name : undefined;
+  const record =
+    typeof error === "object" && error !== null
+      ? (error as Record<string, unknown>)
+      : {};
+  const code = typeof record.code === "string" ? record.code : undefined;
+  const causeCategory =
+    typeof record.causeCategory === "string"
+      ? record.causeCategory
+      : undefined;
+  const phase = typeof record.phase === "string" ? record.phase : undefined;
+  const elapsedMs =
+    typeof record.elapsedMs === "number" ? record.elapsedMs : undefined;
+  const statusCode =
+    typeof record.statusCode === "number" ? record.statusCode : undefined;
+  const responseBytes =
+    typeof record.responseBytes === "number"
+      ? record.responseBytes
+      : undefined;
+  const responsePreview =
+    typeof record.responsePreview === "string"
+      ? record.responsePreview
+      : undefined;
+  const providerErrorMessage =
+    typeof record.providerErrorMessage === "string"
+      ? record.providerErrorMessage
+      : undefined;
+  const providerErrorType =
+    typeof record.providerErrorType === "string"
+      ? record.providerErrorType
+      : undefined;
+  const providerErrorCode =
+    typeof record.providerErrorCode === "string"
+      ? record.providerErrorCode
+      : undefined;
+  const diagnosticHint =
+    typeof record.diagnosticHint === "string"
+      ? record.diagnosticHint
+      : undefined;
   return {
-    summary: withTracePath(`Forgelet session failed: ${message}`, tracePath),
-    error: {
-      message,
-      ...(name ? { name } : {}),
-    },
+    message,
+    ...(name ? { name } : {}),
+    ...(code ? { code } : {}),
+    ...(causeCategory ? { causeCategory } : {}),
+    ...(phase ? { phase } : {}),
+    ...(elapsedMs !== undefined ? { elapsedMs } : {}),
+    ...(statusCode !== undefined ? { statusCode } : {}),
+    ...(responseBytes !== undefined ? { responseBytes } : {}),
+    ...(responsePreview !== undefined ? { responsePreview } : {}),
+    ...(providerErrorMessage ? { providerErrorMessage } : {}),
+    ...(providerErrorType ? { providerErrorType } : {}),
+    ...(providerErrorCode ? { providerErrorCode } : {}),
+    ...(diagnosticHint ? { diagnosticHint } : {}),
   };
 };
 
@@ -508,27 +582,39 @@ const runReadOnlyLoop = async (
         { ...compaction },
       );
 
-    const output = await input.modelClient.createTurn({
-      task: input.session.task,
-      messages: buildMessages(
-        input.session,
-        input.plan,
-        input.route,
-        input.contextAttachments,
-        input.durableMemory,
-        input.continuationContext,
-        usage,
-        input.limits,
-        conversation,
-        input.act,
-        compaction.compactedCount > 0
-          ? `Active observations compacted: ${compaction.afterObservationBytes}/${compaction.targetObservationBytes} bytes.`
-          : undefined,
+    const messages = buildMessages(
+      input.session,
+      input.plan,
+      input.route,
+      input.contextAttachments,
+      input.durableMemory,
+      input.continuationContext,
+      usage,
+      input.limits,
+      conversation,
+      input.act,
+      compaction.compactedCount > 0
+        ? `Active observations compacted: ${compaction.afterObservationBytes}/${compaction.targetObservationBytes} bytes.`
+        : undefined,
+      finalOnly,
+      finalToolTurn,
+    );
+    let output: ModelTurnOutput;
+    try {
+      output = await input.modelClient.createTurn({
+        task: input.session.task,
+        messages,
+        tools: finalOnly ? [] : tools,
+      });
+    } catch (error) {
+      await input.appendTrace("model_turn_error", {
+        turnIndex,
+        model: input.route.model,
         finalOnly,
-        finalToolTurn,
-      ),
-      tools: finalOnly ? [] : tools,
-    });
+        error: modelErrorTracePayload(error),
+      });
+      throw error;
+    }
 
     usage.modelTurns += 1;
     usage.inputTokens += output.usage?.inputTokens ?? 0;
@@ -544,6 +630,7 @@ const runReadOnlyLoop = async (
         name: toolCall.name,
       })),
       usage: output.usage,
+      finishReason: output.finishReason,
       finalOnly,
     });
     await input.appendTrace("budget_update", { usage, limits: input.limits });

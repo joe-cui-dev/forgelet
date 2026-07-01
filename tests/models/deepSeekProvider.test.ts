@@ -16,6 +16,7 @@ test("DeepSeekModelClient converts Forgelet turns to chat completions with tools
       return {
         choices: [
           {
+            finish_reason: "tool_calls",
             message: {
               content: "I should inspect the file.",
               tool_calls: [
@@ -87,6 +88,7 @@ test("DeepSeekModelClient converts Forgelet turns to chat completions with tools
   expect(result.toolCalls).toEqual([
     { id: "call_1", name: "read_file", input: { path: "README.md" } },
   ]);
+  expect(result.finishReason).toBe("tool_calls");
   expect(result.usage).toEqual({
     inputTokens: 12,
     outputTokens: 5,
@@ -129,14 +131,76 @@ test("readDeepSeekResponse rejects when the response is aborted before end", asy
   };
   response.statusCode = 200;
 
-  const result = readDeepSeekResponse(response as unknown as IncomingMessage);
+  const result = readDeepSeekResponse(response as unknown as IncomingMessage, {
+    requestStartedAtMs: Date.now() - 1234,
+  });
   response.write('{"choices":');
   response.emit("aborted");
   response.emit("error", Object.assign(new Error("socket hang up"), {
     code: "ECONNRESET",
   }));
 
-  await expect(result).rejects.toThrow(
-    "DeepSeek API response aborted before completion.",
+  await expect(result).rejects.toMatchObject({
+    message: "DeepSeek API response aborted before completion.",
+    causeCategory: "response_aborted",
+    phase: "response",
+    statusCode: 200,
+    elapsedMs: expect.any(Number),
+    responseBytes: 11,
+    responsePreview: '{"choices":',
+  });
+});
+
+test("readDeepSeekResponse rejects HTTP error responses with provider details", async () => {
+  const response = new PassThrough() as PassThrough & {
+    statusCode?: number;
+  };
+  response.statusCode = 400;
+
+  const result = readDeepSeekResponse(response as unknown as IncomingMessage, {
+    requestStartedAtMs: Date.now() - 10,
+  });
+  response.end(
+    JSON.stringify({
+      error: {
+        message: "Content violates policy",
+        type: "invalid_request_error",
+        code: "content_filter",
+      },
+    }),
   );
+
+  await expect(result).rejects.toMatchObject({
+    message: "DeepSeek API request failed with 400: Content violates policy",
+    causeCategory: "http_error",
+    phase: "response",
+    statusCode: 400,
+    providerErrorMessage: "Content violates policy",
+    providerErrorType: "invalid_request_error",
+    providerErrorCode: "content_filter",
+    diagnosticHint: "provider_reported_content_filter",
+    responsePreview: expect.stringContaining("Content violates policy"),
+  });
+});
+
+test("readDeepSeekResponse classifies empty aborted responses as likely upstream timeout", async () => {
+  const response = new PassThrough() as PassThrough & {
+    statusCode?: number;
+  };
+  response.statusCode = 200;
+
+  const result = readDeepSeekResponse(response as unknown as IncomingMessage, {
+    requestStartedAtMs: Date.now() - 60000,
+  });
+  response.emit("aborted");
+
+  await expect(result).rejects.toMatchObject({
+    message: "DeepSeek API response aborted before completion.",
+    causeCategory: "response_aborted_empty_body",
+    diagnosticHint: "provider_or_network_closed_empty_response_after_wait",
+    phase: "response",
+    statusCode: 200,
+    responseBytes: 0,
+    responsePreview: "",
+  });
 });
