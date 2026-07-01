@@ -1061,7 +1061,7 @@ test("an actionable Session Continuation audit separates inherited and child cha
   expect(finalSummary?.payload.audit.changeGroups).toMatchObject({
     inheritedForgeletChanged: ["parent.txt"],
     forgeletChanged: ["child.txt"],
-    preExistingAtSessionStart: ["parent.txt"],
+    preExistingAtSessionStart: [],
     otherCurrentWorkspaceChanges: [],
   });
   expect(finalSummary?.payload.audit.verificationCommands).toEqual([]);
@@ -1070,12 +1070,227 @@ test("an actionable Session Continuation audit separates inherited and child cha
       kind: "verification_missing",
       message: "No verification command was run for the Forgelet changes.",
     },
-    {
-      kind: "pre_existing_workspace_changes",
-      message: "Pre-existing workspace changes were present at Session start.",
-      paths: ["parent.txt"],
-    },
   ]);
+});
+
+test("an actionable Session Continuation can continue editing a parent-owned dirty file", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-continuation-owned-dirty-"),
+  );
+  await execGit(workspaceRoot, ["init"]);
+  await writeFile(
+    join(workspaceRoot, "parent.txt"),
+    "# Parent\n- parent-created\n",
+    "utf8",
+  );
+  await mkdir(join(workspaceRoot, ".forgelet", "sessions"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "sessions", "sess_parent.jsonl"),
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-06-20T00:00:00.000Z",
+        sessionId: "sess_parent",
+        payload: {
+          workflow: "coding",
+          startedAt: "2026-06-20T00:00:00.000Z",
+        },
+      }),
+      JSON.stringify({
+        type: "final_summary",
+        ts: "2026-06-20T00:00:01.000Z",
+        sessionId: "sess_parent",
+        payload: {
+          summary: "Created parent.txt.",
+          audit: {
+            changeGroups: {
+              forgeletChanged: ["parent.txt"],
+              preExistingAtSessionStart: [],
+              otherCurrentWorkspaceChanges: [],
+            },
+            verificationCommands: [
+              { command: "npm test", exitCode: 0, timedOut: false },
+            ],
+            kernelObservedRisks: [],
+            modelTurns: 2,
+            estimatedCostUsd: 0.01,
+            tracePath: ".forgelet/sessions/sess_parent.jsonl",
+          },
+        },
+      }),
+      JSON.stringify({
+        type: "session_finished",
+        ts: "2026-06-20T00:00:02.000Z",
+        sessionId: "sess_parent",
+        payload: { status: "completed" },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+  const patch = [
+    "diff --git a/parent.txt b/parent.txt",
+    "--- a/parent.txt",
+    "+++ b/parent.txt",
+    "@@ -1,2 +1,3 @@",
+    " # Parent",
+    " - parent-created",
+    "+- child-confirmed",
+    "",
+  ].join("\n");
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [{ id: "child_patch", name: "apply_patch", input: { patch } }],
+    },
+    { content: "Updated parent.txt.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "continue editing the parent file",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+    act: true,
+    continuationSourceSessionId: "sess_parent",
+    approvalHandler: async () => ({
+      status: "approved",
+      reason: "Approved by test.",
+    }),
+  });
+
+  await expect(readFile(join(workspaceRoot, "parent.txt"), "utf8")).resolves.toBe(
+    "# Parent\n- parent-created\n- child-confirmed\n",
+  );
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(
+    events.find(
+      (event) =>
+        event.type === "permission_decision" &&
+        event.payload.toolCallId === "child_patch",
+    )?.payload,
+  ).toMatchObject({
+    decision: "confirm",
+    riskTier: "medium",
+  });
+  const finalSummary = events.find((event) => event.type === "final_summary");
+  expect(finalSummary?.payload.audit.changeGroups).toMatchObject({
+    inheritedForgeletChanged: ["parent.txt"],
+    forgeletChanged: ["parent.txt"],
+    preExistingAtSessionStart: [],
+  });
+});
+
+test("an actionable Session Continuation still rejects user-owned dirty files", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-continuation-user-dirty-"),
+  );
+  await execGit(workspaceRoot, ["init"]);
+  await writeFile(join(workspaceRoot, "parent.txt"), "parent change\n", "utf8");
+  await writeFile(join(workspaceRoot, "user.txt"), "user dirty\n", "utf8");
+  await mkdir(join(workspaceRoot, ".forgelet", "sessions"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "sessions", "sess_parent.jsonl"),
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-06-20T00:00:00.000Z",
+        sessionId: "sess_parent",
+        payload: {
+          workflow: "coding",
+          startedAt: "2026-06-20T00:00:00.000Z",
+        },
+      }),
+      JSON.stringify({
+        type: "final_summary",
+        ts: "2026-06-20T00:00:01.000Z",
+        sessionId: "sess_parent",
+        payload: {
+          summary: "Created parent.txt.",
+          audit: {
+            changeGroups: {
+              forgeletChanged: ["parent.txt"],
+              preExistingAtSessionStart: [],
+              otherCurrentWorkspaceChanges: [],
+            },
+            verificationCommands: [],
+            kernelObservedRisks: [],
+            modelTurns: 2,
+            estimatedCostUsd: 0.01,
+            tracePath: ".forgelet/sessions/sess_parent.jsonl",
+          },
+        },
+      }),
+      JSON.stringify({
+        type: "session_finished",
+        ts: "2026-06-20T00:00:02.000Z",
+        sessionId: "sess_parent",
+        payload: { status: "completed" },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+  const patch = [
+    "diff --git a/user.txt b/user.txt",
+    "--- a/user.txt",
+    "+++ b/user.txt",
+    "@@ -1 +1 @@",
+    "-user dirty",
+    "+user changed",
+    "",
+  ].join("\n");
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [{ id: "user_patch", name: "apply_patch", input: { patch } }],
+    },
+    { content: "Patch was rejected.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "try editing a user-owned dirty file",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+    act: true,
+    continuationSourceSessionId: "sess_parent",
+    approvalHandler: async () => {
+      throw new Error("User-owned dirty files should not request approval.");
+    },
+  });
+
+  await expect(readFile(join(workspaceRoot, "user.txt"), "utf8")).resolves.toBe(
+    "user dirty\n",
+  );
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(
+    events.find(
+      (event) =>
+        event.type === "permission_decision" &&
+        event.payload.toolCallId === "user_patch",
+    )?.payload,
+  ).toMatchObject({
+    decision: "deny",
+    riskTier: "forbidden",
+  });
+  const finalSummary = events.find((event) => event.type === "final_summary");
+  expect(finalSummary?.payload.audit.changeGroups).toMatchObject({
+    inheritedForgeletChanged: ["parent.txt"],
+    forgeletChanged: [],
+    preExistingAtSessionStart: ["user.txt"],
+  });
+  expect(finalSummary?.payload.audit.kernelObservedRisks).toContainEqual({
+    kind: "pre_existing_workspace_changes",
+    message: "Pre-existing workspace changes were present at Session start.",
+    paths: ["user.txt"],
+  });
 });
 
 test("an actionable Session Continuation does not inherit parent approval", async () => {

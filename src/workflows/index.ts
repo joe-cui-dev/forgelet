@@ -447,6 +447,13 @@ const runReadOnlyLoop = async (
           maxPatchBytes: input.maxPatchBytes,
           sessionState: {
             baselineDirtyPaths: input.baselineDirtyPaths,
+            continuationOwnedDirtyPaths: input.continuationContext
+              ? new Set(
+                  input.continuationContext.priorChangedFiles.flatMap(
+                    (item) => item.paths,
+                  ),
+                )
+              : undefined,
             forgeletTouchedPaths: new Set(),
           },
         })
@@ -686,7 +693,10 @@ const buildSessionAudit = async (
         [],
     ),
   ].sort();
-  const preExistingAtSessionStart = [...input.baselineDirtyPaths].sort();
+  const continuationOwnedDirtyPaths = new Set(inheritedForgeletChanged);
+  const preExistingAtSessionStart = [...input.baselineDirtyPaths]
+    .filter((path) => !continuationOwnedDirtyPaths.has(path))
+    .sort();
   const otherCurrentWorkspaceChanges = [...finalDirtyPaths]
     .filter(
       (path) =>

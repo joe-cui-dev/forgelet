@@ -14,6 +14,7 @@ const PATCH_PREVIEW_BYTES = 2 * 1024;
 
 export interface ActionableSessionState {
   baselineDirtyPaths: Set<string>;
+  continuationOwnedDirtyPaths?: Set<string>;
   forgeletTouchedPaths: Set<string>;
 }
 
@@ -113,7 +114,10 @@ const applyPatch = async (
         ok: false,
         summary: `Delete-file patches are denied: ${path}`,
       };
-    if (options.sessionState.baselineDirtyPaths.has(path))
+    if (
+      options.sessionState.baselineDirtyPaths.has(path) &&
+      !isContinuationOwnedDirtyPath(path, options)
+    )
       return {
         ok: false,
         summary: `Patch target was dirty at Session start: ${path}`,
@@ -263,11 +267,17 @@ const classifyPathTarget = (
     path,
     classification: isDelete
       ? "delete_file"
-      : options.sessionState.baselineDirtyPaths.has(path)
+      : options.sessionState.baselineDirtyPaths.has(path) &&
+        !isContinuationOwnedDirtyPath(path, options)
       ? "dirty_at_session_start"
       : classifyPath(path, ctx.workspaceRoot),
   };
 };
+
+const isContinuationOwnedDirtyPath = (
+  path: string,
+  options: ActionableCodingToolsOptions,
+): boolean => options.sessionState.continuationOwnedDirtyPaths?.has(path) ?? false;
 
 const classifyPath = (
   path: string,
