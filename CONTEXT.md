@@ -76,6 +76,14 @@ _Avoid_: Prompt paste, hidden source, trace content
 The current model-facing working set assembled for a **Session** turn, including task context, attachments, recent interaction, and tool observations. Active Context may be compacted without changing the **Trace**.
 _Avoid_: Trace, durable memory, full session history
 
+**Session Live View**:
+The real-time user-facing view of a running **Session**, showing visible progress such as model turns, tool calls, permission checkpoints, command execution, budget updates, and final output. A Session Live View is presentation, not the **Trace** itself.
+_Avoid_: Trace stream, fake progress, transcript
+
+**Model Output Stream**:
+The real-time text emitted by a model provider during a model turn. A Model Output Stream is narrower than a **Session Live View** because it does not represent tool execution, approval decisions, or other kernel events.
+_Avoid_: Session progress, typing animation, trace event
+
 **Observation Digest**:
 A compact model-facing representation of an older tool observation in **Active Context**. It preserves enough deterministic evidence for the model to understand what was observed, while avoiding replay of the full original result.
 _Avoid_: Thin summary, trace payload, semantic memory

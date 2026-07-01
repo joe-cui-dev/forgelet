@@ -86,7 +86,7 @@ export const defaultConfig: ForgeletConfig = {
   },
   safeCommands: ["npm test", "npm run build", "npm run typecheck", "npx jest"],
   testCommands: ["npm test", "npm run build", "npm run typecheck"],
-  commandTimeoutMs: 60_000,
+  commandTimeoutMs: 120_000,
   maxPatchBytes: 100 * 1024,
   memoryFile: ".forgelet/memory.md",
 };
