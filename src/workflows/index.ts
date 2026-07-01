@@ -680,6 +680,16 @@ const runReadOnlyLoop = async (
         task: input.session.task,
         messages,
         tools: finalOnly ? [] : tools,
+        onOutputDelta: input.onLiveEvent
+          ? async (delta) => {
+              await emitLiveEvent(input.onLiveEvent, {
+                type: "model_output_delta",
+                turnIndex,
+                model: input.route.model,
+                text: delta.text,
+              });
+            }
+          : undefined,
       });
     } catch (error) {
       await input.appendTrace("model_turn_error", {

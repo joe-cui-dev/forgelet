@@ -125,6 +125,147 @@ test("DeepSeekModelClient estimates cost when the API returns token usage withou
       Number.EPSILON).toBeTruthy();
 });
 
+test("DeepSeekModelClient requests streaming and emits text deltas when caller observes output", async () => {
+  let requestBody: unknown;
+  const deltas: string[] = [];
+  const client = new DeepSeekModelClient({
+    apiKey: "test-key",
+    model: "deepseek-v4-flash",
+    postJson: async (_url, body, _headers, options) => {
+      requestBody = body;
+      await options?.onOutputDelta?.({ text: "Hello" });
+      await options?.onOutputDelta?.({ text: " world" });
+      return {
+        choices: [
+          {
+            finish_reason: "stop",
+            message: { content: "Hello world" },
+          },
+        ],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 2,
+        },
+      };
+    },
+  });
+
+  const result = await client.createTurn({
+    task: "stream greeting",
+    messages: [{ role: "user", content: "Say hello" }],
+    tools: [],
+    onOutputDelta: (delta) => {
+      deltas.push(delta.text);
+    },
+  });
+
+  expect(requestBody).toMatchObject({
+    model: "deepseek-v4-flash",
+    stream: true,
+    stream_options: { include_usage: true },
+  });
+  expect(deltas).toEqual(["Hello", " world"]);
+  expect(result.content).toBe("Hello world");
+  expect(result.finishReason).toBe("stop");
+  expect(result.usage?.inputTokens).toBe(10);
+  expect(result.usage?.outputTokens).toBe(2);
+});
+
+test("readDeepSeekResponse parses streaming chunks into one chat response", async () => {
+  const response = new PassThrough() as PassThrough & {
+    statusCode?: number;
+  };
+  response.statusCode = 200;
+  const deltas: string[] = [];
+
+  const result = readDeepSeekResponse(response as unknown as IncomingMessage, {
+    requestStartedAtMs: Date.now() - 10,
+    stream: true,
+    model: "deepseek-v4-flash",
+    onOutputDelta: (delta) => {
+      deltas.push(delta.text);
+    },
+  });
+
+  response.write(
+    [
+      'data: {"choices":[{"delta":{"content":"Hello"},"finish_reason":null}],"usage":null}',
+      "",
+      'data: {"choices":[{"delta":{"content":" world"},"finish_reason":"stop"}],"usage":null}',
+      "",
+      'data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2}}',
+      "",
+      "data: [DONE]",
+      "",
+    ].join("\n"),
+  );
+  response.end();
+
+  await expect(result).resolves.toMatchObject({
+    choices: [
+      {
+        finish_reason: "stop",
+        message: { content: "Hello world" },
+      },
+    ],
+    usage: {
+      prompt_tokens: 10,
+      completion_tokens: 2,
+    },
+  });
+  expect(deltas).toEqual(["Hello", " world"]);
+});
+
+test("readDeepSeekResponse buffers streaming tool call deltas without emitting text", async () => {
+  const response = new PassThrough() as PassThrough & {
+    statusCode?: number;
+  };
+  response.statusCode = 200;
+  const deltas: string[] = [];
+
+  const result = readDeepSeekResponse(response as unknown as IncomingMessage, {
+    requestStartedAtMs: Date.now() - 10,
+    stream: true,
+    model: "deepseek-v4-flash",
+    onOutputDelta: (delta) => {
+      deltas.push(delta.text);
+    },
+  });
+
+  response.write(
+    [
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"path\\""}}]},"finish_reason":null}],"usage":null}',
+      "",
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":":\\"README.md\\"}"}}]},"finish_reason":"tool_calls"}],"usage":null}',
+      "",
+      "data: [DONE]",
+      "",
+    ].join("\n"),
+  );
+  response.end();
+
+  await expect(result).resolves.toMatchObject({
+    choices: [
+      {
+        finish_reason: "tool_calls",
+        message: {
+          tool_calls: [
+            {
+              id: "call_1",
+              type: "function",
+              function: {
+                name: "read_file",
+                arguments: '{"path":"README.md"}',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  });
+  expect(deltas).toEqual([]);
+});
+
 test("readDeepSeekResponse rejects when the response is aborted before end", async () => {
   const response = new PassThrough() as PassThrough & {
     statusCode?: number;

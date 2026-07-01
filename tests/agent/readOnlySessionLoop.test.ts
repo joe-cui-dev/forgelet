@@ -174,6 +174,55 @@ test("a model-backed coding Session emits Session Live View events without writi
   expect(eventTypes).not.toContain("session_live_event");
 });
 
+test("a model-backed coding Session streams model output deltas through Session Live View only", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-live-delta-"));
+  const modelClient = new FakeModelClient([
+    {
+      content: "The repo is ready.",
+      toolCalls: [],
+      finishReason: "stop",
+      outputDeltas: ["The repo", " is ready."],
+    },
+  ]);
+  const liveEvents: SessionLiveEvent[] = [];
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "summarize the repo",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+    onLiveEvent: (event) => {
+      liveEvents.push(event);
+    },
+  });
+
+  expect(result.summary).toMatch(/The repo is ready\./);
+  expect(liveEvents).toEqual(
+    expect.arrayContaining([
+      {
+        type: "model_output_delta",
+        turnIndex: 0,
+        model: "deepseek-v4-flash",
+        text: "The repo",
+      },
+      {
+        type: "model_output_delta",
+        turnIndex: 0,
+        model: "deepseek-v4-flash",
+        text: " is ready.",
+      },
+    ]),
+  );
+
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const eventTypes = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line).type);
+  expect(eventTypes).not.toContain("model_output_delta");
+});
+
 test("a model execution failure records the failed model turn before rethrowing", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-model-failure-"));
   const modelClient = {

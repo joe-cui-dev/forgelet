@@ -126,6 +126,11 @@ export interface ModelTurnInput {
   task: string;
   messages: ModelMessage[];
   tools: ToolSchema[];
+  onOutputDelta?: (delta: ModelOutputDelta) => void | Promise<void>;
+}
+
+export interface ModelOutputDelta {
+  text: string;
 }
 
 export interface ModelMessage {

@@ -7,6 +7,7 @@ import { runAgent } from "../../src/agent/runAgent.js";
 import { runCli } from "../../src/cli/index.js";
 import { FakeModelClient } from "../../src/models/testing/index.js";
 import type { SessionLiveEvent } from "../../src/sessionLiveView/index.js";
+import { createTerminalSessionLiveEventSink } from "../../src/sessionLiveView/index.js";
 
 test("CLI lists and shows project sessions", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-"));
@@ -575,6 +576,35 @@ test("CLI can inject a Session Live View sink without changing stdout", async ()
       { type: "session_finished", status: "completed" },
     ]),
   );
+});
+
+test("CLI --live streams model output through the live sink without changing stdout", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-delta-"));
+  const liveWrites: string[] = [];
+  const liveSink = createTerminalSessionLiveEventSink((text) => {
+    liveWrites.push(text);
+  });
+
+  const result = await runCli(["--live", "summarize the repo"], {
+    workspaceRoot,
+    createLiveModelClient: async () =>
+      new FakeModelClient([
+        {
+          content: "The repo is ready.",
+          toolCalls: [],
+          finishReason: "stop",
+          outputDeltas: ["The repo", " is ready."],
+        },
+      ]),
+    onLiveEvent: liveSink,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toMatch(/The repo is ready\./);
+  expect(result.stdout).not.toMatch(/Model turn 1 started/);
+  expect(result.stdout).not.toMatch(/The repo is ready\.\nModel turn/);
+  expect(liveWrites.join("")).toContain("The repo is ready.\nModel turn 1 finished");
 });
 
 function execNode(

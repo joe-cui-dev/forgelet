@@ -1,5 +1,8 @@
 import { expect, test } from "@jest/globals";
-import { formatSessionLiveEvent } from "../../src/sessionLiveView/index.js";
+import {
+  createTerminalSessionLiveEventSink,
+  formatSessionLiveEvent,
+} from "../../src/sessionLiveView/index.js";
 
 test("formats concise terminal Session Live View events", () => {
   expect(
@@ -42,4 +45,43 @@ test("formats concise terminal Session Live View events", () => {
       reason: "model_execution_error",
     }),
   ).toBe("Session failed: model_execution_error");
+});
+
+test("terminal Session Live View streams model output deltas inline", async () => {
+  const writes: string[] = [];
+  const sink = createTerminalSessionLiveEventSink((text) => {
+    writes.push(text);
+  });
+
+  await sink({
+    type: "model_turn_started",
+    turnIndex: 0,
+    model: "deepseek-v4-flash",
+  });
+  await sink({
+    type: "model_output_delta",
+    turnIndex: 0,
+    model: "deepseek-v4-flash",
+    text: "Hello",
+  });
+  await sink({
+    type: "model_output_delta",
+    turnIndex: 0,
+    model: "deepseek-v4-flash",
+    text: " world",
+  });
+  await sink({
+    type: "model_turn_finished",
+    turnIndex: 0,
+    model: "deepseek-v4-flash",
+    toolCallCount: 0,
+  });
+
+  expect(writes.join("")).toBe(
+    [
+      "Model turn 1 started: deepseek-v4-flash\n",
+      "Hello world\n",
+      "Model turn 1 finished: deepseek-v4-flash, 0 tool calls\n",
+    ].join(""),
+  );
 });

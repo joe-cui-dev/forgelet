@@ -9,6 +9,12 @@ export type SessionLiveEvent =
   | { type: "trace_path"; tracePath: string }
   | { type: "model_turn_started"; turnIndex: number; model: string }
   | {
+      type: "model_output_delta";
+      turnIndex: number;
+      model: string;
+      text: string;
+    }
+  | {
       type: "model_turn_finished";
       turnIndex: number;
       model: string;
@@ -47,6 +53,8 @@ export const formatSessionLiveEvent = (event: SessionLiveEvent): string => {
       return `Trace: ${event.tracePath}`;
     case "model_turn_started":
       return `Model turn ${event.turnIndex + 1} started: ${event.model}`;
+    case "model_output_delta":
+      return event.text;
     case "model_turn_finished":
       return `Model turn ${event.turnIndex + 1} finished: ${event.model}, ${formatCount(
         event.toolCallCount,
@@ -74,9 +82,18 @@ export const formatSessionLiveEvent = (event: SessionLiveEvent): string => {
 };
 
 export const createTerminalSessionLiveEventSink =
-  (write: (line: string) => void): SessionLiveEventSink =>
-  (event) => {
-    write(`${formatSessionLiveEvent(event)}\n`);
+  (write: (text: string) => void): SessionLiveEventSink => {
+    let lastWriteWasUnterminatedModelOutput = false;
+    return (event) => {
+      if (event.type === "model_output_delta") {
+        write(event.text);
+        lastWriteWasUnterminatedModelOutput = !event.text.endsWith("\n");
+        return;
+      }
+      if (lastWriteWasUnterminatedModelOutput) write("\n");
+      write(`${formatSessionLiveEvent(event)}\n`);
+      lastWriteWasUnterminatedModelOutput = false;
+    };
   };
 
 const formatCount = (count: number, noun: string): string =>

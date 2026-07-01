@@ -4,6 +4,7 @@ import type {
   JsonSchema,
   ModelClient,
   ModelMessage,
+  ModelOutputDelta,
   ModelToolCall,
   ModelTurnInput,
   ModelTurnOutput,
@@ -42,7 +43,13 @@ export type PostJson = (
   url: string,
   body: DeepSeekChatRequest,
   headers: Record<string, string>,
+  options?: PostJsonOptions,
 ) => Promise<DeepSeekChatResponse>;
+
+export interface PostJsonOptions {
+  onOutputDelta?: (delta: ModelOutputDelta) => void | Promise<void>;
+  model: string;
+}
 
 export class DeepSeekResponseError extends Error {
   readonly causeCategory?: string;
@@ -99,12 +106,14 @@ export class DeepSeekModelClient implements ModelClient {
   }
 
   async createTurn(input: ModelTurnInput): Promise<ModelTurnOutput> {
+    const stream = input.onOutputDelta !== undefined;
     const body: DeepSeekChatRequest = {
       model: this.model,
       messages: input.messages.map(toDeepSeekMessage),
       tools:
         input.tools.length > 0 ? input.tools.map(toDeepSeekTool) : undefined,
-      stream: false,
+      stream,
+      stream_options: stream ? { include_usage: true } : undefined,
     };
     const response = await this.postJson(
       `${this.baseUrl}/chat/completions`,
@@ -113,6 +122,7 @@ export class DeepSeekModelClient implements ModelClient {
         "Content-Type": "application/json",
         Authorization: `Bearer ${this.apiKey}`,
       },
+      { onOutputDelta: input.onOutputDelta, model: this.model },
     );
     return fromDeepSeekResponse(response, this.model);
   }
@@ -122,7 +132,8 @@ export interface DeepSeekChatRequest {
   model: string;
   messages: DeepSeekMessage[];
   tools?: DeepSeekTool[];
-  stream: false;
+  stream: boolean;
+  stream_options?: { include_usage: true };
 }
 
 type DeepSeekMessage =
@@ -276,6 +287,7 @@ async function postJsonWithHttps(
   url: string,
   body: DeepSeekChatRequest,
   headers: Record<string, string>,
+  options: PostJsonOptions = { model: body.model },
 ): Promise<DeepSeekChatResponse> {
   const payload = JSON.stringify(body);
   const target = new URL(url);
@@ -302,7 +314,12 @@ async function postJsonWithHttps(
         },
       },
       (res) => {
-        readDeepSeekResponse(res, { requestStartedAtMs }).then(
+        readDeepSeekResponse(res, {
+          requestStartedAtMs,
+          stream: body.stream,
+          onOutputDelta: options.onOutputDelta,
+          model: options.model,
+        }).then(
           resolveOnce,
           rejectOnce,
         );
@@ -318,6 +335,9 @@ async function postJsonWithHttps(
 
 export interface ReadDeepSeekResponseOptions {
   requestStartedAtMs?: number;
+  stream?: boolean;
+  onOutputDelta?: (delta: ModelOutputDelta) => void | Promise<void>;
+  model?: string;
 }
 
 export function readDeepSeekResponse(
@@ -338,7 +358,27 @@ export function readDeepSeekResponse(
       rejectResponse(error);
     };
     const chunks: Buffer[] = [];
-    res.on("data", (chunk: Buffer) => chunks.push(chunk));
+    const streamState = options.stream
+      ? createDeepSeekStreamState(options)
+      : undefined;
+    res.on("data", (chunk: Buffer) => {
+      chunks.push(chunk);
+      if (streamState && (res.statusCode ?? 500) < 400) {
+        try {
+          processDeepSeekStreamText(streamState, chunk.toString("utf8"));
+        } catch (error) {
+          rejectOnce(
+            deepSeekResponseError(
+              error instanceof Error ? error.message : String(error),
+              res,
+              chunks,
+              requestStartedAtMs,
+              "invalid_stream",
+            ),
+          );
+        }
+      }
+    });
     res.on("aborted", () => {
       rejectOnce(
         deepSeekResponseError(
@@ -379,6 +419,20 @@ export function readDeepSeekResponse(
         );
         return;
       }
+      if (streamState) {
+        finishDeepSeekStream(streamState).then(resolveOnce, (error) => {
+          rejectOnce(
+            deepSeekResponseError(
+              error instanceof Error ? error.message : String(error),
+              res,
+              chunks,
+              requestStartedAtMs,
+              "invalid_stream",
+            ),
+          );
+        });
+        return;
+      }
       try {
         resolveOnce(JSON.parse(text) as DeepSeekChatResponse);
       } catch (error) {
@@ -394,6 +448,153 @@ export function readDeepSeekResponse(
       }
     });
   });
+}
+
+interface DeepSeekStreamState {
+  buffer: string;
+  content: string;
+  toolCalls: Map<number, DeepSeekToolCallAccumulator>;
+  finishReason?: string;
+  usage?: DeepSeekChatResponse["usage"];
+  sawDone: boolean;
+  onOutputDelta?: (delta: ModelOutputDelta) => void | Promise<void>;
+  deltaPromises: Promise<void>[];
+}
+
+interface DeepSeekToolCallAccumulator {
+  id?: string;
+  type?: "function";
+  functionName?: string;
+  arguments: string;
+}
+
+type DeepSeekStreamChunk = {
+  choices?: Array<{
+    finish_reason?: string | null;
+    delta?: {
+      content?: string | null;
+      tool_calls?: DeepSeekToolCallDelta[];
+    };
+  }>;
+  usage?: DeepSeekChatResponse["usage"] | null;
+};
+
+type DeepSeekToolCallDelta = Partial<DeepSeekToolCall> & {
+  index?: number;
+  function?: Partial<DeepSeekToolCall["function"]>;
+};
+
+function createDeepSeekStreamState(
+  options: ReadDeepSeekResponseOptions,
+): DeepSeekStreamState {
+  return {
+    buffer: "",
+    content: "",
+    toolCalls: new Map(),
+    sawDone: false,
+    onOutputDelta: options.onOutputDelta,
+    deltaPromises: [],
+  };
+}
+
+function processDeepSeekStreamText(
+  state: DeepSeekStreamState,
+  text: string,
+): void {
+  state.buffer += text.replace(/\r\n/g, "\n");
+  let separatorIndex = state.buffer.indexOf("\n\n");
+  while (separatorIndex >= 0) {
+    const block = state.buffer.slice(0, separatorIndex);
+    state.buffer = state.buffer.slice(separatorIndex + 2);
+    processDeepSeekStreamBlock(state, block);
+    separatorIndex = state.buffer.indexOf("\n\n");
+  }
+}
+
+function processDeepSeekStreamBlock(
+  state: DeepSeekStreamState,
+  block: string,
+): void {
+  const dataLines = block
+    .split("\n")
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice("data:".length).trimStart());
+  if (dataLines.length === 0) return;
+  const data = dataLines.join("\n");
+  if (data === "[DONE]") {
+    state.sawDone = true;
+    return;
+  }
+  const chunk = JSON.parse(data) as DeepSeekStreamChunk;
+  if (chunk.usage) state.usage = chunk.usage;
+  const choice = chunk.choices?.[0];
+  const text = choice?.delta?.content ?? undefined;
+  if (text) {
+    state.content += text;
+    if (state.onOutputDelta)
+      state.deltaPromises.push(Promise.resolve(state.onOutputDelta({ text })));
+  }
+  for (const toolCall of choice?.delta?.tool_calls ?? [])
+    accumulateDeepSeekToolCall(state, toolCall);
+  if (choice?.finish_reason) state.finishReason = choice.finish_reason;
+}
+
+function accumulateDeepSeekToolCall(
+  state: DeepSeekStreamState,
+  delta: DeepSeekToolCallDelta,
+): void {
+  const index = delta.index ?? 0;
+  const existing =
+    state.toolCalls.get(index) ??
+    ({ arguments: "" } satisfies DeepSeekToolCallAccumulator);
+  if (delta.id) existing.id = delta.id;
+  if (delta.type === "function") existing.type = "function";
+  if (delta.function?.name) existing.functionName = delta.function.name;
+  if (delta.function?.arguments) existing.arguments += delta.function.arguments;
+  state.toolCalls.set(index, existing);
+}
+
+async function finishDeepSeekStream(
+  state: DeepSeekStreamState,
+): Promise<DeepSeekChatResponse> {
+  if (state.buffer.trim().length > 0) {
+    const remaining = state.buffer;
+    state.buffer = "";
+    processDeepSeekStreamBlock(state, remaining);
+  }
+  await Promise.all(state.deltaPromises);
+  if (!state.sawDone)
+    throw new Error("DeepSeek API stream ended before data: [DONE].");
+  const toolCalls = Array.from(state.toolCalls.entries())
+    .sort(([left], [right]) => left - right)
+    .map(([, toolCall]) => toCompleteDeepSeekToolCall(toolCall));
+  return {
+    choices: [
+      {
+        finish_reason: state.finishReason,
+        message: {
+          content: state.content,
+          tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+        },
+      },
+    ],
+    usage: state.usage ?? undefined,
+  };
+}
+
+function toCompleteDeepSeekToolCall(
+  toolCall: DeepSeekToolCallAccumulator,
+): DeepSeekToolCall {
+  if (!toolCall.id || !toolCall.functionName)
+    throw new Error("DeepSeek API stream ended with an incomplete tool call.");
+  return {
+    id: toolCall.id,
+    type: "function",
+    function: {
+      name: toolCall.functionName,
+      arguments: toolCall.arguments,
+    },
+  };
 }
 
 function deepSeekResponseError(
