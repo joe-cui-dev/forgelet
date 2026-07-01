@@ -29,8 +29,8 @@ The user's prompt-level creative intent for a **Creative Writing Workflow**, inc
 _Avoid_: Prompt blob, hidden context, document draft
 
 **Draft Pack**:
-The default V2 output shape for prompt-only creative drafting without **Context Attachments**: Forgelet returns one primary draft, two creative variants, and notes about the drafting choices. A Draft Pack avoids pretending there is existing source text to critique or revise.
-_Avoid_: Critique with no source text, revision without a draft, single polished answer
+The default V2 output shape for prompt-only creative drafting without **Context Attachments**: Forgelet returns only one primary draft. A Draft Pack avoids pretending there is existing source text to critique or revise, and avoids extra variants or process notes when the user asked for original creation.
+_Avoid_: Critique with no source text, revision without a draft, variants by default, process notes by default
 
 **Revision Pack**:
 The default V2 output shape for creative rewriting with **Context Attachments**: Forgelet returns a critique, one primary revision, two creative alternatives, and notes about the editing choices. A Revision Pack keeps short-form creative work useful without requiring **Writing Project** continuity.

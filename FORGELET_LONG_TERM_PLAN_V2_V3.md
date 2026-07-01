@@ -432,10 +432,9 @@ Acceptance criteria:
 - The CLI validates structural inputs such as `--style`, but does not reject prompt-only creative briefs by guessing whether source text is missing.
 - The first implementation uses an explicit `--style <name>` option instead of inferring style only from the task text.
 - The first built-in style names are `vivid`, `tight`, `literary`, and `plain`; unknown style names produce a clear CLI error.
-- Prompt-only creative writing output is normalized to a Draft Pack with `Draft`, `Variants`, and `Notes`.
+- Prompt-only creative writing output is normalized to a Draft Pack with only `Draft`.
 - Creative writing with `--context` is normalized to a Revision Pack with `Critique`, `Revision`, `Alternatives`, and `Notes`.
 - `Alternatives` contains two default options: one more vivid/literary and one clearer/tighter.
-- `Variants` contains two default options: one more vivid/literary and one clearer/tighter.
 - The creative writing path remains text-first and does not receive workspace, git, shell, patch, or command tools.
 - The first implementation prints the Draft Pack or Revision Pack to the terminal and records it in the Trace; it does not write prose back to workspace files or `.forgelet` artifacts.
 - Session and Trace metadata record `workflow: "writing"` with `workflowVariant: "creative"`; prompt-only creative drafting uses the Session task as the Creative Brief and does not add a separate Trace event.

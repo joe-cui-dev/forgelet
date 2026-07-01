@@ -112,13 +112,6 @@ Prompt-only creative drafting output is shaped as:
 ```text
 Draft
 ...
-
-Variants
-1. ...
-2. ...
-
-Notes
-...
 ```
 
 Creative writing with `--context` output is shaped as:
