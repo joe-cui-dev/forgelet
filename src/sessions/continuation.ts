@@ -16,6 +16,14 @@ export interface ContinuationContext {
   inheritedReadScope: string[];
   priorTasks: { sessionId: string; task: string }[];
   priorSummaries: { sessionId: string; summary: string }[];
+  priorChangedFiles: { sessionId: string; paths: string[] }[];
+  priorVerificationCommands: {
+    sessionId: string;
+    command: string;
+    exitCode: number | null;
+    timedOut: boolean;
+  }[];
+  priorRisks: { sessionId: string; message: string }[];
   contextAttachments: ContextAttachment[];
 }
 
@@ -91,6 +99,19 @@ export async function buildContinuationContext(
         ? [{ sessionId, summary: summary.payload.summary }]
         : [];
     }),
+    priorChangedFiles: eventSets.flatMap(({ sessionId, events }) => {
+      const paths = finalAuditChangedFiles(events);
+      return paths.length > 0 ? [{ sessionId, paths }] : [];
+    }),
+    priorVerificationCommands: eventSets.flatMap(({ sessionId, events }) =>
+      finalAuditVerificationCommands(events).map((command) => ({
+        sessionId,
+        ...command,
+      })),
+    ),
+    priorRisks: eventSets.flatMap(({ sessionId, events }) =>
+      finalAuditRiskMessages(events).map((message) => ({ sessionId, message })),
+    ),
     contextAttachments: sourceEvents
       .filter((event) => event.type === "context_attachment")
       .map((event) => event.payload as unknown)
@@ -130,6 +151,28 @@ export function formatContinuationContextForPrompt(
       );
     }
   }
+  if (
+    context.priorChangedFiles.length > 0 ||
+    context.priorVerificationCommands.length > 0 ||
+    context.priorRisks.length > 0
+  ) {
+    lines.push("Prior actionable evidence:");
+    for (const changed of context.priorChangedFiles) {
+      lines.push(
+        `- ${changed.sessionId} changed: ${changed.paths.join(", ")}`,
+      );
+    }
+    for (const command of context.priorVerificationCommands) {
+      lines.push(
+        `- ${command.sessionId} verification: ${command.command} ${
+          command.timedOut ? "timed out" : `exit ${command.exitCode}`
+        }`,
+      );
+    }
+    for (const risk of context.priorRisks) {
+      lines.push(`- ${risk.sessionId} risk: ${risk.message}`);
+    }
+  }
   return lines;
 }
 
@@ -142,6 +185,12 @@ export function continuationContextTracePayload(
     inheritedReadScope: context.inheritedReadScope,
     sourceStatus: context.lineage.sourceStatus,
     degraded: context.lineage.degraded,
+    priorChangedFiles: context.priorChangedFiles.length,
+    priorVerificationCommands: context.priorVerificationCommands.length,
+    priorRisks: context.priorRisks.length,
+    inheritedChangedPaths: [
+      ...new Set(context.priorChangedFiles.flatMap((item) => item.paths)),
+    ].sort(),
   };
 }
 
@@ -218,6 +267,56 @@ function isContextAttachment(value: unknown): value is ContextAttachment {
     typeof value.preview === "string" &&
     typeof value.trustLevel === "string"
   );
+}
+
+function finalAuditChangedFiles(events: { type: string; payload: Record<string, unknown> }[]): string[] {
+  const audit = finalAudit(events);
+  const changeGroups = isRecord(audit?.changeGroups)
+    ? audit.changeGroups
+    : undefined;
+  return asStringArray(changeGroups?.forgeletChanged).sort();
+}
+
+function finalAuditVerificationCommands(
+  events: { type: string; payload: Record<string, unknown> }[],
+): { command: string; exitCode: number | null; timedOut: boolean }[] {
+  const audit = finalAudit(events);
+  const commands = Array.isArray(audit?.verificationCommands)
+    ? audit.verificationCommands
+    : [];
+  return commands.flatMap((item) => {
+    if (!isRecord(item) || typeof item.command !== "string") return [];
+    const exitCode =
+      typeof item.exitCode === "number" || item.exitCode === null
+        ? item.exitCode
+        : null;
+    return [
+      {
+        command: item.command,
+        exitCode,
+        timedOut: item.timedOut === true,
+      },
+    ];
+  });
+}
+
+function finalAuditRiskMessages(
+  events: { type: string; payload: Record<string, unknown> }[],
+): string[] {
+  const audit = finalAudit(events);
+  const risks = Array.isArray(audit?.kernelObservedRisks)
+    ? audit.kernelObservedRisks
+    : [];
+  return risks.flatMap((item) =>
+    isRecord(item) && typeof item.message === "string" ? [item.message] : [],
+  );
+}
+
+function finalAudit(
+  events: { type: string; payload: Record<string, unknown> }[],
+): Record<string, unknown> | undefined {
+  const summary = events.find((event) => event.type === "final_summary");
+  return isRecord(summary?.payload.audit) ? summary.payload.audit : undefined;
 }
 
 function asSourceStatus(value: string): SessionFinishStatus | "incomplete" {

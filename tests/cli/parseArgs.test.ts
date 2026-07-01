@@ -45,21 +45,28 @@ test("parses a Session Continuation resume command", () => {
     kind: "resume",
     sessionId: "sess_abc",
     instruction: "continue the task",
+    act: false,
+  });
+});
+
+test("parses an actionable Session Continuation resume command", () => {
+  expect(parseArgs(["resume", "sess_abc", "--act", "continue the task"])).toEqual({
+    kind: "resume",
+    sessionId: "sess_abc",
+    instruction: "continue the task",
+    act: true,
   });
 });
 
 test("rejects bare Session Continuation resume", () => {
   expect(() => parseArgs(["resume", "sess_abc"])).toThrow(
-    /Usage: forge resume <sessionId> "<instruction>"/,
+    /Usage: forge resume <sessionId> \[--act\] "<instruction>"/,
   );
 });
 
 test("rejects unsupported Session Continuation shapes", () => {
   expect(() => parseArgs(["write", "resume", "sess_abc", "continue"])).toThrow(
     /Writing Workflow resume is not available yet/,
-  );
-  expect(() => parseArgs(["resume", "sess_abc", "--act", "continue"])).toThrow(
-    /Actionable Session Continuation is not available yet/,
   );
   expect(() =>
     parseArgs(["resume", "sess_abc", "--reuse-context", "continue"]),
@@ -69,6 +76,9 @@ test("rejects unsupported Session Continuation shapes", () => {
   );
   expect(() => parseArgs(["resume", "sess_abc", "--budget", "0.25", "continue"])).toThrow(
     /Unsupported Session Continuation option: --budget/,
+  );
+  expect(() => parseArgs(["resume", "sess_abc", "continue", "--act"])).toThrow(
+    /Unsupported Session Continuation option: --act/,
   );
 });
 

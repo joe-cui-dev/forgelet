@@ -66,6 +66,7 @@ export interface SessionAudit {
 }
 
 export interface AuditChangeGroups {
+  inheritedForgeletChanged?: string[];
   forgeletChanged: string[];
   preExistingAtSessionStart: string[];
   otherCurrentWorkspaceChanges: string[];
@@ -181,7 +182,10 @@ export interface ToolDefinition {
   capability: Capability;
   description: string;
   inputSchema: JsonSchema;
-  classify?(input: unknown, ctx: ToolContext): ToolRequest | Promise<ToolRequest>;
+  classify?(
+    input: unknown,
+    ctx: ToolContext,
+  ): ToolRequest | Promise<ToolRequest>;
   execute(input: unknown, ctx: ToolContext): Promise<ToolResult>;
 }
 

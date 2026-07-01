@@ -121,7 +121,30 @@ test("a Session Continuation includes Continuation Context in the first model in
         type: "final_summary",
         ts: "2026-06-20T00:00:01.000Z",
         sessionId: "sess_parent",
-        payload: { summary: "The inherited fact is cobalt." },
+        payload: {
+          summary: "The inherited fact is cobalt.",
+          audit: {
+            changeGroups: {
+              forgeletChanged: ["src/foo.ts"],
+              preExistingAtSessionStart: [],
+              otherCurrentWorkspaceChanges: [],
+            },
+            verificationCommands: [
+              { command: "npm test", exitCode: 1, timedOut: false },
+            ],
+            kernelObservedRisks: [
+              {
+                kind: "verification_failed",
+                message: "Verification command failed: npm test (exit 1).",
+                command: "npm test",
+                exitCode: 1,
+              },
+            ],
+            modelTurns: 2,
+            estimatedCostUsd: 0.01,
+            tracePath: ".forgelet/sessions/sess_parent.jsonl",
+          },
+        },
       }),
       JSON.stringify({
         type: "session_finished",
@@ -158,6 +181,14 @@ test("a Session Continuation includes Continuation Context in the first model in
   expect(firstUserMessage).toMatch(/inheritedReadScope: src\/workflows/);
   expect(firstUserMessage).toMatch(/priorTask: find the original clue/);
   expect(firstUserMessage).toMatch(/sess_parent: The inherited fact is cobalt/);
+  expect(firstUserMessage).toMatch(/Prior actionable evidence:/);
+  expect(firstUserMessage).toMatch(/sess_parent changed: src\/foo\.ts/);
+  expect(firstUserMessage).toMatch(/sess_parent verification: npm test exit 1/);
+  expect(firstUserMessage).toMatch(
+    /sess_parent risk: Verification command failed: npm test \(exit 1\)\./,
+  );
+  expect(firstUserMessage).not.toMatch(/diff --git/);
+  expect(firstUserMessage).not.toMatch(/parent patch content/);
   expect(firstUserMessage).toMatch(/draft\.md hash=hash_parent/);
   expect(firstUserMessage).not.toMatch(/parent attachment preview/);
 
@@ -181,6 +212,13 @@ test("a Session Continuation includes Continuation Context in the first model in
   expect(events.map((event) => event.type)).toContain(
     "continuation_context_loaded",
   );
+  const loaded = events.find((event) => event.type === "continuation_context_loaded");
+  expect(loaded?.payload).toMatchObject({
+    priorChangedFiles: 1,
+    priorVerificationCommands: 1,
+    priorRisks: 1,
+    inheritedChangedPaths: ["src/foo.ts"],
+  });
 });
 
 test("a creative writing Session returns a Revision Pack", async () => {
@@ -874,6 +912,238 @@ test("an actionable coding Session can patch, run a configured command, inspect 
     modelTurns: 5,
     estimatedCostUsd: 0,
     tracePath: result.tracePath,
+  });
+});
+
+test("an actionable Session Continuation audit separates inherited and child changes", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-actionable-continuation-audit-"),
+  );
+  await execGit(workspaceRoot, ["init"]);
+  await writeFile(join(workspaceRoot, "parent.txt"), "parent baseline\n", "utf8");
+  await writeFile(join(workspaceRoot, "child.txt"), "child baseline\n", "utf8");
+  await execGit(workspaceRoot, ["add", "parent.txt", "child.txt"]);
+  await execGit(workspaceRoot, ["commit", "-m", "baseline"]);
+  await writeFile(join(workspaceRoot, "parent.txt"), "parent dirty\n", "utf8");
+  await mkdir(join(workspaceRoot, ".forgelet", "sessions"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "sessions", "sess_parent.jsonl"),
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-06-20T00:00:00.000Z",
+        sessionId: "sess_parent",
+        payload: {
+          workflow: "coding",
+          startedAt: "2026-06-20T00:00:00.000Z",
+        },
+      }),
+      JSON.stringify({
+        type: "final_summary",
+        ts: "2026-06-20T00:00:01.000Z",
+        sessionId: "sess_parent",
+        payload: {
+          summary: "Changed parent.txt.",
+          audit: {
+            changeGroups: {
+              forgeletChanged: ["parent.txt"],
+              preExistingAtSessionStart: [],
+              otherCurrentWorkspaceChanges: [],
+            },
+            verificationCommands: [
+              { command: "npm test", exitCode: 0, timedOut: false },
+            ],
+            kernelObservedRisks: [],
+            modelTurns: 2,
+            estimatedCostUsd: 0.01,
+            tracePath: ".forgelet/sessions/sess_parent.jsonl",
+          },
+        },
+      }),
+      JSON.stringify({
+        type: "session_finished",
+        ts: "2026-06-20T00:00:02.000Z",
+        sessionId: "sess_parent",
+        payload: { status: "completed" },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+  const patch = [
+    "diff --git a/child.txt b/child.txt",
+    "--- a/child.txt",
+    "+++ b/child.txt",
+    "@@ -1 +1 @@",
+    "-child baseline",
+    "+child changed",
+    "",
+  ].join("\n");
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [{ id: "call_patch", name: "apply_patch", input: { patch } }],
+    },
+    { content: "Changed child.txt.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "finish the child change",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+    act: true,
+    continuationSourceSessionId: "sess_parent",
+    approvalHandler: async () => ({
+      status: "approved",
+      reason: "Approved by test.",
+    }),
+  });
+
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const finalSummary = events.find((event) => event.type === "final_summary");
+
+  expect(finalSummary?.payload.audit.changeGroups).toMatchObject({
+    inheritedForgeletChanged: ["parent.txt"],
+    forgeletChanged: ["child.txt"],
+    preExistingAtSessionStart: ["parent.txt"],
+    otherCurrentWorkspaceChanges: [],
+  });
+  expect(finalSummary?.payload.audit.verificationCommands).toEqual([]);
+  expect(finalSummary?.payload.audit.kernelObservedRisks).toEqual([
+    {
+      kind: "verification_missing",
+      message: "No verification command was run for the Forgelet changes.",
+    },
+    {
+      kind: "pre_existing_workspace_changes",
+      message: "Pre-existing workspace changes were present at Session start.",
+      paths: ["parent.txt"],
+    },
+  ]);
+});
+
+test("an actionable Session Continuation does not inherit parent approval", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-continuation-approval-boundary-"),
+  );
+  await execGit(workspaceRoot, ["init"]);
+  await writeFile(join(workspaceRoot, "example.txt"), "original\n", "utf8");
+  await execGit(workspaceRoot, ["add", "example.txt"]);
+  await execGit(workspaceRoot, ["commit", "-m", "baseline"]);
+  await mkdir(join(workspaceRoot, ".forgelet", "sessions"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "sessions", "sess_parent.jsonl"),
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-06-20T00:00:00.000Z",
+        sessionId: "sess_parent",
+        payload: {
+          workflow: "coding",
+          startedAt: "2026-06-20T00:00:00.000Z",
+        },
+      }),
+      JSON.stringify({
+        type: "permission_decision",
+        ts: "2026-06-20T00:00:01.000Z",
+        sessionId: "sess_parent",
+        payload: {
+          toolCallId: "parent_patch",
+          toolName: "apply_patch",
+          capability: "write_workspace",
+          decision: "confirm",
+        },
+      }),
+      JSON.stringify({
+        type: "approval_decision",
+        ts: "2026-06-20T00:00:02.000Z",
+        sessionId: "sess_parent",
+        payload: {
+          toolCallId: "parent_patch",
+          toolName: "apply_patch",
+          status: "approved",
+          reason: "Approved in parent Session.",
+        },
+      }),
+      JSON.stringify({
+        type: "tool_result",
+        ts: "2026-06-20T00:00:03.000Z",
+        sessionId: "sess_parent",
+        payload: {
+          ok: true,
+          toolCallId: "parent_patch",
+          toolName: "apply_patch",
+          summary: "Applied patch to 1 file(s).",
+          changedFiles: ["old.txt"],
+        },
+      }),
+      JSON.stringify({
+        type: "session_finished",
+        ts: "2026-06-20T00:00:04.000Z",
+        sessionId: "sess_parent",
+        payload: { status: "completed" },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+  const patch = [
+    "diff --git a/example.txt b/example.txt",
+    "--- a/example.txt",
+    "+++ b/example.txt",
+    "@@ -1 +1 @@",
+    "-original",
+    "+changed",
+    "",
+  ].join("\n");
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [{ id: "child_patch", name: "apply_patch", input: { patch } }],
+    },
+    { content: "Patch was rejected in the child Session.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "try the child patch",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+    act: true,
+    continuationSourceSessionId: "sess_parent",
+    approvalHandler: async () => ({
+      status: "rejected",
+      reason: "Rejected in child Session.",
+    }),
+  });
+
+  await expect(readFile(join(workspaceRoot, "example.txt"), "utf8")).resolves.toBe(
+    "original\n",
+  );
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(
+    events.find((event) => event.type === "approval_decision")?.payload,
+  ).toMatchObject({
+    toolCallId: "child_patch",
+    status: "rejected",
+    reason: "Rejected in child Session.",
+  });
+  expect(
+    events.find(
+      (event) =>
+        event.type === "tool_result" &&
+        event.payload.toolCallId === "child_patch",
+    )?.payload,
+  ).toMatchObject({
+    ok: false,
+    error: { code: "permission_denied" },
   });
 });
 

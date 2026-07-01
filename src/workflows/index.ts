@@ -640,6 +640,12 @@ const buildSessionAudit = async (
 ): Promise<SessionAudit> => {
   const finalDirtyPaths = await gitStatusPaths(input.workspaceRoot);
   const forgeletChanged = [...audit.changedFiles].sort();
+  const inheritedForgeletChanged = [
+    ...new Set(
+      input.continuationContext?.priorChangedFiles.flatMap((item) => item.paths) ??
+        [],
+    ),
+  ].sort();
   const preExistingAtSessionStart = [...input.baselineDirtyPaths].sort();
   const otherCurrentWorkspaceChanges = [...finalDirtyPaths]
     .filter(
@@ -655,6 +661,9 @@ const buildSessionAudit = async (
 
   return {
     changeGroups: {
+      ...(inheritedForgeletChanged.length > 0
+        ? { inheritedForgeletChanged }
+        : {}),
       forgeletChanged,
       preExistingAtSessionStart,
       otherCurrentWorkspaceChanges,
@@ -801,7 +810,9 @@ const gitStatusPaths = (workspaceRoot: string): Promise<Set<string>> => {
 };
 
 const isInternalSessionTracePath = (path: string): boolean =>
-  path === ".forgelet/sessions" || path.startsWith(".forgelet/sessions/");
+  path === ".forgelet/" ||
+  path === ".forgelet/sessions" ||
+  path.startsWith(".forgelet/sessions/");
 
 const budgetStopReason = (
   usage: BudgetUsage,

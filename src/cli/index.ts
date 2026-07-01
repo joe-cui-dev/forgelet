@@ -105,7 +105,11 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
           homeDir: options.homeDir,
           workspaceRoot,
           modelClient,
+          act: command.act,
           continuationSourceSessionId: command.sessionId,
+          approvalHandler: command.act
+            ? options.approvalHandler ?? createTerminalApprovalHandler()
+            : undefined,
         });
         return ok(
           [
@@ -273,6 +277,14 @@ function formatSessionAuditHighlights(audit: SessionAudit | undefined): string[]
   if (!audit) return [];
   return [
     "Audit:",
+    ...(audit.changeGroups.inheritedForgeletChanged &&
+    audit.changeGroups.inheritedForgeletChanged.length > 0
+      ? [
+          `Inherited Forgelet changes: ${formatList(
+            audit.changeGroups.inheritedForgeletChanged,
+          )}`,
+        ]
+      : []),
     `Forgelet changed: ${formatList(audit.changeGroups.forgeletChanged)}`,
     `Pre-existing at Session start: ${formatList(audit.changeGroups.preExistingAtSessionStart)}`,
     `Other current workspace changes: ${formatList(audit.changeGroups.otherCurrentWorkspaceChanges)}`,
@@ -388,6 +400,14 @@ function formatPermissions(explanation: SessionExplanation): string[] {
 function formatExplanationAudit(audit: SessionAudit | undefined): string[] {
   if (!audit) return ["No final audit was recorded."];
   return [
+    ...(audit.changeGroups.inheritedForgeletChanged &&
+    audit.changeGroups.inheritedForgeletChanged.length > 0
+      ? [
+          `Inherited Forgelet changes: ${formatList(
+            audit.changeGroups.inheritedForgeletChanged,
+          )}`,
+        ]
+      : []),
     `Forgelet changed: ${formatList(audit.changeGroups.forgeletChanged)}`,
     audit.verificationCommands.length > 0
       ? "Verification commands:"

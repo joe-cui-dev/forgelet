@@ -1,8 +1,20 @@
 import type { CreativeStyle, WorkflowKind, WorkflowVariant } from "../types.js";
 
 export type ForgeCommand =
-  | { kind: "run"; workflow: WorkflowKind; workflowVariant?: WorkflowVariant; creativeStyle?: CreativeStyle; task: string; contextFiles: string[]; allowedReadPaths?: string[]; model?: string; budgetUsd?: number; live: boolean; act: boolean }
-  | { kind: "resume"; sessionId: string; instruction: string }
+  | {
+      kind: "run";
+      workflow: WorkflowKind;
+      workflowVariant?: WorkflowVariant;
+      creativeStyle?: CreativeStyle;
+      task: string;
+      contextFiles: string[];
+      allowedReadPaths?: string[];
+      model?: string;
+      budgetUsd?: number;
+      live: boolean;
+      act: boolean;
+    }
+  | { kind: "resume"; sessionId: string; instruction: string; act: boolean }
   | { kind: "config-get" }
   | { kind: "config-set"; key: string; value: string }
   | { kind: "sessions-list" }
@@ -84,7 +96,9 @@ function parseSessions(args: string[]): ForgeCommand {
   if (args[0] === "show" && args.length === 2) {
     return { kind: "sessions-show", sessionId: args[1] ?? "" };
   }
-  throw new Error("Usage: forge sessions list | forge sessions show <sessionId>");
+  throw new Error(
+    "Usage: forge sessions list | forge sessions show <sessionId>",
+  );
 }
 
 function parseMemory(args: string[]): ForgeCommand {
@@ -94,22 +108,28 @@ function parseMemory(args: string[]): ForgeCommand {
   if (args[0] === "accept" && args.length === 2) {
     return { kind: "memory-accept", suggestionId: args[1] ?? "" };
   }
-  throw new Error("Usage: forge memory suggest <sessionId> | forge memory accept <suggestionId>");
+  throw new Error(
+    "Usage: forge memory suggest <sessionId> | forge memory accept <suggestionId>",
+  );
 }
 
 function parseResume(args: string[]): ForgeCommand {
   const sessionId = args[0];
-  if (args.includes("--act"))
-    throw new Error("Actionable Session Continuation is not available yet.");
   if (args.includes("--reuse-context"))
-    throw new Error("Context reload for Session Continuation is not available yet.");
-  const unsupportedOption = args.slice(1).find((arg) => arg.startsWith("--"));
+    throw new Error(
+      "Context reload for Session Continuation is not available yet.",
+    );
+  const act = args[1] === "--act";
+  const instructionArgs = args.slice(act ? 2 : 1);
+  const unsupportedOption = instructionArgs.find((arg) => arg.startsWith("--"));
   if (unsupportedOption)
-    throw new Error(`Unsupported Session Continuation option: ${unsupportedOption}`);
-  const instruction = args.slice(1).join(" ").trim();
+    throw new Error(
+      `Unsupported Session Continuation option: ${unsupportedOption}`,
+    );
+  const instruction = instructionArgs.join(" ").trim();
   if (!sessionId || !instruction)
-    throw new Error("Usage: forge resume <sessionId> \"<instruction>\"");
-  return { kind: "resume", sessionId, instruction };
+    throw new Error('Usage: forge resume <sessionId> [--act] "<instruction>"');
+  return { kind: "resume", sessionId, instruction, act };
 }
 
 function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
@@ -147,13 +167,16 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
       const value = args[++i];
       if (!value) throw new Error("Missing value for --budget");
       const parsed = Number(value);
-      if (!Number.isFinite(parsed) || parsed <= 0) throw new Error("--budget must be a positive number");
+      if (!Number.isFinite(parsed) || parsed <= 0)
+        throw new Error("--budget must be a positive number");
       budgetUsd = parsed;
       continue;
     }
     if (arg === "--creative") {
       if (workflow !== "writing")
-        throw new Error("--creative is only available for the writing workflow.");
+        throw new Error(
+          "--creative is only available for the writing workflow.",
+        );
       workflowVariant = "creative";
       continue;
     }
@@ -161,7 +184,9 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
       const value = args[++i];
       if (!value) throw new Error("Missing value for --style");
       if (!isCreativeStyle(value))
-        throw new Error("--style must be one of: vivid, tight, literary, plain");
+        throw new Error(
+          "--style must be one of: vivid, tight, literary, plain",
+        );
       creativeStyle = value;
       continue;
     }
@@ -180,11 +205,18 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
   }
 
   const task = taskParts.join(" ").trim();
-  if (!task) throw new Error(workflow === "writing" ? "Usage: forge write \"<task>\"" : "Usage: forge \"<task>\"");
+  if (!task)
+    throw new Error(
+      workflow === "writing"
+        ? 'Usage: forge write "<task>"'
+        : 'Usage: forge "<task>"',
+    );
   if (creativeStyle && workflowVariant !== "creative")
     throw new Error("--style is only available with --creative.");
   if (workflowVariant === "creative" && !creativeStyle)
-    throw new Error("--creative requires --style <vivid|tight|literary|plain>.");
+    throw new Error(
+      "--creative requires --style <vivid|tight|literary|plain>.",
+    );
   return {
     kind: "run",
     workflow,

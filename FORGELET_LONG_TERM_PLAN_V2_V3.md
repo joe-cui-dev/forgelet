@@ -467,6 +467,8 @@ Allow Forgelet to continue from a prior Session through an explicit Session Cont
 
 Detailed execution plan: [`docs/session-continuation-execution-plan.md`](docs/session-continuation-execution-plan.md).
 
+Actionable continuation plan: [`docs/actionable-session-continuation-execution-plan.md`](docs/actionable-session-continuation-execution-plan.md).
+
 Acceptance criteria:
 
 - `forge resume <sessionId>` without a new instruction is review-only: it shows previous task, lineage, status, changed files, risks, and last summary, but does not execute model or tool steps.

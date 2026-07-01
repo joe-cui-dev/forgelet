@@ -72,6 +72,7 @@ test("CLI shows concise audit highlights for an actionable session", async () =>
           summary: "Changed src/greeting.ts.",
           audit: {
             changeGroups: {
+              inheritedForgeletChanged: ["src/old-greeting.ts"],
               forgeletChanged: ["src/greeting.ts"],
               preExistingAtSessionStart: ["README.md"],
               otherCurrentWorkspaceChanges: ["package.json"],
@@ -109,6 +110,7 @@ test("CLI shows concise audit highlights for an actionable session", async () =>
 
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toMatch(/Audit:/);
+  expect(result.stdout).toMatch(/Inherited Forgelet changes: src\/old-greeting\.ts/);
   expect(result.stdout).toMatch(/Forgelet changed: src\/greeting\.ts/);
   expect(result.stdout).toMatch(/Pre-existing at Session start: README\.md/);
   expect(result.stdout).toMatch(
@@ -234,6 +236,7 @@ test("CLI explains an actionable session from grouped trace evidence", async () 
           summary: "Changed src/greeting.ts.",
           audit: {
             changeGroups: {
+              inheritedForgeletChanged: ["src/old-greeting.ts"],
               forgeletChanged: ["src/greeting.ts"],
               preExistingAtSessionStart: [],
               otherCurrentWorkspaceChanges: [],
@@ -280,6 +283,7 @@ test("CLI explains an actionable session from grouped trace evidence", async () 
   );
   expect(result.stdout).toMatch(/- apply_patch approval: approved/);
   expect(result.stdout).toMatch(/Verification and risks/);
+  expect(result.stdout).toMatch(/Inherited Forgelet changes: src\/old-greeting\.ts/);
   expect(result.stdout).toMatch(/- npm test \(exit 0\)/);
   expect(result.stdout).toMatch(/Forgelet changed: src\/greeting\.ts/);
   expect(result.stdout).toMatch(/Agent Kernel takeaways/);
@@ -685,6 +689,7 @@ test("CLI help documents the active observation config key", async () => {
   expect(result.stdout).toMatch(
     /forge config set activeContext\.observationDigestPreviewBytes 2048/,
   );
+  expect(result.stdout).toMatch(/forge resume <sessionId> --act "<instruction>"/);
   expect(result.stdout).toMatch(
     /config set supports memoryFile, activeContext config keys, and provider API key env vars/,
   );
@@ -801,6 +806,155 @@ test("CLI resume runs a live read-only Session Continuation by default", async (
   expect(modelClient.turnInputs[0]?.messages.map((message) => message.content).join("\n")).toMatch(
     /Continuation Context:/,
   );
+});
+
+test("CLI resume --act runs an actionable Session Continuation with current approval", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-resume-act-"),
+  );
+  await execGit(workspaceRoot, ["init"]);
+  await writeFile(join(workspaceRoot, "example.txt"), "original\n", "utf8");
+  await execGit(workspaceRoot, ["add", "example.txt"]);
+  await execGit(workspaceRoot, ["commit", "-m", "baseline"]);
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  const command = `${process.execPath} -e "console.log('verified')"`;
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "config.json"),
+    JSON.stringify({ safeCommands: [command], commandTimeoutMs: 5_000 }),
+    "utf8",
+  );
+  await execGit(workspaceRoot, ["add", ".forgelet/config.json"]);
+  await execGit(workspaceRoot, ["commit", "-m", "configure safe commands"]);
+
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(sessionDir, { recursive: true });
+  const parentTracePath = join(sessionDir, "sess_parent.jsonl");
+  await writeFile(
+    parentTracePath,
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-06-20T00:00:00.000Z",
+        sessionId: "sess_parent",
+        payload: {
+          workflow: "coding",
+          startedAt: "2026-06-20T00:00:00.000Z",
+        },
+      }),
+      JSON.stringify({
+        type: "user_task",
+        ts: "2026-06-20T00:00:00.000Z",
+        sessionId: "sess_parent",
+        payload: { task: "start the fix" },
+      }),
+      JSON.stringify({
+        type: "permission_decision",
+        ts: "2026-06-20T00:00:01.000Z",
+        sessionId: "sess_parent",
+        payload: {
+          toolCallId: "parent_patch",
+          toolName: "apply_patch",
+          capability: "write_workspace",
+          decision: "confirm",
+        },
+      }),
+      JSON.stringify({
+        type: "approval_decision",
+        ts: "2026-06-20T00:00:02.000Z",
+        sessionId: "sess_parent",
+        payload: {
+          toolCallId: "parent_patch",
+          toolName: "apply_patch",
+          status: "approved",
+          reason: "Approved in parent Session.",
+        },
+      }),
+      JSON.stringify({
+        type: "final_summary",
+        ts: "2026-06-20T00:00:03.000Z",
+        sessionId: "sess_parent",
+        payload: { summary: "Parent gathered actionable evidence." },
+      }),
+      JSON.stringify({
+        type: "session_finished",
+        ts: "2026-06-20T00:00:04.000Z",
+        sessionId: "sess_parent",
+        payload: { status: "completed" },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+  const parentBefore = await readFile(parentTracePath, "utf8");
+
+  const patch = [
+    "diff --git a/example.txt b/example.txt",
+    "--- a/example.txt",
+    "+++ b/example.txt",
+    "@@ -1 +1 @@",
+    "-original",
+    "+changed",
+    "",
+  ].join("\n");
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [{ id: "child_patch", name: "apply_patch", input: { patch } }],
+    },
+    {
+      toolCalls: [
+        { id: "child_command", name: "run_command", input: { command } },
+      ],
+    },
+    { content: "Finished the continuation.", toolCalls: [] },
+  ]);
+  const approvalRequests: string[] = [];
+
+  const result = await runCli(
+    ["resume", "sess_parent", "--act", "finish the fix"],
+    {
+      workspaceRoot,
+      env: {},
+      createLiveModelClient: async () => modelClient,
+      approvalHandler: async (request) => {
+        approvalRequests.push(request.toolCall.name);
+        return {
+          status: "approved",
+          reason: "Approved in child Session.",
+        };
+      },
+    },
+  );
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toMatch(/Continuation: sess_parent -> sess_/);
+  await expect(readFile(join(workspaceRoot, "example.txt"), "utf8")).resolves.toBe(
+    "changed\n",
+  );
+  expect(approvalRequests).toEqual(["apply_patch", "run_command"]);
+  await expect(readFile(parentTracePath, "utf8")).resolves.toBe(parentBefore);
+
+  const traceFiles = await readdir(sessionDir);
+  const childTraceFile = traceFiles.find((entry) => entry !== "sess_parent.jsonl");
+  expect(childTraceFile).toBeDefined();
+  const childTrace = await readFile(
+    join(sessionDir, childTraceFile ?? ""),
+    "utf8",
+  );
+  const childEvents = childTrace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(childEvents.some((event) => event.type === "session_continuation_started")).toBe(
+    true,
+  );
+  expect(childEvents.some((event) => event.type === "continuation_context_loaded")).toBe(
+    true,
+  );
+  expect(childEvents.some((event) => event.type === "workspace_baseline")).toBe(
+    true,
+  );
+  expect(
+    childEvents.filter((event) => event.type === "approval_decision"),
+  ).toHaveLength(2);
 });
 
 test("CLI resume rejects Writing Workflow Sessions in the first slice", async () => {

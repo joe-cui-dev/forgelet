@@ -20,6 +20,7 @@ Usage:
   forge sessions list
   forge sessions show <sessionId>
   forge resume <sessionId> "<instruction>"
+  forge resume <sessionId> --act "<instruction>"
   forge explain <sessionId>
   forge memory suggest <sessionId>
   forge memory accept <suggestionId>
@@ -27,6 +28,6 @@ Usage:
 Forgelet V1 runs scaffolded Sessions by default. Use --live to run a real DeepSeek-backed Session. Repeat --allow-read with workspace-relative file or directory paths to constrain workspace and Git reads for one Session. Add --act for coding runs that may request confirmed file edits and configured commands.
 
 Writing runs return Critique, Revision, and Notes. Creative writing runs use a Creative Brief with optional context and return Critique, Revision, Alternatives, and Notes. Styles: vivid, tight, literary, plain.
-Session Continuation currently supports live read-only Coding Workflow resume with a new instruction.
+Session Continuation supports live Coding Workflow resume. Use plain resume for read-only continuation, or resume --act to request confirmed file edits and configured commands in the new child Session.
 V1 config set supports memoryFile, activeContext config keys, and provider API key env vars.`;
 }

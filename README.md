@@ -149,6 +149,15 @@ forge explain <sessionId>
 
 Actionable Coding Sessions include a structured audit with Forgelet-changed files, pre-existing workspace changes, verification commands, kernel-observed risks, model turns, estimated cost, and Trace path.
 
+Resume a Coding Workflow Session to create a new immutable child Session with compact Continuation Context from its lineage.
+
+```bash
+forge resume <sessionId> "continue from the prior findings"
+forge resume <sessionId> --act "finish the fix and run the configured test"
+```
+
+Plain resume is live and read-only by default. `--act` enables the same actionable Coding Workflow capability path as `forge --live --act`: prior evidence is inherited, but every new patch or command requires approval in the child Session. Final audit output separates inherited Forgelet changes from files changed by the continuation.
+
 Forgelet can suggest Durable Memory from high-confidence Session evidence, but it writes memory only after explicit acceptance.
 
 ```bash
@@ -187,4 +196,4 @@ Project-level `safeCommands`, `testCommands`, `commandTimeoutMs`, `maxPatchBytes
 
 ## V1 Boundaries
 
-Forgelet V1 does not include interactive chat, Session resume, external plugin loading, browser reading, document editor integration, image generation, automatic commit/push/deploy, multi-agent collaboration, or vector database memory.
+Forgelet V1 does not include interactive chat, external plugin loading, browser reading, document editor integration, image generation, automatic commit/push/deploy, multi-agent collaboration, vector database memory, Writing Workflow resume, or arbitrary resume-time model/budget overrides.
