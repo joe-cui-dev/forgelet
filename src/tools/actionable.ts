@@ -68,7 +68,7 @@ const classifyPatch = (
   ctx: ToolContext,
   options: ActionableCodingToolsOptions,
 ): ToolRequest => {
-  const patch = requiredString(input, "patch");
+  const patch = normalizePatch(requiredString(input, "patch"));
   const changedFiles = parsePatchTargets(patch);
   const deleteTargets = parseDeleteTargets(patch);
   const targets = changedFiles.map((path) =>
@@ -94,7 +94,7 @@ const applyPatch = async (
   ctx: ToolContext,
   options: ActionableCodingToolsOptions,
 ): Promise<ToolResult> => {
-  const patch = requiredString(input, "patch");
+  const patch = normalizePatch(requiredString(input, "patch"));
   const patchBytes = Buffer.byteLength(patch, "utf8");
   if (patchBytes > options.maxPatchBytes)
     return {
@@ -226,6 +226,9 @@ const runCommand = async (
     },
   };
 };
+
+const normalizePatch = (patch: string): string =>
+  patch.length > 0 && !patch.endsWith("\n") ? `${patch}\n` : patch;
 
 const parsePatchTargets = (patch: string): string[] => {
   const targets = new Set<string>();

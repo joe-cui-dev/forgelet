@@ -115,6 +115,47 @@ test("apply_patch accepts git-apply compatible unified diff without diff headers
   );
 });
 
+test("apply_patch accepts new-file diffs without a trailing newline", async () => {
+  const workspaceRoot = await createGitWorkspace();
+  const patch = [
+    "diff --git a/example.txt b/example.txt",
+    "new file mode 100644",
+    "index 0000000..7e4a5c3",
+    "--- /dev/null",
+    "+++ b/example.txt",
+    "@@ -0,0 +1,2 @@",
+    "+first",
+    "+second",
+  ].join("\n");
+  const registry = createToolRegistry(
+    createActionableCodingTools({
+      safeCommands: [],
+      commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
+      maxPatchBytes: 100_000,
+      sessionState: {
+        baselineDirtyPaths: new Set(),
+        forgeletTouchedPaths: new Set(),
+      },
+    }),
+    {
+      approvalHandler: async () => ({
+        status: "approved",
+        reason: "Approved by test.",
+      }),
+    },
+  );
+
+  const result = await registry.execute(
+    { id: "call_patch", name: "apply_patch", input: { patch } },
+    testContext(workspaceRoot, ["write_workspace"]),
+  );
+
+  expect(result.observation.ok).toBe(true);
+  await expect(readFile(join(workspaceRoot, "example.txt"), "utf8")).resolves.toBe(
+    "first\nsecond\n",
+  );
+});
+
 test("run_command executes an exact configured command after approval", async () => {
   const workspaceRoot = await createGitWorkspace();
   const command = `${process.execPath} -e "console.log('verified')"`;
