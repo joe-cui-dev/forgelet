@@ -2,7 +2,12 @@ import { basename } from "node:path";
 import type { ContextAttachment, SessionAudit, WorkflowKind } from "../types.js";
 import { listSessionTraceFiles, readTraceFile, sessionTracePath } from "../trace/index.js";
 
-export type SessionStatus = "completed" | "incomplete" | "malformed";
+export type SessionStatus =
+  | "completed"
+  | "stopped"
+  | "failed"
+  | "incomplete"
+  | "malformed";
 
 export interface SessionSummary {
   id: string;
@@ -44,7 +49,7 @@ export async function listSessions(workspaceRoot: string): Promise<SessionSummar
         task: typeof task?.payload.task === "string" ? task.payload.task : "",
         taskHash: asTaskHash(started.payload.taskHash),
         startedAt: typeof started.payload.startedAt === "string" ? started.payload.startedAt : started.ts,
-        status: finished ? "completed" : "incomplete",
+        status: asSessionStatus(finished?.payload.status),
         tracePath
       });
     } catch {
@@ -67,6 +72,12 @@ function asWorkflow(value: unknown): WorkflowKind {
   return value === "writing" ? "writing" : "coding";
 }
 
+function asSessionStatus(value: unknown): SessionStatus {
+  if (value === "completed" || value === "stopped" || value === "failed")
+    return value;
+  return "incomplete";
+}
+
 export async function showSession(workspaceRoot: string, sessionId: string): Promise<SessionDetail> {
   const tracePath = sessionTracePath(workspaceRoot, sessionId);
   const events = await readTraceFile(tracePath);
@@ -87,7 +98,7 @@ export async function showSession(workspaceRoot: string, sessionId: string): Pro
     task: typeof task?.payload.task === "string" ? task.payload.task : "",
     taskHash: asTaskHash(started.payload.taskHash),
     startedAt: typeof started.payload.startedAt === "string" ? started.payload.startedAt : started.ts,
-    status: finished ? "completed" : "incomplete",
+    status: asSessionStatus(finished?.payload.status),
     tracePath,
     contextAttachments,
     route: route ? { model: String(route.payload.model ?? ""), reason: String(route.payload.reason ?? "") } : undefined,

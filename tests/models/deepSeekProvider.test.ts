@@ -1,5 +1,10 @@
 import { expect, test } from "@jest/globals";
-import { DeepSeekModelClient } from "../../src/models/providers/deepseek.js";
+import { PassThrough } from "node:stream";
+import type { IncomingMessage } from "node:http";
+import {
+  DeepSeekModelClient,
+  readDeepSeekResponse,
+} from "../../src/models/providers/deepseek.js";
 
 test("DeepSeekModelClient converts Forgelet turns to chat completions with tools", async () => {
   let requestBody: unknown;
@@ -116,4 +121,22 @@ test("DeepSeekModelClient estimates cost when the API returns token usage withou
   expect(result.usage?.outputTokens).toBe(200);
   expect(Math.abs((result.usage?.estimatedCostUsd ?? 0) - 0.0005658625) <
       Number.EPSILON).toBeTruthy();
+});
+
+test("readDeepSeekResponse rejects when the response is aborted before end", async () => {
+  const response = new PassThrough() as PassThrough & {
+    statusCode?: number;
+  };
+  response.statusCode = 200;
+
+  const result = readDeepSeekResponse(response as unknown as IncomingMessage);
+  response.write('{"choices":');
+  response.emit("aborted");
+  response.emit("error", Object.assign(new Error("socket hang up"), {
+    code: "ECONNRESET",
+  }));
+
+  await expect(result).rejects.toThrow(
+    "DeepSeek API response aborted before completion.",
+  );
 });

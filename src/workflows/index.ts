@@ -255,36 +255,61 @@ export const runWorkflowSession = async (
   // Real model execution is opt-in for now so the CLI scaffold keeps its
   // current behavior until a provider is wired into the command path.
   if (input.modelClient) {
-    const execution = await runReadOnlyLoop({
-      modelClient: input.modelClient,
-      session,
-      contextAttachments,
-      durableMemory,
-      workspaceRoot: input.workspaceRoot,
-      route,
-      plan,
-      limits: {
-        ...config.budgets,
-        maxEstimatedCostUsd:
-          input.budgetUsd ?? config.budgets.maxEstimatedCostUsd,
-      },
-      safeCommands: config.safeCommands,
-      commandTimeoutMs: config.commandTimeoutMs,
-      maxPatchBytes: config.maxPatchBytes,
-      maxObservationBytes: config.activeContext.maxObservationBytes,
-      observationDigestPreviewBytes:
-        config.activeContext.observationDigestPreviewBytes,
-      readScope,
-      act: input.act === true && input.workflow === "coding",
-      baselineDirtyPaths,
-      tracePath: traceWriter.tracePath,
-      continuationContext,
-      approvalHandler: input.approvalHandler,
-      appendTrace: (type, payload) =>
-        traceWriter.append(
-          createTraceEvent(sessionId, type, new Date().toISOString(), payload),
+    let execution: RunReadOnlyLoopResult;
+    try {
+      execution = await runReadOnlyLoop({
+        modelClient: input.modelClient,
+        session,
+        contextAttachments,
+        durableMemory,
+        workspaceRoot: input.workspaceRoot,
+        route,
+        plan,
+        limits: {
+          ...config.budgets,
+          maxEstimatedCostUsd:
+            input.budgetUsd ?? config.budgets.maxEstimatedCostUsd,
+        },
+        safeCommands: config.safeCommands,
+        commandTimeoutMs: config.commandTimeoutMs,
+        maxPatchBytes: config.maxPatchBytes,
+        maxObservationBytes: config.activeContext.maxObservationBytes,
+        observationDigestPreviewBytes:
+          config.activeContext.observationDigestPreviewBytes,
+        readScope,
+        act: input.act === true && input.workflow === "coding",
+        baselineDirtyPaths,
+        tracePath: traceWriter.tracePath,
+        continuationContext,
+        approvalHandler: input.approvalHandler,
+        appendTrace: (type, payload) =>
+          traceWriter.append(
+            createTraceEvent(sessionId, type, new Date().toISOString(), payload),
+          ),
+      });
+    } catch (error) {
+      const failure = modelExecutionFailurePayload(error, traceWriter.tracePath);
+      await traceWriter.append(
+        createTraceEvent(sessionId, "final_summary", new Date().toISOString(), {
+          summary: failure.summary,
+          error: failure.error,
+        }),
+      );
+      await traceWriter.append(
+        createTraceEvent(
+          sessionId,
+          "session_finished",
+          new Date().toISOString(),
+          {
+            status: "failed",
+            reason: "model_execution_error",
+            error: failure.error,
+            finishedAt: new Date().toISOString(),
+          },
         ),
-    });
+      );
+      throw error;
+    }
 
     await traceWriter.append(
       createTraceEvent(sessionId, "final_summary", new Date().toISOString(), {
@@ -345,6 +370,21 @@ export const runWorkflowSession = async (
     session,
     summary: details.join("\n"),
     tracePath: traceWriter.tracePath,
+  };
+};
+
+const modelExecutionFailurePayload = (
+  error: unknown,
+  tracePath: string,
+): { summary: string; error: { message: string; name?: string } } => {
+  const message = error instanceof Error ? error.message : String(error);
+  const name = error instanceof Error ? error.name : undefined;
+  return {
+    summary: withTracePath(`Forgelet session failed: ${message}`, tracePath),
+    error: {
+      message,
+      ...(name ? { name } : {}),
+    },
   };
 };
 

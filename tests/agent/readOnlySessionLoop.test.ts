@@ -1,6 +1,6 @@
 import { expect, test } from "@jest/globals";
 import { execFile } from "child_process";
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from "fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { runAgent } from "../../src/agent/runAgent.js";
@@ -75,6 +75,58 @@ test("a coding Session can search, read, and finish through read-only tools", as
   expect(readResult.payload.path).toBe("example.ts");
   expect("content" in readResult.payload).toBe(false);
   expect(String(readResult.payload.preview)).toMatch(/needle/);
+});
+
+test("a model execution failure is recorded in the Session trace before rethrowing", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-model-failure-"));
+  const modelClient = {
+    async createTurn() {
+      throw new Error("DeepSeek API response aborted before completion.");
+    },
+  };
+
+  await expect(
+    runAgent({
+      workflow: "writing",
+      workflowVariant: "creative",
+      creativeStyle: "vivid",
+      task: "write the scene",
+      contextFiles: [],
+      workspaceRoot,
+      modelClient,
+    }),
+  ).rejects.toThrow("DeepSeek API response aborted before completion.");
+
+  const sessionFiles = await readdir(join(workspaceRoot, ".forgelet", "sessions"));
+  expect(sessionFiles).toHaveLength(1);
+  const trace = await readFile(
+    join(workspaceRoot, ".forgelet", "sessions", sessionFiles[0] ?? ""),
+    "utf8",
+  );
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const finalSummary = events.find((event) => event.type === "final_summary");
+  const finished = events.find((event) => event.type === "session_finished");
+
+  expect(finalSummary?.payload).toMatchObject({
+    summary: expect.stringContaining(
+      "Forgelet session failed: DeepSeek API response aborted before completion.",
+    ),
+    error: {
+      message: "DeepSeek API response aborted before completion.",
+      name: "Error",
+    },
+  });
+  expect(finished?.payload).toMatchObject({
+    status: "failed",
+    reason: "model_execution_error",
+    error: {
+      message: "DeepSeek API response aborted before completion.",
+      name: "Error",
+    },
+  });
 });
 
 test("a Session Continuation includes Continuation Context in the first model input", async () => {

@@ -1,4 +1,5 @@
 import { request } from "node:https";
+import type { IncomingMessage } from "node:http";
 import type {
   JsonSchema,
   ModelClient,
@@ -75,7 +76,7 @@ export class DeepSeekModelClient implements ModelClient {
   }
 }
 
-interface DeepSeekChatRequest {
+export interface DeepSeekChatRequest {
   model: string;
   messages: DeepSeekMessage[];
   tools?: DeepSeekTool[];
@@ -96,7 +97,7 @@ interface DeepSeekTool {
   };
 }
 
-interface DeepSeekChatResponse {
+export interface DeepSeekChatResponse {
   choices?: Array<{
     message?: { content?: string | null; tool_calls?: DeepSeekToolCall[] };
   }>;
@@ -234,6 +235,17 @@ async function postJsonWithHttps(
   const payload = JSON.stringify(body);
   const target = new URL(url);
   return new Promise((resolveResponse, rejectResponse) => {
+    let settled = false;
+    const resolveOnce = (response: DeepSeekChatResponse): void => {
+      if (settled) return;
+      settled = true;
+      resolveResponse(response);
+    };
+    const rejectOnce = (error: unknown): void => {
+      if (settled) return;
+      settled = true;
+      rejectResponse(error);
+    };
     const req = request(
       target,
       {
@@ -244,28 +256,51 @@ async function postJsonWithHttps(
         },
       },
       (res) => {
-        const chunks: Buffer[] = [];
-        res.on("data", (chunk: Buffer) => chunks.push(chunk));
-        res.on("end", () => {
-          const text = Buffer.concat(chunks).toString("utf8");
-          if ((res.statusCode ?? 500) >= 400) {
-            rejectResponse(
-              new Error(
-                `DeepSeek API request failed with ${res.statusCode}: ${text}`,
-              ),
-            );
-            return;
-          }
-          try {
-            resolveResponse(JSON.parse(text) as DeepSeekChatResponse);
-          } catch (error) {
-            rejectResponse(error);
-          }
-        });
+        readDeepSeekResponse(res).then(resolveOnce, rejectOnce);
       },
     );
-    req.on("error", rejectResponse);
+    req.on("error", rejectOnce);
     req.write(payload);
     req.end();
+  });
+}
+
+export function readDeepSeekResponse(
+  res: IncomingMessage,
+): Promise<DeepSeekChatResponse> {
+  return new Promise((resolveResponse, rejectResponse) => {
+    let settled = false;
+    const resolveOnce = (response: DeepSeekChatResponse): void => {
+      if (settled) return;
+      settled = true;
+      resolveResponse(response);
+    };
+    const rejectOnce = (error: unknown): void => {
+      if (settled) return;
+      settled = true;
+      rejectResponse(error);
+    };
+    const chunks: Buffer[] = [];
+    res.on("data", (chunk: Buffer) => chunks.push(chunk));
+    res.on("aborted", () => {
+      rejectOnce(new Error("DeepSeek API response aborted before completion."));
+    });
+    res.on("error", rejectOnce);
+    res.on("end", () => {
+      const text = Buffer.concat(chunks).toString("utf8");
+      if ((res.statusCode ?? 500) >= 400) {
+        rejectOnce(
+          new Error(
+            `DeepSeek API request failed with ${res.statusCode}: ${text}`,
+          ),
+        );
+        return;
+      }
+      try {
+        resolveOnce(JSON.parse(text) as DeepSeekChatResponse);
+      } catch (error) {
+        rejectOnce(error);
+      }
+    });
   });
 }

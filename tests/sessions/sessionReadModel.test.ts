@@ -25,10 +25,20 @@ test("lists completed and incomplete project sessions from traces", async () => 
     JSON.stringify({ type: "session_started", ts: "2026-06-16T00:01:00.000Z", sessionId: "sess_incomplete", payload: { workflow: "writing", startedAt: "2026-06-16T00:01:00.000Z" } }),
     "utf8"
   );
+  await writeFile(
+    join(sessionDir, "sess_failed.jsonl"),
+    [
+      JSON.stringify({ type: "session_started", ts: "2026-06-16T00:02:00.000Z", sessionId: "sess_failed", payload: { workflow: "writing", startedAt: "2026-06-16T00:02:00.000Z" } }),
+      JSON.stringify({ type: "user_task", ts: "2026-06-16T00:02:00.000Z", sessionId: "sess_failed", payload: { task: "write scene" } }),
+      JSON.stringify({ type: "session_finished", ts: "2026-06-16T00:02:01.000Z", sessionId: "sess_failed", payload: { status: "failed" } })
+    ].join("\n"),
+    "utf8"
+  );
 
   const sessions = await listSessions(workspaceRoot);
 
   expect(sessions.map((session) => ({ id: session.id, workflow: session.workflow, status: session.status, task: session.task }))).toEqual([
+      { id: "sess_failed", workflow: "writing", status: "failed", task: "write scene" },
       { id: "sess_incomplete", workflow: "writing", status: "incomplete", task: "" },
       { id: "sess_completed", workflow: "coding", status: "completed", task: "fix tests" }
     ]);
