@@ -548,7 +548,7 @@ test("CLI preview prints run shape without creating a model-backed Session", asy
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-preview-"));
   let modelFactoryCalled = false;
 
-  const result = await runCli(["--preview", "inspect this repo"], {
+  const result = await runCli(["code", "--preview", "inspect this repo"], {
     workspaceRoot,
     createLiveModelClient: async () => {
       modelFactoryCalled = true;
@@ -579,6 +579,7 @@ test("CLI preview reports action posture, read scope, context, and budget", asyn
 
   const result = await runCli(
     [
+      "code",
       "--preview",
       "--act",
       "--context",
@@ -612,7 +613,7 @@ test("CLI preview succeeds for unsupported provider routes as not runnable", asy
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-preview-route-"));
 
   const result = await runCli(
-    ["--preview", "--model", "gpt-5", "inspect this repo"],
+    ["code", "--preview", "--model", "gpt-5", "inspect this repo"],
     { workspaceRoot },
   );
 
@@ -664,7 +665,7 @@ test("CLI default coding run creates a model-backed Session", async () => {
   let factoryWorkflow: string | undefined;
   const liveEventTypes: string[] = [];
 
-  const result = await runCli(["inspect this repo"], {
+  const result = await runCli(["code", "inspect this repo"], {
     workspaceRoot,
     env: {},
     createLiveModelClient: async (input) => {
@@ -1184,6 +1185,7 @@ test("CLI records repeated --allow-read entries as the Session Read Scope", asyn
   await writeFile(join(workspaceRoot, "README.md"), "Forgelet\n", "utf8");
   const result = await runCli(
     [
+      "code",
       "--allow-read",
       "./README.md",
       "--allow-read",
@@ -1218,12 +1220,46 @@ test("CLI rejects absolute Session Read Scope paths", async () => {
   await writeFile(allowedPath, "Forgelet\n", "utf8");
 
   const result = await runCli(
-    ["--allow-read", allowedPath, "inspect allowed files"],
+    ["code", "--allow-read", allowedPath, "inspect allowed files"],
     { workspaceRoot },
   );
 
   expect(result.exitCode).toBe(1);
   expect(result.stderr).toMatch(/--allow-read paths must be workspace-relative/);
+});
+
+test("CLI rejects bare coding input without calling a model", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-bare-code-"));
+  let modelFactoryCalled = false;
+
+  const result = await runCli(["inspect repo"], {
+    workspaceRoot,
+    createLiveModelClient: async () => {
+      modelFactoryCalled = true;
+      return new FakeModelClient([{ content: "should not run", toolCalls: [] }]);
+    },
+  });
+
+  expect(result.exitCode).toBe(1);
+  expect(modelFactoryCalled).toBe(false);
+  expect(result.stderr).toMatch(/Unknown command: inspect repo/);
+});
+
+test("CLI rejects singular session command input without calling a model", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-session-typo-"));
+  let modelFactoryCalled = false;
+
+  const result = await runCli(["session", "list"], {
+    workspaceRoot,
+    createLiveModelClient: async () => {
+      modelFactoryCalled = true;
+      return new FakeModelClient([{ content: "should not run", toolCalls: [] }]);
+    },
+  });
+
+  expect(result.exitCode).toBe(1);
+  expect(modelFactoryCalled).toBe(false);
+  expect(result.stderr).toMatch(/Unknown command: session/);
 });
 
 test("CLI rejects the removed --live option before provider validation", async () => {
@@ -1243,7 +1279,7 @@ test("CLI rejects the removed --live option before route validation", async () =
     join(tmpdir(), "forgelet-cli-live-route-"),
   );
 
-  const result = await runCli(["--live", "--model", "gpt-5", "inspect repo"], {
+  const result = await runCli(["code", "--live", "--model", "gpt-5", "inspect repo"], {
     workspaceRoot,
     env: { DEEPSEEK_API_KEY: "test-key" },
   });
@@ -1255,7 +1291,7 @@ test("CLI rejects the removed --live option before route validation", async () =
 test("CLI default model-backed run explains missing DeepSeek API key", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-missing-key-"));
 
-  const result = await runCli(["inspect repo"], {
+  const result = await runCli(["code", "inspect repo"], {
     workspaceRoot,
     env: {},
   });
@@ -1265,7 +1301,7 @@ test("CLI default model-backed run explains missing DeepSeek API key", async () 
     /DEEPSEEK_API_KEY is required for model-backed Sessions/,
   );
   expect(result.stderr).toMatch(/Set it in \.env/);
-  expect(result.stderr).toMatch(/forge --preview "<task>"/);
+  expect(result.stderr).toMatch(/forge code --preview "<task>"/);
 });
 
 test("CLI default model-backed run rejects unsupported provider routes", async () => {
@@ -1273,7 +1309,7 @@ test("CLI default model-backed run rejects unsupported provider routes", async (
     join(tmpdir(), "forgelet-cli-unsupported-route-"),
   );
 
-  const result = await runCli(["--model", "gpt-5", "inspect repo"], {
+  const result = await runCli(["code", "--model", "gpt-5", "inspect repo"], {
     workspaceRoot,
     env: { DEEPSEEK_API_KEY: "test-key" },
   });

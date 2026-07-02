@@ -67,13 +67,18 @@ export function parseArgs(argv: string[]): ForgeCommand {
     return parseResume(args.slice(1));
   }
 
+  if (first === "code") {
+    return parseRun(args.slice(1), "coding");
+  }
+
   if (first === "write") {
     if (args[1] === "resume")
       throw new Error("Writing Workflow resume is not available yet.");
     return parseRun(args.slice(1), "writing");
   }
 
-  return parseRun(args, "coding");
+  if (first?.startsWith("-")) throw new Error(`Unknown option: ${first}`);
+  throw new Error(`Unknown command: ${first}`);
 }
 
 function parseConfig(args: string[]): ForgeCommand {
@@ -154,12 +159,14 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (arg === "--context") {
+      rejectOptionAfterTask(taskParts, arg);
       const value = args[++i];
       if (!value) throw new Error("Missing value for --context");
       contextFiles.push(value);
       continue;
     }
     if (arg === "--continue") {
+      rejectOptionAfterTask(taskParts, arg);
       const value = args[++i];
       if (!value) throw new Error("Missing value for --continue");
       if (continuationFile)
@@ -172,18 +179,21 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
       continue;
     }
     if (arg === "--allow-read") {
+      rejectOptionAfterTask(taskParts, arg);
       const value = args[++i];
       if (!value) throw new Error("Missing value for --allow-read");
       allowedReadPaths.push(value);
       continue;
     }
     if (arg === "--model") {
+      rejectOptionAfterTask(taskParts, arg);
       const value = args[++i];
       if (!value) throw new Error("Missing value for --model");
       model = value;
       continue;
     }
     if (arg === "--budget") {
+      rejectOptionAfterTask(taskParts, arg);
       const value = args[++i];
       if (!value) throw new Error("Missing value for --budget");
       const parsed = Number(value);
@@ -193,6 +203,7 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
       continue;
     }
     if (arg === "--creative") {
+      rejectOptionAfterTask(taskParts, arg);
       if (workflow !== "writing")
         throw new Error(
           "--creative is only available for the writing workflow.",
@@ -201,6 +212,7 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
       continue;
     }
     if (arg === "--style") {
+      rejectOptionAfterTask(taskParts, arg);
       const value = args[++i];
       if (!value) throw new Error("Missing value for --style");
       if (!isCreativeStyle(value))
@@ -211,10 +223,12 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
       continue;
     }
     if (arg === "--preview") {
+      rejectOptionAfterTask(taskParts, arg);
       preview = true;
       continue;
     }
     if (arg === "--act") {
+      rejectOptionAfterTask(taskParts, arg);
       if (workflow !== "coding")
         throw new Error("--act is only available for the coding workflow.");
       act = true;
@@ -229,7 +243,7 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
     throw new Error(
       workflow === "writing"
         ? 'Usage: forge write "<task>"'
-        : 'Usage: forge "<task>"',
+        : 'Usage: forge code "<task>"',
     );
   if (creativeStyle && workflowVariant !== "creative")
     throw new Error("--style is only available with --creative.");
@@ -264,6 +278,11 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
     preview,
     act,
   };
+}
+
+function rejectOptionAfterTask(taskParts: string[], option: string): void {
+  if (taskParts.length > 0)
+    throw new Error(`Unknown option after task: ${option}`);
 }
 
 function isCreativeStyle(value: string): value is CreativeStyle {

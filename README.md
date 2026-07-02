@@ -40,19 +40,20 @@ not score prose quality or write revised prose back to the repo.
 By default, Forgelet creates a model-backed read-only Coding Session. Read-only Sessions can search, read files, inspect git status/diff, update the Session plan, and write Trace evidence.
 
 ```bash
-forge "inspect this repo"
+forge code "inspect this repo"
 ```
 
 Use `--preview` to inspect the route, budget, read scope, and capabilities without calling a model or creating a Session or Trace.
 
 ```bash
-forge --preview --budget 0.10 "inspect this repo and summarize the CLI entrypoint"
+forge code --preview --budget 0.10 "inspect this repo and summarize the CLI entrypoint"
 ```
 
 For a narrow dogfood run, repeat `--allow-read` with workspace-relative file or directory paths. Directories allow their descendants; entries are literal paths, not globs.
 
 ```bash
 forge \
+  code \
   --allow-read README.md \
   --allow-read src/workflows \
   "summarize the workflow"
@@ -63,7 +64,7 @@ The resulting Session Read Scope filters workspace search/list and Git status/di
 Use `--act` only when you want the Coding Workflow to request confirmed file edits and configured commands.
 
 ```bash
-forge --act --budget 0.25 "fix the small failing test"
+forge code --act --budget 0.25 "fix the small failing test"
 ```
 
 Actionable Sessions may request:
@@ -146,7 +147,7 @@ precondition for short-form creative rewriting.
 Attach text context with `--context`.
 
 ```bash
-forge --context issue.md "implement this issue"
+forge code --context issue.md "implement this issue"
 forge write --context draft.md "revise this"
 ```
 
@@ -171,7 +172,7 @@ forge resume <sessionId> "continue from the prior findings"
 forge resume <sessionId> --act "finish the fix and run the configured test"
 ```
 
-Plain resume is model-backed and read-only by default. `--act` enables the same actionable Coding Workflow capability path as `forge --act`: prior evidence is inherited, but every new patch or command requires approval in the child Session. Final audit output separates inherited Forgelet changes from files changed by the continuation.
+Plain resume is model-backed and read-only by default. `--act` enables the same actionable Coding Workflow capability path as `forge code --act`: prior evidence is inherited, but every new patch or command requires approval in the child Session. Final audit output separates inherited Forgelet changes from files changed by the continuation.
 
 Forgelet can suggest Durable Memory from high-confidence Session evidence, but it writes memory only after explicit acceptance.
 
@@ -204,7 +205,7 @@ forge config set providers.anthropic.apiKeyEnv ANTHROPIC_API_KEY
 Model defaults and routing are defined in `src/config/index.ts`. Use `--model` for a one-run override:
 
 ```bash
-forge --model deepseek-v4-pro "inspect this repo"
+forge code --model deepseek-v4-pro "inspect this repo"
 ```
 
 Project-level `safeCommands`, `testCommands`, `commandTimeoutMs`, `maxPatchBytes`, and `activeContext` overrides belong in `.forgelet/config.json`. The active observation target defaults to 16384 UTF-8 bytes and controls best-effort compaction of old model-visible tool results; it is not a provider token limit or a Session stop budget. Observation Digest excerpts default to 2048 UTF-8 bytes per compacted result.

@@ -2,20 +2,20 @@ export function helpText(): string {
   return `Forgelet
 
 Usage:
-  forge "<task>"
-  forge --preview "<task>"
-  forge --preview --act "<task>"
-  forge --context issue.md "<task>"
-  forge --allow-read README.md --allow-read src/workflows "<task>"
+  forge code "<task>"
+  forge code --preview "<task>"
+  forge code --preview --act "<task>"
+  forge code --context issue.md "<task>"
+  forge code --allow-read README.md --allow-read src/workflows "<task>"
   forge write --preview --context draft.md "revise this"
   forge write --context draft.md "revise this"
   forge write --creative --style vivid "write a rain-soaked convenience store scene"
   forge write --preview --creative --style vivid "write a rain-soaked convenience store scene"
   forge write --creative --style vivid --context scene.md "revise this scene"
   forge write --creative --style vivid --continue .forgelet/writing/chapter-1.md "continue the next chapter"
-  forge --model deepseek-v4-pro "<task>"
+  forge code --model deepseek-v4-pro "<task>"
   forge --version | -v
-  forge --budget 0.25 "<task>"
+  forge code --budget 0.25 "<task>"
   forge config get
   forge config set <key> <value>
   forge config set activeContext.maxObservationBytes 16384

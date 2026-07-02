@@ -268,7 +268,7 @@ async function createDeepSeekLiveModelClient(
   const apiKey = input.env[apiKeyEnv];
   if (!apiKey)
     throw new Error(
-      `${apiKeyEnv} is required for model-backed Sessions. Set it in .env, or run forge --preview "<task>" to inspect routing without calling a model.`,
+      `${apiKeyEnv} is required for model-backed Sessions. Set it in .env, or run forge code --preview "<task>" to inspect routing without calling a model.`,
     );
   return new DeepSeekModelClient({ apiKey, model: route.model });
 }

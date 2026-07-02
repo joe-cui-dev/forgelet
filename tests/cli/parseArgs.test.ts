@@ -2,7 +2,7 @@ import { expect, test } from "@jest/globals";
 import { parseArgs } from "../../src/cli/parseArgs.js";
 
 test("parses a simple run task", () => {
-  expect(parseArgs(["fix", "tests"])).toEqual({
+  expect(parseArgs(["code", "fix tests"])).toEqual({
     kind: "run",
     workflow: "coding",
     task: "fix tests",
@@ -15,7 +15,7 @@ test("parses a simple run task", () => {
 });
 
 test("parses run options", () => {
-  expect(parseArgs(["--preview", "--context", "issue.md", "--allow-read", "src", "--model", "deepseek-v4-pro", "--budget", "0.25", "fix bug"])).toEqual({
+  expect(parseArgs(["code", "--preview", "--context", "issue.md", "--allow-read", "src", "--model", "deepseek-v4-pro", "--budget", "0.25", "fix bug"])).toEqual({
     kind: "run",
     workflow: "coding",
     task: "fix bug",
@@ -29,7 +29,7 @@ test("parses run options", () => {
 });
 
 test("parses actionable coding runs", () => {
-  expect(parseArgs(["--preview", "--act", "fix bug"])).toEqual({
+  expect(parseArgs(["code", "--preview", "--act", "fix bug"])).toEqual({
     kind: "run",
     workflow: "coding",
     task: "fix bug",
@@ -42,8 +42,19 @@ test("parses actionable coding runs", () => {
 });
 
 test("rejects the removed --live option", () => {
-  expect(() => parseArgs(["--live", "fix bug"])).toThrow(
+  expect(() => parseArgs(["code", "--live", "fix bug"])).toThrow(
     /Unknown option: --live/,
+  );
+});
+
+test("rejects bare coding tasks and top-level run options", () => {
+  expect(() => parseArgs(["fix tests"])).toThrow(/Unknown command: fix tests/);
+  expect(() => parseArgs(["session", "list"])).toThrow(/Unknown command: session/);
+  expect(() => parseArgs(["--preview", "fix bug"])).toThrow(
+    /Unknown option: --preview/,
+  );
+  expect(() => parseArgs(["--act", "fix bug"])).toThrow(
+    /Unknown option: --act/,
   );
 });
 
@@ -90,9 +101,18 @@ test("rejects unsupported Session Continuation shapes", () => {
 });
 
 test("rejects --allow-read without a path", () => {
-  expect(() => parseArgs(["--allow-read"])).toThrow(
+  expect(() => parseArgs(["code", "--allow-read"])).toThrow(
     /Missing value for --allow-read/,
   );
+});
+
+test("rejects run options after the task", () => {
+  expect(() => parseArgs(["code", "fix bug", "--preview"])).toThrow(
+    /Unknown option after task: --preview/,
+  );
+  expect(() =>
+    parseArgs(["write", "revise this", "--context", "draft.md"]),
+  ).toThrow(/Unknown option after task: --context/);
 });
 
 test("rejects actionable writing runs", () => {
@@ -229,7 +249,7 @@ test("parses a creative Writing Artifact Continuation", () => {
 
 test("rejects misplaced Writing Artifact Continuation options", () => {
   expect(() =>
-    parseArgs(["--continue", "chapter-1.md", "continue the next chapter"]),
+    parseArgs(["code", "--continue", "chapter-1.md", "continue the next chapter"]),
   ).toThrow(/--continue is only available for the writing workflow/);
   expect(() =>
     parseArgs(["write", "--continue", "chapter-1.md", "continue the next chapter"]),
@@ -317,5 +337,7 @@ test("parses memory commands", () => {
 });
 
 test("rejects missing task", () => {
-  expect(() => parseArgs(["--model", "deepseek-v4-pro"])).toThrow(/Usage: forge/);
+  expect(() => parseArgs(["code", "--model", "deepseek-v4-pro"])).toThrow(
+    /Usage: forge code/,
+  );
 });

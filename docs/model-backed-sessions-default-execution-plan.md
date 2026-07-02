@@ -4,6 +4,7 @@
 
 - Glossary term: `Session Preview` in `CONTEXT.md`.
 - ADR: `docs/adr/0016-model-backed-sessions-are-the-default.md`.
+- ADR: `docs/adr/0017-explicit-workflow-commands.md`.
 - Existing related decisions:
   - `docs/adr/0005-workflow-stage-model-routing.md`
   - `docs/adr/0006-workflow-capability-grants.md`
@@ -14,8 +15,8 @@
 Make ordinary Forgelet Coding and Writing Workflow commands run model-backed Sessions by default:
 
 ```bash
-forge "inspect this repo"
-forge --act "fix the failing test"
+forge code "inspect this repo"
+forge code --act "fix the failing test"
 forge write --context draft.md "revise this"
 forge write --creative --style vivid "write a scene"
 ```
@@ -32,16 +33,17 @@ forge write --creative --style vivid "write a scene"
 
 ## Behavior Contract
 
-- `forge "<task>"` runs a model-backed read-only Coding Session.
-- `forge --act "<task>"` runs a model-backed Coding Session with the actionable Coding Workflow capability path enabled.
+- `forge code "<task>"` runs a model-backed read-only Coding Session.
+- `forge code --act "<task>"` runs a model-backed Coding Session with the actionable Coding Workflow capability path enabled.
 - `forge write ...` runs a model-backed Writing Session.
-- `forge --preview "<task>"` returns a Session Preview and does not create a Session or Trace.
-- `forge --preview --act "<task>"` returns a Session Preview for the actionable Coding Workflow posture; it does not request approval or mutate anything.
+- `forge code --preview "<task>"` returns a Session Preview and does not create a Session or Trace.
+- `forge code --preview --act "<task>"` returns a Session Preview for the actionable Coding Workflow posture; it does not request approval or mutate anything.
 - `forge write --preview ...` returns a Writing Workflow Session Preview.
 - `--act` remains invalid for Writing Workflow runs, including `forge write --preview --act ...`.
 - `--preview` does not require `DEEPSEEK_API_KEY`; it reports the required provider env var instead.
 - A real model-backed run without the required provider env fails with a clear error that points to `.env` and `--preview`.
 - `--preview --model <id>` reports the selected route and `Runnable: yes` only when current live execution supports that route. For unsupported routes, preview succeeds with `Runnable: no` and a reason; real execution fails.
+- Bare Coding input such as `forge "<task>"` and top-level run options such as `forge --preview "<task>"` fail as unknown command or option input.
 - `--live` is an unknown option after this change.
 
 ## Delivery Slices
@@ -54,13 +56,15 @@ Acceptance criteria:
 
 - `src/cli/parseArgs.ts` replaces the run-command `live` field with `preview: boolean`.
 - Parser accepts:
-  - `forge --preview "<task>"`
-  - `forge --preview --act "<task>"`
-  - `forge --preview --context issue.md --allow-read src --budget 0.10 "<task>"`
+  - `forge code --preview "<task>"`
+  - `forge code --preview --act "<task>"`
+  - `forge code --preview --context issue.md --allow-read src --budget 0.10 "<task>"`
   - `forge write --preview --context draft.md "revise this"`
   - `forge write --preview --creative --style vivid "write a scene"`
 - Parser rejects:
-  - `forge --live "<task>"`
+  - `forge code --live "<task>"`
+  - `forge "<task>"`
+  - `forge --preview "<task>"`
   - `forge write --preview --act "revise this"`
   - missing values for existing options such as `--context`, `--allow-read`, `--model`, and `--budget`
 - `src/cli/index.ts` handles preview before creating a model client or calling `runAgent(...)`.
@@ -90,7 +94,7 @@ Suggested TDD path:
 
 1. Update `tests/cli/parseArgs.test.ts` to add `preview: false` on ordinary parsed runs and `preview: true` on preview runs.
 2. Add parser tests proving `--live` is rejected as an unknown option.
-3. Add parser tests for `forge --preview --act ...` and `forge write --preview ...`.
+3. Add parser tests for `forge code --preview --act ...`, bare Coding input rejection, top-level run option rejection, and `forge write --preview ...`.
 4. Add CLI integration tests in `tests/cli/cliIntegration.test.ts` proving preview does not call an injected `createLiveModelClient`.
 5. Add a CLI integration test that runs preview in a temp workspace and asserts `.forgelet/sessions` is absent or empty.
 6. Add preview output assertions for normal DeepSeek routing, unsupported `--model gpt-5`, action mode, read scope, and writing workflow variants.
@@ -116,13 +120,13 @@ Acceptance criteria:
 - `ForgeCommand` no longer has a `live` field.
 - `src/cli/parseArgs.ts` rejects `--live`.
 - `src/cli/index.ts` creates a live model client for every non-preview run command.
-- `runCli(["inspect repo"], { createLiveModelClient })` calls the injected model-client factory.
+- `runCli(["code", "inspect repo"], { createLiveModelClient })` calls the injected model-client factory.
 - `runCli(["write", ...], { createLiveModelClient })` calls the injected model-client factory with `workflow: "writing"`.
 - `onLiveEvent` is available for ordinary model-backed runs, not gated behind `command.live`.
 - Real runs without the required DeepSeek API key fail with wording like:
 
 ```text
-DEEPSEEK_API_KEY is required for model-backed Sessions. Set it in .env, or run forge --preview "<task>" to inspect routing without calling a model.
+DEEPSEEK_API_KEY is required for model-backed Sessions. Set it in .env, or run forge code --preview "<task>" to inspect routing without calling a model.
 ```
 
 - Real runs with non-DeepSeek model routes still fail before model execution with current provider-support wording updated away from `--live`.
@@ -131,7 +135,7 @@ DEEPSEEK_API_KEY is required for model-backed Sessions. Set it in .env, or run f
   - intentionally remain low-level scaffold tests if the seam is still useful, with wording that does not describe CLI behavior, or
   - be updated to pass `FakeModelClient` when they assert real Session behavior.
 - `tests/cli/cliIntegration.test.ts` updates all `["--live", ...]` invocations to ordinary default run commands.
-- `tests/cli/cliIntegration.test.ts` updates `["--live", "--act", ...]` to `["--act", ...]`.
+- `tests/cli/cliIntegration.test.ts` updates `["--live", "--act", ...]` to `["code", "--act", ...]`.
 - `tests/cli/cliIntegration.test.ts` updates writing tests from `["write", "--live", ...]` to `["write", ...]`.
 - Scaffold-output assertions such as `Execution is scaffolded` are removed from CLI expectations.
 - `README.md`, `src/cli/help.ts`, `src/smoke/writingCreative.ts`, `tests/smoke/writingCreativeSmoke.test.ts`, and any docs found by `rg -- '--live'` are updated to the new command shape.
@@ -177,10 +181,10 @@ npm run build
 Optional manual checks after build:
 
 ```bash
-node dist/cli/index.js --preview "inspect this repo"
-node dist/cli/index.js --preview --act "fix the failing test"
+node dist/cli/index.js code --preview "inspect this repo"
+node dist/cli/index.js code --preview --act "fix the failing test"
 node dist/cli/index.js write --preview --creative --style vivid "write a scene"
-node dist/cli/index.js --live "inspect this repo"
+node dist/cli/index.js code --live "inspect this repo"
 ```
 
 Expected manual behavior:
@@ -192,7 +196,7 @@ If a DeepSeek key is available, run one narrow dogfood Session after all determi
 
 ```bash
 npm run smoke:deepseek
-node dist/cli/index.js --allow-read README.md --budget 0.10 "summarize the CLI defaults"
+node dist/cli/index.js code --allow-read README.md --budget 0.10 "summarize the CLI defaults"
 ```
 
 ## Files Likely To Change
