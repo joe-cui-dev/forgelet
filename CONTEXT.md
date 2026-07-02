@@ -76,6 +76,10 @@ _Avoid_: Durable memory, full transcript replay, hidden chat history
 The chronological record of events that actually occurred during a **Session**. A **Trace** is evidence for review, explanation, and memory provenance; it should not contain simulated model turns, tool calls, or permission decisions that did not happen.
 _Avoid_: Transcript, log dump, demo script
 
+**Session Preview**:
+A non-persistent view of how Forgelet would run a task, including the selected **Workflow**, routing, budget, read scope, and capability grants. A Session Preview is not a **Session** and must not write a **Trace**.
+_Avoid_: Dry-run Session, scaffolded trace, fake Session
+
 **Context Attachment**:
 User-provided or user-approved material attached to a **Session** so a **Workflow** can use it as task context. A **Trace** should record attachment provenance, size, hash, and a short preview rather than silently turning the attachment into durable full-text storage.
 _Avoid_: Prompt paste, hidden source, trace content
