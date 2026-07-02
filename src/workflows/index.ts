@@ -288,8 +288,8 @@ export const runWorkflowSession = async (
     createTraceEvent(sessionId, "plan_update", now, { plan }),
   );
 
-  // Real model execution is opt-in for now so the CLI scaffold keeps its
-  // current behavior until a provider is wired into the command path.
+  // Deterministic low-level tests may omit a model client. Public CLI runs pass
+  // a model client and do not use this branch.
   if (input.modelClient) {
     let execution: RunReadOnlyLoopResult;
     try {
@@ -415,7 +415,7 @@ export const runWorkflowSession = async (
 
   await traceWriter.append(
     createTraceEvent(sessionId, "final_summary", now, {
-      summary: "Execution is scaffolded; no model turn was run.",
+      summary: "Execution used deterministic test seam; model client was omitted.",
     }),
   );
   await emitLiveEvent(input.onLiveEvent, {
@@ -442,7 +442,7 @@ export const runWorkflowSession = async (
       ? `Context attachments: ${input.contextFiles.join(", ")}`
       : "Context attachments: none",
     `Route: ${route.model} (${route.reason})`,
-    "Execution: scaffold only; no model turn was run.",
+    "Execution: deterministic test seam; model client was omitted.",
     `Trace: ${traceWriter.tracePath}`,
   ];
 

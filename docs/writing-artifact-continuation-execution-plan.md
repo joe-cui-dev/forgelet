@@ -11,7 +11,7 @@
 Let a user continue prose from an existing Markdown Writing Artifact through the Creative Writing Workflow:
 
 ```bash
-forge write --live --creative --style vivid --continue .forgelet/writing/chapter-1.md "continue the next chapter"
+forge write --creative --style vivid --continue .forgelet/writing/chapter-1.md "continue the next chapter"
 ```
 
 The selected artifact is the continuation source. The result is a Draft Pack with one continued draft, saved as a new `.forgelet/writing/` artifact without overwriting the source.
@@ -56,7 +56,7 @@ Acceptance criteria:
   - missing `--continue` value
   - repeated `--continue`
   - `--continue` paths with unsupported extensions
-- Parser keeps existing `--context`, `--style`, `--live`, `--model`, and `--budget` behavior unchanged.
+- Parser keeps existing `--context`, `--style`, `--model`, and `--budget` behavior unchanged.
 
 Suggested TDD path:
 

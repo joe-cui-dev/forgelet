@@ -14,6 +14,9 @@ test("CLI lists and shows project sessions", async () => {
     task: "fix tests",
     contextFiles: [],
     workspaceRoot,
+    modelClient: new FakeModelClient([
+      { content: "Fixed tests summary.", toolCalls: [] },
+    ]),
   });
 
   const list = await runCli(["sessions", "list"], { workspaceRoot });
@@ -39,7 +42,7 @@ test("CLI lists and shows project sessions", async () => {
   expect(show.stdout).toMatch(/Workflow: coding/);
   expect(show.stdout).toMatch(/Task: fix tests/);
   expect(show.stdout).toMatch(new RegExp(`Task hash: ${taskHash}`));
-  expect(show.stdout).toMatch(/Execution is scaffolded/);
+  expect(show.stdout).toMatch(/Fixed tests summary/);
 });
 
 test("CLI shows concise audit highlights for an actionable session", async () => {
@@ -653,6 +656,78 @@ test("CLI preview reports creative writing variants without persistence", async 
   await expect(readdir(join(workspaceRoot, ".forgelet", "sessions"))).rejects.toThrow();
 });
 
+test("CLI default coding run creates a model-backed Session", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-default-model-"));
+  const modelClient = new FakeModelClient([
+    { content: "Inspected the repo.", toolCalls: [] },
+  ]);
+  let factoryWorkflow: string | undefined;
+  const liveEventTypes: string[] = [];
+
+  const result = await runCli(["inspect this repo"], {
+    workspaceRoot,
+    env: {},
+    createLiveModelClient: async (input) => {
+      factoryWorkflow = input.workflow;
+      return modelClient;
+    },
+    onLiveEvent: async (event) => {
+      liveEventTypes.push(event.type);
+    },
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(factoryWorkflow).toBe("coding");
+  expect(result.stdout).toMatch(/Inspected the repo\./);
+  expect(result.stdout).not.toMatch(/scaffold/);
+  expect(modelClient.turnInputs).toHaveLength(1);
+  expect(liveEventTypes).toContain("session_started");
+  expect(liveEventTypes).toContain("model_turn_started");
+  expect(liveEventTypes).toContain("session_finished");
+
+  const tracePath = result.stdout.match(/Trace: (.+)$/m)?.[1];
+  const events = (await readFile(tracePath ?? "", "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(events.some((event) => event.type === "model_turn")).toBe(true);
+});
+
+test("CLI default writing run creates a model-backed Writing Session", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-default-writing-model-"),
+  );
+  const modelClient = new FakeModelClient([
+    { content: "Revision\n\nA clearer draft.", toolCalls: [] },
+  ]);
+  let factoryWorkflow: string | undefined;
+
+  const result = await runCli(["write", "revise this"], {
+    workspaceRoot,
+    env: {},
+    createLiveModelClient: async (input) => {
+      factoryWorkflow = input.workflow;
+      return modelClient;
+    },
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(factoryWorkflow).toBe("writing");
+  expect(result.stdout).toMatch(/Revision/);
+  expect(result.stdout).not.toMatch(/scaffold/);
+  expect(modelClient.turnInputs).toHaveLength(1);
+
+  const tracePath = result.stdout.match(/Trace: (.+)$/m)?.[1];
+  const events = (await readFile(tracePath ?? "", "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(
+    events.find((event) => event.type === "session_started")?.payload.workflow,
+  ).toBe("writing");
+  expect(events.some((event) => event.type === "model_turn")).toBe(true);
+});
+
 function execNode(
   args: string[],
   cwd: string,
@@ -1117,6 +1192,9 @@ test("CLI records repeated --allow-read entries as the Session Read Scope", asyn
     ],
     {
       workspaceRoot,
+      env: {},
+      createLiveModelClient: async () =>
+        new FakeModelClient([{ content: "Inspected allowed files.", toolCalls: [] }]),
     },
   );
 
@@ -1172,4 +1250,37 @@ test("CLI rejects the removed --live option before route validation", async () =
 
   expect(result.exitCode).toBe(1);
   expect(result.stderr).toMatch(/Unknown option: --live/);
+});
+
+test("CLI default model-backed run explains missing DeepSeek API key", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-missing-key-"));
+
+  const result = await runCli(["inspect repo"], {
+    workspaceRoot,
+    env: {},
+  });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toMatch(
+    /DEEPSEEK_API_KEY is required for model-backed Sessions/,
+  );
+  expect(result.stderr).toMatch(/Set it in \.env/);
+  expect(result.stderr).toMatch(/forge --preview "<task>"/);
+});
+
+test("CLI default model-backed run rejects unsupported provider routes", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-unsupported-route-"),
+  );
+
+  const result = await runCli(["--model", "gpt-5", "inspect repo"], {
+    workspaceRoot,
+    env: { DEEPSEEK_API_KEY: "test-key" },
+  });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toMatch(
+    /Model-backed execution currently supports DeepSeek models only/,
+  );
+  expect(result.stderr).toMatch(/Route selected gpt-5/);
 });

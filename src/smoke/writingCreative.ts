@@ -184,7 +184,6 @@ async function runForgeCli(
       [
         cliPath,
         "write",
-        "--live",
         "--creative",
         "--style",
         "vivid",

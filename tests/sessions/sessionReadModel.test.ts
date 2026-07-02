@@ -63,7 +63,7 @@ test("shows a session summary from its trace events", async () => {
   expect(session.contextAttachments.length).toBe(1);
   expect(session.contextAttachments[0]?.title).toBe("draft.md");
   expect(session.route?.model).toBe("deepseek-v4-flash");
-  expect(session.finalSummary).toMatch(/no model turn was run/);
+  expect(session.finalSummary).toMatch(/deterministic test seam/);
 });
 
 test("shows structured final audit facts from an actionable session trace", async () => {

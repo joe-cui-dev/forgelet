@@ -21,7 +21,14 @@ import {
   createTerminalSessionLiveEventSink,
   type SessionLiveEventSink,
 } from "../sessionLiveView/index.js";
-import type { MemorySuggestion, ModelClient, SessionAudit, WorkflowKind } from "../types.js";
+import type {
+  MemorySuggestion,
+  ModelClient,
+  ModelTurnInput,
+  ModelTurnOutput,
+  SessionAudit,
+  WorkflowKind,
+} from "../types.js";
 import type { ApprovalHandler, ApprovalRequest } from "../tools/toolRegistry.js";
 
 export interface RunCliOptions {
@@ -68,6 +75,16 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
           });
           return ok(formatSessionPreview(command, config));
         }
+        const modelClient = createDeferredLiveModelClient(
+          {
+            workflow: command.workflow,
+            modelOverride: command.model,
+            homeDir: options.homeDir,
+            workspaceRoot,
+            env: options.env ?? process.env,
+          },
+          options.createLiveModelClient ?? createDeepSeekLiveModelClient,
+        );
         const result = await runAgent({
           workflow: command.workflow,
           workflowVariant: command.workflowVariant,
@@ -81,10 +98,12 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
           budgetUsd: command.budgetUsd,
           homeDir: options.homeDir,
           workspaceRoot,
+          modelClient,
           act: command.act,
           approvalHandler: command.act
             ? options.approvalHandler ?? createTerminalApprovalHandler()
             : undefined,
+          onLiveEvent: options.onLiveEvent,
         });
         return ok(result.summary);
       }
@@ -242,14 +261,14 @@ async function createDeepSeekLiveModelClient(
   const route = routeModel(config, input.workflow, input.modelOverride);
   if (!route.model.startsWith("deepseek-")) {
     throw new Error(
-      `Live execution currently supports DeepSeek models only. Route selected ${route.model}.`,
+      `Model-backed execution currently supports DeepSeek models only. Route selected ${route.model}.`,
     );
   }
   const apiKeyEnv = config.providers.deepseek.apiKeyEnv;
   const apiKey = input.env[apiKeyEnv];
   if (!apiKey)
     throw new Error(
-      `${apiKeyEnv} is required for model-backed DeepSeek execution.`,
+      `${apiKeyEnv} is required for model-backed Sessions. Set it in .env, or run forge --preview "<task>" to inspect routing without calling a model.`,
     );
   return new DeepSeekModelClient({ apiKey, model: route.model });
 }
@@ -318,6 +337,22 @@ function providerForModel(
     };
   }
   return { name: "unknown", apiKeyEnv: "unknown" };
+}
+
+function createDeferredLiveModelClient(
+  input: CreateLiveModelClientInput,
+  factory: (input: CreateLiveModelClientInput) => Promise<ModelClient>,
+): ModelClient {
+  let clientPromise: Promise<ModelClient> | undefined;
+  return {
+    createTurn: async (
+      turnInput: ModelTurnInput,
+    ): Promise<ModelTurnOutput> => {
+      clientPromise ??= factory(input);
+      const client = await clientPromise;
+      return client.createTurn(turnInput);
+    },
+  };
 }
 
 function formatPreviewBudget(

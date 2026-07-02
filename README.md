@@ -19,7 +19,7 @@ npm test
 
 ## DeepSeek Setup
 
-Live Sessions currently use DeepSeek routes. Copy `.env.example` to `.env` and set `DEEPSEEK_API_KEY`.
+Model-backed Sessions currently use DeepSeek routes. Copy `.env.example` to `.env` and set `DEEPSEEK_API_KEY`.
 
 ```bash
 cp .env.example .env
@@ -37,22 +37,22 @@ not score prose quality or write revised prose back to the repo.
 
 ## Coding Workflow
 
-By default, Forgelet creates a scaffolded Session and writes a JSONL Trace without calling a model.
+By default, Forgelet creates a model-backed read-only Coding Session. Read-only Sessions can search, read files, inspect git status/diff, update the Session plan, and write Trace evidence.
 
 ```bash
 forge "inspect this repo"
 ```
 
-Use `--live` for a real DeepSeek-backed read-only Session. Read-only Sessions can search, read files, inspect git status/diff, update the Session plan, and write Trace evidence.
+Use `--preview` to inspect the route, budget, read scope, and capabilities without calling a model or creating a Session or Trace.
 
 ```bash
-forge --live --budget 0.10 "inspect this repo and summarize the CLI entrypoint"
+forge --preview --budget 0.10 "inspect this repo and summarize the CLI entrypoint"
 ```
 
 For a narrow dogfood run, repeat `--allow-read` with workspace-relative file or directory paths. Directories allow their descendants; entries are literal paths, not globs.
 
 ```bash
-forge --live \
+forge \
   --allow-read README.md \
   --allow-read src/workflows \
   "summarize the workflow"
@@ -60,10 +60,10 @@ forge --live \
 
 The resulting Session Read Scope filters workspace search/list and Git status/diff results, and denies direct reads outside the scope. It applies only to that Session. Explicit `--context` attachments remain available to the model but do not grant tool access to their paths.
 
-Use `--live --act` only when you want the Coding Workflow to request confirmed file edits and configured commands.
+Use `--act` only when you want the Coding Workflow to request confirmed file edits and configured commands.
 
 ```bash
-forge --live --act --budget 0.25 "fix the small failing test"
+forge --act --budget 0.25 "fix the small failing test"
 ```
 
 Actionable Sessions may request:
@@ -78,7 +78,7 @@ Each patch or command goes through Forgelet's Permission Policy and interactive 
 The Writing Workflow uses context and model text generation without workspace, git, patch, or command tools.
 
 ```bash
-forge write --live --context draft.md "revise this for clarity"
+forge write --context draft.md "revise this for clarity"
 ```
 
 V1 writing output is shaped as:
@@ -97,14 +97,14 @@ Notes
 Use `--creative` with an explicit style for short-form creative writing. The
 Creative Brief can stand alone for original drafting, or it can be combined with
 one or more `--context` attachments for revision. The command prints a Draft
-Pack for prompt-only briefs or a Revision Pack for attached source text. Live
+Pack for prompt-only briefs or a Revision Pack for attached source text. Model-backed
 writing Sessions also save the drafted or revised prose to `.forgelet/writing/`
 by default without overwriting context attachments.
 
 ```bash
-forge write --live --creative --style vivid "write a rain-soaked convenience store scene"
-forge write --live --creative --style vivid --context scene.md "revise this scene"
-forge write --live --creative --style vivid --continue .forgelet/writing/chapter-1.md "continue the next chapter"
+forge write --creative --style vivid "write a rain-soaked convenience store scene"
+forge write --creative --style vivid --context scene.md "revise this scene"
+forge write --creative --style vivid --continue .forgelet/writing/chapter-1.md "continue the next chapter"
 ```
 
 Built-in styles are `vivid`, `tight`, `literary`, and `plain`.
@@ -146,8 +146,8 @@ precondition for short-form creative rewriting.
 Attach text context with `--context`.
 
 ```bash
-forge --live --context issue.md "implement this issue"
-forge write --live --context draft.md "revise this"
+forge --context issue.md "implement this issue"
+forge write --context draft.md "revise this"
 ```
 
 V1 supports `.md`, `.txt`, `.log`, and `.json`. Trace records attachment metadata, size, hash, and preview; full attachment content is sent only to the active model prompt within limits.
@@ -171,7 +171,7 @@ forge resume <sessionId> "continue from the prior findings"
 forge resume <sessionId> --act "finish the fix and run the configured test"
 ```
 
-Plain resume is live and read-only by default. `--act` enables the same actionable Coding Workflow capability path as `forge --live --act`: prior evidence is inherited, but every new patch or command requires approval in the child Session. Final audit output separates inherited Forgelet changes from files changed by the continuation.
+Plain resume is model-backed and read-only by default. `--act` enables the same actionable Coding Workflow capability path as `forge --act`: prior evidence is inherited, but every new patch or command requires approval in the child Session. Final audit output separates inherited Forgelet changes from files changed by the continuation.
 
 Forgelet can suggest Durable Memory from high-confidence Session evidence, but it writes memory only after explicit acceptance.
 
@@ -204,7 +204,7 @@ forge config set providers.anthropic.apiKeyEnv ANTHROPIC_API_KEY
 Model defaults and routing are defined in `src/config/index.ts`. Use `--model` for a one-run override:
 
 ```bash
-forge --live --model deepseek-v4-pro "inspect this repo"
+forge --model deepseek-v4-pro "inspect this repo"
 ```
 
 Project-level `safeCommands`, `testCommands`, `commandTimeoutMs`, `maxPatchBytes`, and `activeContext` overrides belong in `.forgelet/config.json`. The active observation target defaults to 16384 UTF-8 bytes and controls best-effort compaction of old model-visible tool results; it is not a provider token limit or a Session stop budget. Observation Digest excerpts default to 2048 UTF-8 bytes per compacted result.
