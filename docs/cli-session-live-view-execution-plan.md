@@ -39,7 +39,7 @@ Acceptance criteria:
 - Interactive CLI entrypoint enables Session Live View automatically for model-backed Sessions when stdout and stderr are TTYs.
 - Non-interactive `runCli()` and piped CLI output remain script-friendly unless a future explicit flag opts in.
 - Live view, approval prompts, and interactive patch previews render to stderr.
-- stdout remains reserved for the final Session summary.
+- Non-interactive stdout remains reserved for the final Session summary. Interactive `forge write` may suppress replaying final prose that already streamed and show only compact artifact/Trace handles.
 - Trace files do not gain fake progress, spinner, waiting, or token-delta events.
 
 Suggested TDD path:

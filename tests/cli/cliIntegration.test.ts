@@ -4,7 +4,10 @@ import { mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from "fs/promis
 import { join } from "path";
 import { tmpdir } from "os";
 import { runAgent } from "../../src/agent/runAgent.js";
-import { runCli } from "../../src/cli/index.js";
+import {
+  createInteractiveTerminalOutputController,
+  runCli,
+} from "../../src/cli/index.js";
 import { FakeModelClient } from "../../src/models/testing/index.js";
 
 test("CLI lists and shows project sessions", async () => {
@@ -727,6 +730,76 @@ test("CLI default writing run creates a model-backed Writing Session", async () 
     events.find((event) => event.type === "session_started")?.payload.workflow,
   ).toBe("writing");
   expect(events.some((event) => event.type === "model_turn")).toBe(true);
+});
+
+test("interactive terminal suppresses repeated writing stdout after final answer streamed", async () => {
+  const writes: string[] = [];
+  const terminalOutput = createInteractiveTerminalOutputController((text) => {
+    writes.push(text);
+  });
+
+  await terminalOutput.onLiveEvent({
+    type: "model_turn_started",
+    turnIndex: 0,
+    model: "deepseek-v4-flash",
+  });
+  await terminalOutput.onLiveEvent({
+    type: "model_output_delta",
+    turnIndex: 0,
+    model: "deepseek-v4-flash",
+    text: "Revision\n\nA clearer draft.",
+  });
+  await terminalOutput.onLiveEvent({
+    type: "model_turn_finished",
+    turnIndex: 0,
+    model: "deepseek-v4-flash",
+    toolCallCount: 0,
+  });
+
+  expect(terminalOutput.shouldSuppressFinalStdout(["write", "revise this"])).toBe(
+    true,
+  );
+  expect(terminalOutput.shouldSuppressFinalStdout(["code", "inspect repo"])).toBe(
+    false,
+  );
+  expect(
+    terminalOutput.formatSuppressedFinalStdoutFooter(
+      [
+        "Revision",
+        "",
+        "A clearer draft.",
+        "Writing artifact: .forgelet/writing/revise-this.md (draft, 16 bytes)",
+        "Trace: /tmp/work/.forgelet/sessions/sess_123.jsonl",
+      ].join("\n"),
+    ),
+  ).toBe(
+    [
+      "Writing artifact: .forgelet/writing/revise-this.md (draft, 16 bytes)",
+      "Trace: /tmp/work/.forgelet/sessions/sess_123.jsonl",
+    ].join("\n"),
+  );
+  expect(writes.join("")).toContain("A clearer draft.");
+});
+
+test("interactive terminal keeps writing stdout when streamed output was not final", async () => {
+  const terminalOutput = createInteractiveTerminalOutputController(() => {});
+
+  await terminalOutput.onLiveEvent({
+    type: "model_output_delta",
+    turnIndex: 0,
+    model: "deepseek-v4-flash",
+    text: "I need to inspect context first.",
+  });
+  await terminalOutput.onLiveEvent({
+    type: "model_turn_finished",
+    turnIndex: 0,
+    model: "deepseek-v4-flash",
+    toolCallCount: 1,
+  });
+
+  expect(terminalOutput.shouldSuppressFinalStdout(["write", "revise this"])).toBe(
+    false,
+  );
 });
 
 function execNode(

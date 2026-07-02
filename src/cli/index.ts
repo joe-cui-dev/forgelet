@@ -19,6 +19,7 @@ import {
 } from "../sessions/continuation.js";
 import {
   createTerminalSessionLiveEventSink,
+  type SessionLiveEvent,
   type SessionLiveEventSink,
 } from "../sessionLiveView/index.js";
 import type {
@@ -54,6 +55,12 @@ export interface CreateLiveModelClientInput {
   homeDir?: string;
   workspaceRoot: string;
   env: NodeJS.ProcessEnv;
+}
+
+export interface InteractiveTerminalOutputController {
+  onLiveEvent: SessionLiveEventSink;
+  shouldSuppressFinalStdout: (argv: string[]) => boolean;
+  formatSuppressedFinalStdoutFooter: (stdout: string) => string;
 }
 
 export async function runCli(argv: string[], options: RunCliOptions = {}): Promise<RunCliResult> {
@@ -569,15 +576,89 @@ function formatList(items: string[]): string {
   return items.length > 0 ? items.join(", ") : "none";
 }
 
+export function createInteractiveTerminalOutputController(
+  write: (text: string) => void,
+): InteractiveTerminalOutputController {
+  const terminalLiveView = createTerminalSessionLiveEventSink(write);
+  const turnsWithStreamedOutput = new Set<number>();
+  let finalAnswerStreamed = false;
+
+  return {
+    onLiveEvent: async (event) => {
+      observeStreamedFinalAnswer(event, turnsWithStreamedOutput, (streamed) => {
+        finalAnswerStreamed = streamed;
+      });
+      await terminalLiveView(event);
+    },
+    shouldSuppressFinalStdout: (argv) =>
+      finalAnswerStreamed && isInteractiveWritingRun(argv),
+    formatSuppressedFinalStdoutFooter,
+  };
+}
+
+function observeStreamedFinalAnswer(
+  event: SessionLiveEvent,
+  turnsWithStreamedOutput: Set<number>,
+  setFinalAnswerStreamed: (streamed: boolean) => void,
+): void {
+  if (event.type === "model_output_delta" && event.text.length > 0) {
+    turnsWithStreamedOutput.add(event.turnIndex);
+    return;
+  }
+
+  if (
+    event.type === "model_turn_finished" &&
+    event.toolCallCount === 0 &&
+    turnsWithStreamedOutput.has(event.turnIndex)
+  ) {
+    setFinalAnswerStreamed(true);
+  }
+}
+
+function isInteractiveWritingRun(argv: string[]): boolean {
+  try {
+    const command = parseArgs(argv);
+    return (
+      command.kind === "run" &&
+      command.workflow === "writing" &&
+      !command.preview
+    );
+  } catch {
+    return false;
+  }
+}
+
+function formatSuppressedFinalStdoutFooter(stdout: string): string {
+  return stdout
+    .split("\n")
+    .filter(
+      (line) =>
+        line.startsWith("Writing artifact: ") || line.startsWith("Trace: "),
+    )
+    .join("\n");
+}
+
 async function main(): Promise<void> {
-  const terminalLiveView =
+  const terminalOutput =
     process.stdout.isTTY && process.stderr.isTTY
-      ? createTerminalSessionLiveEventSink((line) => process.stderr.write(line))
+      ? createInteractiveTerminalOutputController((line) =>
+          process.stderr.write(line),
+        )
       : undefined;
-  const result = await runCli(process.argv.slice(2), {
-    onLiveEvent: terminalLiveView,
+  const argv = process.argv.slice(2);
+  const result = await runCli(argv, {
+    onLiveEvent: terminalOutput?.onLiveEvent,
   });
-  if (result.stdout) console.log(result.stdout);
+  if (result.stdout) {
+    if (terminalOutput?.shouldSuppressFinalStdout(argv)) {
+      const footer = terminalOutput.formatSuppressedFinalStdoutFooter(
+        result.stdout,
+      );
+      if (footer) process.stderr.write(`${footer}\n`);
+    } else {
+      console.log(result.stdout);
+    }
+  }
   if (result.stderr) console.error(result.stderr);
   process.exitCode = result.exitCode;
 }

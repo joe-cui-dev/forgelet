@@ -25,7 +25,7 @@ Do not duplicate these artifacts; reference them:
   - V2 Issue 9 states that Session Live View comes before provider-level Model Output Stream.
 - ADR:
   - `/Users/xiaozhoucui/repos/forgelet/docs/adr/0015-cli-session-live-view-is-presentation.md`
-  - Key constraint: live presentation is not Trace evidence; stdout remains final-summary-only while interactive progress goes to stderr.
+  - Key constraint: live presentation is not Trace evidence; interactive progress goes to stderr. Non-interactive stdout and `runCli` remain complete final-summary surfaces, while interactive `forge write` may suppress replaying a final answer that already streamed.
 - Prior execution plan:
   - `/Users/xiaozhoucui/repos/forgelet/docs/cli-session-live-view-execution-plan.md`
   - Slice 2 is the relevant section: Provider Model Output Stream.
@@ -78,7 +78,7 @@ Start from these files:
 - Non-interactive runs, runs without a live-event sink, and script-oriented output should continue using the existing non-streaming provider path by default. Do not add a separate `--stream` flag in the first slice.
 - The first implementation should be one complete vertical slice across the provider-agnostic contract, live event, terminal sink, workflow bridge, DeepSeek SSE parser, and CLI integration. Keep the tests layered so kernel/live-view behavior can still be verified with deterministic fakes before exercising provider parsing.
 - Do not create a new ADR for the first Model Output Stream slice. ADR 0015 already records the durable presentation-vs-Trace decision; these streaming decisions should stay in this handoff unless later provider experience reveals a harder architectural trade-off.
-- Final validation should include `npm test`, `npm run typecheck`, and one narrow real DeepSeek dogfood Session. The dogfood should confirm streamed model text appears on stderr, stdout remains reserved for the final Session summary, and the project-local Trace does not persist `model_output_delta` or other token-delta dump events.
+- Final validation should include `npm test`, `npm run typecheck`, and one narrow real DeepSeek dogfood Session. The dogfood should confirm streamed model text appears on stderr, non-interactive stdout remains a complete final summary, interactive `forge write` does not replay streamed final prose, and the project-local Trace does not persist `model_output_delta` or other token-delta dump events.
 
 ## Grill-Me Topics For The Next Session
 
@@ -124,7 +124,7 @@ Recommended first questions:
 
 ## Implementation Constraints To Preserve
 
-- stdout remains reserved for the final Session summary.
+- Non-interactive stdout remains reserved for the final Session summary. In an interactive `forge write` run where the final answer already streamed, the CLI entrypoint may suppress the full stdout replay and show only compact artifact/Trace handles.
 - interactive progress and streaming presentation should go to stderr unless a later design explicitly changes that contract.
 - Trace must remain evidence-first and should not become a token-delta dump.
 - Final `ModelTurnOutput` must still be assembled for the workflow loop, because tool-call execution, final-answer detection, usage, and audit logic depend on it.
@@ -154,7 +154,7 @@ After design decisions are locked, likely validation should include:
 - fake-model or fake-provider tests proving deltas are emitted without changing Trace events
 - DeepSeek provider tests for streamed text chunks, final assembled `ModelTurnOutput`, tool-call buffering if supported, HTTP error, invalid stream, and aborted stream
 - workflow test proving a streamed final answer still completes normally
-- CLI test proving stdout remains final summary while stderr receives live/stream output
+- CLI test proving non-interactive stdout remains final summary while stderr receives live/stream output, plus an interactive `forge write` check proving streamed final prose is not replayed.
 - `npm test`
 - `npm run typecheck`
 
