@@ -612,6 +612,106 @@ test("CLI preview reports action posture, read scope, context, and budget", asyn
   expect(result.stdout).toMatch(/patch requests, configured command requests/);
 });
 
+test("CLI prints the current browser snapshot metadata", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-browser-"));
+  const homeDir = await mkdtemp(join(tmpdir(), "forgelet-cli-browser-home-"));
+  await mkdir(join(homeDir, ".forgelet", "browser"), { recursive: true });
+  await writeFile(
+    join(homeDir, ".forgelet", "browser", "current-page.json"),
+    JSON.stringify(
+      {
+        url: "https://example.com/issue/123",
+        title: "Fix checkout bug",
+        capturedAt: new Date().toISOString(),
+        selectedText: "The checkout button throws after payment auth.",
+        mainText: "Longer page text that should not be used while selected text exists.",
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+
+  const result = await runCli(["browser", "read-current"], {
+    homeDir,
+    workspaceRoot,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toMatch(/Browser Context Snapshot/);
+  expect(result.stdout).toMatch(/URL: https:\/\/example\.com\/issue\/123/);
+  expect(result.stdout).toMatch(/Title: Fix checkout bug/);
+  expect(result.stdout).toMatch(/Content: selectedText/);
+  expect(result.stdout).toMatch(/Content bytes: 46/);
+});
+
+test("CLI preview with browser context shows the browser source before a Session", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-browser-preview-"));
+  const homeDir = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-browser-preview-home-"),
+  );
+  await mkdir(join(homeDir, ".forgelet", "browser"), { recursive: true });
+  await writeFile(
+    join(homeDir, ".forgelet", "browser", "current-page.json"),
+    JSON.stringify({
+      url: "https://example.com/article",
+      title: "Readable Browser Context",
+      capturedAt: new Date().toISOString(),
+      selectedText: "Use this selected passage for the draft.",
+      mainText: "The full article should not be preferred here.",
+    }),
+    "utf8",
+  );
+
+  const result = await runCli(
+    ["write", "--preview", "--with-browser", "turn this into an outline"],
+    {
+      homeDir,
+      workspaceRoot,
+      createLiveModelClient: async () => {
+        throw new Error("model factory should not be called for preview");
+      },
+    },
+  );
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toMatch(/Session Preview/);
+  expect(result.stdout).toMatch(/Context attachments: browser: Readable Browser Context/);
+  expect(result.stdout).toMatch(/Browser context:/);
+  expect(result.stdout).toMatch(/URL: https:\/\/example\.com\/article/);
+  expect(result.stdout).toMatch(/Title: Readable Browser Context/);
+  expect(result.stdout).toMatch(/Content: selectedText/);
+  expect(result.stdout).toMatch(/Content bytes: 40/);
+});
+
+test("CLI with browser context rejects stale browser snapshots", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-browser-stale-"));
+  const homeDir = await mkdtemp(join(tmpdir(), "forgelet-cli-browser-stale-home-"));
+  await mkdir(join(homeDir, ".forgelet", "browser"), { recursive: true });
+  await writeFile(
+    join(homeDir, ".forgelet", "browser", "current-page.json"),
+    JSON.stringify({
+      url: "https://example.com/old",
+      title: "Old Page",
+      capturedAt: "2000-01-01T00:00:00.000Z",
+      mainText: "This should be too old to use.",
+    }),
+    "utf8",
+  );
+
+  const result = await runCli(
+    ["code", "--preview", "--with-browser", "use the current page"],
+    { homeDir, workspaceRoot },
+  );
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toMatch(/Browser snapshot is stale/);
+  expect(result.stderr).toMatch(/Share the current page again/);
+});
+
 test("CLI preview succeeds for unsupported provider routes as not runnable", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-preview-route-"));
 
@@ -697,6 +797,69 @@ test("CLI default coding run creates a model-backed Session", async () => {
   expect(events.some((event) => event.type === "model_turn")).toBe(true);
 });
 
+test("CLI coding run with browser context attaches browser content without storing full page text in the Trace", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-browser-code-"));
+  const homeDir = await mkdtemp(join(tmpdir(), "forgelet-cli-browser-code-home-"));
+  await mkdir(join(homeDir, ".forgelet", "browser"), { recursive: true });
+  await writeFile(
+    join(homeDir, ".forgelet", "browser", "current-page.json"),
+    JSON.stringify({
+      url: "https://github.com/acme/app/issues/42",
+      title: "Checkout button fails",
+      capturedAt: new Date().toISOString(),
+      selectedText: "Clicking checkout raises TypeError in PaymentButton.",
+      mainText: "Full issue body that should not be preferred.",
+    }),
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([
+    { content: "Used the browser issue context.", toolCalls: [] },
+  ]);
+
+  const result = await runCli(
+    ["code", "--with-browser", "implement the issue I am viewing"],
+    {
+      homeDir,
+      workspaceRoot,
+      env: {},
+      createLiveModelClient: async () => modelClient,
+    },
+  );
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toMatch(/Browser context:/);
+  expect(result.stdout).toMatch(/URL: https:\/\/github\.com\/acme\/app\/issues\/42/);
+  expect(result.stdout).toMatch(/Content: selectedText/);
+
+  const firstUserMessage = modelClient.turnInputs[0]?.messages.find(
+    (message) => message.role === "user",
+  )?.content;
+  expect(firstUserMessage).toMatch(/Context attachments:/);
+  expect(firstUserMessage).toMatch(/source: browser/);
+  expect(firstUserMessage).toMatch(/title: Checkout button fails/);
+  expect(firstUserMessage).toMatch(/uri: https:\/\/github\.com\/acme\/app\/issues\/42/);
+  expect(firstUserMessage).toMatch(/Clicking checkout raises TypeError/);
+  expect(firstUserMessage).not.toMatch(/Full issue body/);
+
+  const tracePath = result.stdout.match(/Trace: (.+)$/m)?.[1];
+  const events = (await readFile(tracePath ?? "", "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const contextEvent = events.find(
+    (event) => event.type === "context_attachment",
+  );
+  expect(contextEvent?.payload).toMatchObject({
+    source: "browser",
+    title: "Checkout button fails",
+    uri: "https://github.com/acme/app/issues/42",
+    trustLevel: "external",
+  });
+  expect("content" in contextEvent.payload).toBe(false);
+  expect(JSON.stringify(contextEvent.payload)).not.toMatch(/Full issue body/);
+});
+
 test("CLI default writing run creates a model-backed Writing Session", async () => {
   const workspaceRoot = await mkdtemp(
     join(tmpdir(), "forgelet-cli-default-writing-model-"),
@@ -730,6 +893,48 @@ test("CLI default writing run creates a model-backed Writing Session", async () 
     events.find((event) => event.type === "session_started")?.payload.workflow,
   ).toBe("writing");
   expect(events.some((event) => event.type === "model_turn")).toBe(true);
+});
+
+test("CLI writing run with browser context falls back to main page text", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-browser-write-"));
+  const homeDir = await mkdtemp(join(tmpdir(), "forgelet-cli-browser-write-home-"));
+  await mkdir(join(homeDir, ".forgelet", "browser"), { recursive: true });
+  await writeFile(
+    join(homeDir, ".forgelet", "browser", "current-page.json"),
+    JSON.stringify({
+      url: "https://example.com/article",
+      title: "How Tiny Tools Shape Writing",
+      capturedAt: new Date().toISOString(),
+      mainText: "Small local tools can make drafting feel lighter and more source-linked.",
+    }),
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([
+    { content: "Outline\n\n1. Tiny tools", toolCalls: [] },
+  ]);
+
+  const result = await runCli(
+    ["write", "--with-browser", "turn this into an outline"],
+    {
+      homeDir,
+      workspaceRoot,
+      env: {},
+      createLiveModelClient: async () => modelClient,
+    },
+  );
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toMatch(/Content: mainText/);
+
+  const firstUserMessage = modelClient.turnInputs[0]?.messages.find(
+    (message) => message.role === "user",
+  )?.content;
+  expect(firstUserMessage).toMatch(/source: browser/);
+  expect(firstUserMessage).toMatch(/title: How Tiny Tools Shape Writing/);
+  expect(firstUserMessage).toMatch(
+    /Small local tools can make drafting feel lighter/,
+  );
 });
 
 test("interactive terminal suppresses repeated writing stdout after final answer streamed", async () => {

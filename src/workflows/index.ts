@@ -24,6 +24,10 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
+import {
+  browserSnapshotToContextAttachment,
+  type LoadedBrowserSnapshot,
+} from "../browser/index.js";
 import { loadConfig, routeModel } from "../config/index.js";
 import { loadContextAttachments } from "../context/index.js";
 import { compactConversationInPlace } from "../conversation/compaction.js";
@@ -52,6 +56,7 @@ export interface RunWorkflowInput {
   creativeInputKind?: CreativeInputKind;
   task: string;
   contextFiles: string[];
+  browserSnapshot?: LoadedBrowserSnapshot;
   continuationFile?: string;
   allowedReadPaths?: string[];
   model?: string;
@@ -175,12 +180,21 @@ export const runWorkflowSession = async (
       ? await gitStatusPaths(input.workspaceRoot)
       : new Set<string>();
   const loadedContextAttachments = await loadWritingContextAttachments(input);
+  const allLoadedContextAttachments = input.browserSnapshot
+    ? [
+        ...loadedContextAttachments,
+        browserSnapshotToContextAttachment(
+          input.browserSnapshot,
+          `ctx_${loadedContextAttachments.length + 1}`,
+        ),
+      ]
+    : loadedContextAttachments;
   const continuationAttachment = input.continuationFile
-    ? loadedContextAttachments[0]
+    ? allLoadedContextAttachments[0]
     : undefined;
   const contextAttachments = input.continuationFile
-    ? loadedContextAttachments.slice(1)
-    : loadedContextAttachments;
+    ? allLoadedContextAttachments.slice(1)
+    : allLoadedContextAttachments;
   const durableMemory = input.modelClient
     ? await loadDurableMemory(input.workspaceRoot)
     : undefined;
@@ -254,7 +268,7 @@ export const runWorkflowSession = async (
       ),
     );
   }
-  for (const contextAttachment of loadedContextAttachments) {
+  for (const contextAttachment of allLoadedContextAttachments) {
     await traceWriter.append(
       createTraceEvent(
         sessionId,

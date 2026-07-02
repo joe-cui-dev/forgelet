@@ -28,6 +28,34 @@ test("parses run options", () => {
   });
 });
 
+test("parses browser context commands", () => {
+  expect(parseArgs(["browser", "read-current"])).toEqual({
+    kind: "browser-read-current",
+  });
+  expect(parseArgs(["code", "--with-browser", "implement this issue"])).toEqual({
+    kind: "run",
+    workflow: "coding",
+    task: "implement this issue",
+    contextFiles: [],
+    withBrowser: true,
+    model: undefined,
+    budgetUsd: undefined,
+    preview: false,
+    act: false,
+  });
+  expect(parseArgs(["write", "--with-browser", "turn this into an outline"])).toEqual({
+    kind: "run",
+    workflow: "writing",
+    task: "turn this into an outline",
+    contextFiles: [],
+    withBrowser: true,
+    model: undefined,
+    budgetUsd: undefined,
+    preview: false,
+    act: false,
+  });
+});
+
 test("parses actionable coding runs", () => {
   expect(parseArgs(["code", "--preview", "--act", "fix bug"])).toEqual({
     kind: "run",

@@ -10,6 +10,7 @@ import type {
 import type { ApprovalHandler } from "../tools/toolRegistry.js";
 import { runWorkflowSession } from "../workflows/index.js";
 import type { SessionLiveEventSink } from "../sessionLiveView/index.js";
+import type { LoadedBrowserSnapshot } from "../browser/index.js";
 
 export interface RunAgentInput {
   workflow?: WorkflowKind;
@@ -18,6 +19,7 @@ export interface RunAgentInput {
   creativeInputKind?: CreativeInputKind;
   task: string;
   contextFiles: string[];
+  browserSnapshot?: LoadedBrowserSnapshot;
   continuationFile?: string;
   allowedReadPaths?: string[];
   model?: string;
@@ -46,6 +48,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     creativeInputKind: input.creativeInputKind,
     task: input.task,
     contextFiles: input.contextFiles,
+    browserSnapshot: input.browserSnapshot,
     continuationFile: input.continuationFile,
     allowedReadPaths: input.allowedReadPaths,
     model: input.model,

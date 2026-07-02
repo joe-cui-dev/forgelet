@@ -14,6 +14,7 @@ export type ForgeCommand =
       creativeInputKind?: CreativeInputKind;
       task: string;
       contextFiles: string[];
+      withBrowser?: boolean;
       continuationFile?: string;
       allowedReadPaths?: string[];
       model?: string;
@@ -29,6 +30,7 @@ export type ForgeCommand =
   | { kind: "explain"; sessionId: string }
   | { kind: "memory-suggest"; sessionId: string }
   | { kind: "memory-accept"; suggestionId: string }
+  | { kind: "browser-read-current" }
   | { kind: "help" }
   | { kind: "version" };
 
@@ -57,6 +59,10 @@ export function parseArgs(argv: string[]): ForgeCommand {
     return parseMemory(args.slice(1));
   }
 
+  if (first === "browser") {
+    return parseBrowser(args.slice(1));
+  }
+
   if (first === "explain") {
     const sessionId = args[1];
     if (!sessionId) throw new Error("Usage: forge explain <sessionId>");
@@ -79,6 +85,13 @@ export function parseArgs(argv: string[]): ForgeCommand {
 
   if (first?.startsWith("-")) throw new Error(`Unknown option: ${first}`);
   throw new Error(`Unknown command: ${first}`);
+}
+
+function parseBrowser(args: string[]): ForgeCommand {
+  if (args[0] === "read-current" && args.length === 1) {
+    return { kind: "browser-read-current" };
+  }
+  throw new Error("Usage: forge browser read-current");
 }
 
 function parseConfig(args: string[]): ForgeCommand {
@@ -154,6 +167,7 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
   let continuationFile: string | undefined;
   let preview = false;
   let act = false;
+  let withBrowser = false;
   const taskParts: string[] = [];
 
   for (let i = 0; i < args.length; i += 1) {
@@ -163,6 +177,11 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
       const value = args[++i];
       if (!value) throw new Error("Missing value for --context");
       contextFiles.push(value);
+      continue;
+    }
+    if (arg === "--with-browser") {
+      rejectOptionAfterTask(taskParts, arg);
+      withBrowser = true;
       continue;
     }
     if (arg === "--continue") {
@@ -271,6 +290,7 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
     ...(creativeInputKind ? { creativeInputKind } : {}),
     task,
     contextFiles,
+    ...(withBrowser ? { withBrowser } : {}),
     ...(continuationFile ? { continuationFile } : {}),
     ...(allowedReadPaths.length > 0 ? { allowedReadPaths } : {}),
     model,

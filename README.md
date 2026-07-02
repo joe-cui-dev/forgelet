@@ -153,6 +153,20 @@ forge write --context draft.md "revise this"
 
 V1 supports `.md`, `.txt`, `.log`, and `.json`. Trace records attachment metadata, size, hash, and preview; full attachment content is sent only to the active model prompt within limits.
 
+## Browser Context
+
+Attach the most recent browser snapshot with `--with-browser`.
+
+```bash
+forge browser read-current
+forge code --with-browser "implement the issue I am viewing"
+forge write --with-browser "turn this article into an outline"
+```
+
+Forgelet reads a short-lived snapshot from `~/.forgelet/browser/current-page.json`. The snapshot can include URL, title, capture time, selected text, extracted main text, and optional screenshot path metadata. `--with-browser` prefers selected text and falls back to main text. Before a Session runs, Forgelet prints the browser source URL, title, capture time, content kind, and byte count.
+
+Browser context is read-only. It becomes a `ContextAttachment` with `source: "browser"` and `trustLevel: "external"`. Trace records attachment metadata, hash, size, and preview; it does not persist full page text. The browser extension and Native Messaging producer are a later slice.
+
 ## Sessions, Explain, and Memory
 
 Every run writes a Trace under `.forgelet/sessions/`.
@@ -212,4 +226,4 @@ Project-level `safeCommands`, `testCommands`, `commandTimeoutMs`, `maxPatchBytes
 
 ## V1 Boundaries
 
-Forgelet V1 does not include interactive chat, external plugin loading, browser reading, document editor integration, image generation, automatic commit/push/deploy, multi-agent collaboration, vector database memory, Writing Workflow resume, or arbitrary resume-time model/budget overrides.
+Forgelet V1 does not include interactive chat, external plugin loading, browser automation, browser extension packaging, document editor integration, image generation, automatic commit/push/deploy, multi-agent collaboration, vector database memory, Writing Workflow resume, or arbitrary resume-time model/budget overrides.

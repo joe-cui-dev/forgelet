@@ -12,6 +12,10 @@ import { loadDotEnv } from "../config/env.js";
 import { DeepSeekModelClient } from "../models/providers/deepseek.js";
 import { explainSession, type SessionExplanation } from "../explain/index.js";
 import { acceptMemorySuggestion, suggestMemoryFromSession } from "../memory/index.js";
+import {
+  loadCurrentBrowserSnapshot,
+  type LoadedBrowserSnapshot,
+} from "../browser/index.js";
 import { listSessions, showSession } from "../sessions/index.js";
 import {
   buildContinuationContext,
@@ -75,12 +79,15 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
       case "version":
         return ok("0.1.0");
       case "run": {
+        const browserSnapshot = command.withBrowser
+          ? await loadCurrentBrowserSnapshot({ homeDir: options.homeDir })
+          : undefined;
         if (command.preview) {
           const config = await loadConfig({
             homeDir: options.homeDir,
             workspaceRoot,
           });
-          return ok(formatSessionPreview(command, config));
+          return ok(formatSessionPreview(command, config, browserSnapshot));
         }
         const modelClient = createDeferredLiveModelClient(
           {
@@ -99,6 +106,7 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
           creativeInputKind: command.creativeInputKind,
           task: command.task,
           contextFiles: command.contextFiles,
+          browserSnapshot,
           continuationFile: command.continuationFile,
           allowedReadPaths: command.allowedReadPaths,
           model: command.model,
@@ -112,7 +120,13 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
             : undefined,
           onLiveEvent: options.onLiveEvent,
         });
-        return ok(result.summary);
+        return ok(
+          [
+            ...formatPreviewBrowserContext(browserSnapshot),
+            ...(browserSnapshot ? [""] : []),
+            result.summary,
+          ].join("\n"),
+        );
       }
       case "resume": {
         const continuationContext = await buildContinuationContext(
@@ -170,6 +184,12 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
         return ok(formatMemorySuggestion(await suggestMemoryFromSession(workspaceRoot, command.sessionId)));
       case "memory-accept":
         return ok(formatAcceptedMemory(await acceptMemorySuggestion(workspaceRoot, command.suggestionId)));
+      case "browser-read-current":
+        return ok(
+          formatBrowserSnapshot(
+            await loadCurrentBrowserSnapshot({ homeDir: options.homeDir }),
+          ),
+        );
       default: {
         const exhaustive: never = command;
         throw new Error(`Unhandled command: ${JSON.stringify(exhaustive)}`);
@@ -179,6 +199,20 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
     const message = error instanceof Error ? error.message : String(error);
     return { stdout: "", stderr: `forge: ${message}`, exitCode: 1 };
   }
+}
+
+function formatBrowserSnapshot(snapshot: LoadedBrowserSnapshot): string {
+  return [
+    "Browser Context Snapshot",
+    `URL: ${snapshot.url}`,
+    `Title: ${snapshot.title}`,
+    `Captured at: ${snapshot.capturedAt}`,
+    `Content: ${snapshot.contentKind}`,
+    `Content bytes: ${snapshot.contentBytes}`,
+    `Content hash: ${snapshot.contentHash}`,
+    `Preview: ${snapshot.preview}`,
+    ...(snapshot.screenshotPath ? [`Screenshot path: ${snapshot.screenshotPath}`] : []),
+  ].join("\n");
 }
 
 function createTerminalApprovalHandler(): ApprovalHandler {
@@ -290,6 +324,7 @@ type LoadedConfig = Awaited<ReturnType<typeof loadConfig>>;
 function formatSessionPreview(
   command: RunCommand,
   config: LoadedConfig,
+  browserSnapshot?: LoadedBrowserSnapshot,
 ): string {
   const route = routeModel(config, command.workflow, command.model);
   const provider = providerForModel(route.model, config);
@@ -316,7 +351,8 @@ function formatSessionPreview(
     `Budget: ${formatPreviewBudget(command, config)}`,
     `Action mode: ${formatPreviewActionMode(command)}`,
     `Read scope: ${formatPreviewReadScope(command)}`,
-    `Context attachments: ${formatPreviewContextAttachments(command)}`,
+    `Context attachments: ${formatPreviewContextAttachments(command, browserSnapshot)}`,
+    ...formatPreviewBrowserContext(browserSnapshot),
     `Capabilities: ${formatPreviewCapabilities(command)}`,
     "Persistence: none; no Session or Trace will be created",
   ].join("\n");
@@ -383,12 +419,30 @@ function formatPreviewReadScope(command: RunCommand): string {
     : "workspace default";
 }
 
-function formatPreviewContextAttachments(command: RunCommand): string {
+function formatPreviewContextAttachments(
+  command: RunCommand,
+  browserSnapshot?: LoadedBrowserSnapshot,
+): string {
   const attachments = [
     ...command.contextFiles,
+    ...(browserSnapshot ? [`browser: ${browserSnapshot.title}`] : []),
     ...(command.continuationFile ? [command.continuationFile] : []),
   ];
   return attachments.length > 0 ? attachments.join(", ") : "none";
+}
+
+function formatPreviewBrowserContext(
+  browserSnapshot: LoadedBrowserSnapshot | undefined,
+): string[] {
+  if (!browserSnapshot) return [];
+  return [
+    "Browser context:",
+    `URL: ${browserSnapshot.url}`,
+    `Title: ${browserSnapshot.title}`,
+    `Captured at: ${browserSnapshot.capturedAt}`,
+    `Content: ${browserSnapshot.contentKind}`,
+    `Content bytes: ${browserSnapshot.contentBytes}`,
+  ];
 }
 
 function formatPreviewCapabilities(command: RunCommand): string {

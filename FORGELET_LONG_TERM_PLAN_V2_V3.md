@@ -39,7 +39,7 @@ The main shift from V1 to V2:
 
 - V1: `forge "fix this bug"`
 - V1: `forge write --context draft.md "revise this"`
-- V2: `forge --with-browser "fix the issue I am viewing"`
+- V2: `forge code --with-browser "fix the issue I am viewing"`
 - V2: `forge write --with-browser "turn this article into an outline"`
 - V2: `forge learn --context paper.md "teach me the core ideas"`
 - V2: `forge resume <sessionId>`
@@ -59,9 +59,9 @@ Let Forgelet read the page the user is already viewing and use it as task contex
 **Use cases**
 
 ```bash
-forge --with-browser "implement the GitHub issue I am viewing"
-forge --with-browser "explain this API doc and update our integration"
-forge --with-browser "use this StackOverflow answer to diagnose our bug"
+forge code --with-browser "implement the GitHub issue I am viewing"
+forge code --with-browser "explain this API doc and update our integration"
+forge code --with-browser "use this StackOverflow answer to diagnose our bug"
 forge browser read-current
 ```
 
@@ -93,7 +93,7 @@ forge browser read-current
 
 **Recommended V2 path**
 
-Start with a read-only browser extension bridge that only exposes user-approved current-page tools. Avoid Chrome DevTools Protocol, MCP browser servers, and Playwright-controlled automation for the default V2 path.
+Start with a read-only browser extension bridge that only exposes user-approved current-page tools. The first transport uses browser Native Messaging to write a short-lived local browser context snapshot that the CLI reads through `forge browser read-current` and `--with-browser`. Avoid Chrome DevTools Protocol, MCP browser servers, Playwright-controlled automation, and a required localhost service for the default V2 path.
 
 **V2 tools**
 
@@ -365,7 +365,7 @@ Automatic routing should be transparent. The final summary should say which mode
 forge "<task>"
 forge diagnose "<problem>"
 forge --context file.md "<task>"
-forge --with-browser "<task>"
+forge code --with-browser "<task>"
 forge write --creative --style vivid --context draft.md "revise this scene"
 forge write --context draft.md "revise this for clarity"
 forge write --with-browser "turn this article into a post outline"
@@ -405,7 +405,7 @@ V2 should not include:
 Forgelet V2 succeeds when it can handle both of these daily workflows:
 
 1. User opens a GitHub issue or API doc in the browser.
-2. User runs `forge --with-browser "implement this"`.
+2. User runs `forge code --with-browser "implement this"`.
 3. Forgelet reads the browser page as a context attachment.
 4. Forgelet inspects the local repo.
 5. Forgelet creates a plan and executes safe steps.
@@ -473,17 +473,44 @@ Acceptance criteria:
 - Trace records browser source metadata.
 - Prompt rendering labels browser content clearly.
 
-### V2 Issue 2: Implement read-only browser provider
+### V2 Issue 2: Implement browser snapshot consumption
 
-Add a read-only browser extension bridge provider for current page URL, title, selected text, main text, and optional screenshot metadata.
+Implement the Forgelet-side browser context path before shipping the real browser extension. This slice reads a short-lived local browser snapshot in the agreed format and proves that the CLI can turn it into browser-sourced Context Attachment input.
 
 Acceptance criteria:
 
 - `forge browser read-current` prints current page metadata.
-- `forge --with-browser "<task>"` attaches page content to a task.
+- `forge code --with-browser "<task>"` attaches page content to a Coding Workflow task.
+- `forge write --with-browser "<task>"` attaches page content to a Writing Workflow task.
+- The first `--with-browser` slice is an explicit browser-sourced Context Attachment input under the existing `read_context` capability; it does not add a separate browser Capability or expose model-callable browser tools.
+- Browser snapshots may include URL, title, capture time, selected text, extracted main text, optional screenshot path metadata, content hash, and byte counts.
+- `--with-browser` prefers selected text when present and falls back to extracted main text.
+- Browser attachments reuse the normal Context Attachment prompt budget and truncation markers instead of receiving a larger browser-specific prompt budget.
+- `--with-browser` accepts only a recent browser snapshot and fails with a re-share prompt when the snapshot is stale.
+- Before creating the Session, `--with-browser` shows the source URL, title, capture time, selected-text versus main-text usage, and byte count.
+- Trace records browser attachment metadata and preview only; it does not persist full page text.
 - Browser context comes from user-approved extension sharing, not hidden browser inspection.
+- The CLI does not require a localhost service to read the first browser snapshot.
 - No cookies, localStorage, password fields, clicking, typing, or form submission are available.
 - No browser mutation tools exist yet.
+
+Test coverage:
+
+- Parser coverage for `forge browser read-current`, `forge code --with-browser "<task>"`, and `forge write --with-browser "<task>"`.
+- Snapshot loader coverage for stale snapshot rejection, selected-text priority, main-text fallback, and browser-sourced `ContextAttachment` metadata.
+- Workflow coverage proving that Coding and Writing Workflow prompts include browser attachment metadata and content.
+- Trace coverage proving that browser attachments emit metadata and preview without persisting full page text.
+- CLI preview/live output coverage for URL, title, capture time, selected-text versus main-text usage, and byte count.
+
+### V2 Issue 2a: Implement browser extension snapshot producer
+
+Add the read-only browser extension and Native Messaging host that produce the short-lived snapshot consumed by V2 Issue 2.
+
+Acceptance criteria:
+
+- The extension lets the user explicitly share the current page with Forgelet.
+- The Native Messaging host writes the current page URL, title, selected text, extracted main text, optional screenshot path metadata, content hash, byte counts, and capture time in the V2 Issue 2 snapshot format.
+- The producer path does not add a localhost service, browser mutation, cookies, localStorage, password fields, clicking, typing, or form submission.
 
 ### V2 Issue 3: Implement session resume
 
