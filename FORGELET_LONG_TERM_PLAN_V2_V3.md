@@ -581,7 +581,7 @@ Acceptance criteria:
 - `forge models test <modelId>` runs a minimal smoke test.
 - Final summaries include model IDs and estimated cost.
 
-### V2 Issue 9: Add CLI Session Live View
+### V2 Issue 9: Add CLI Session Live View and Model Output Stream
 
 Make running Sessions visible in the terminal before the later local UI exists.
 
@@ -589,11 +589,13 @@ Acceptance criteria:
 
 - Live CLI runs show Session start, model turn boundaries, tool calls, permission checkpoints, command execution, budget updates, stops, failures, and final output as a Session Live View.
 - The Session Live View is derived from real kernel activity and existing Trace-worthy events; it does not add fake progress to the Trace.
-- The first slice keeps the default event set small: Session start, Trace path, model turn start/finish, tool call start/finish, permission checkpoints, command start/finish, and Session completion, stop, or failure with reason.
+- The Session Live View event set includes Session start, Trace path, model turn start/finish, model output deltas, tool call start/finish, permission checkpoints, command start/finish, and Session completion, stop, or failure with reason.
 - Budget details, compaction details, plan updates, and richer read metadata stay in final summaries, `forge explain`, and the Trace until a later verbose view exists.
-- The first slice implements Session Live View before provider-level Model Output Stream.
-- A follow-up slice can add Model Output Stream for provider text chunks without replacing Session Live View.
-- Implementation proceeds in two delivery slices: first an end-to-end Session Live View with runner events, CLI stderr rendering, approval stderr migration, and stdout contract tests; then provider-level Model Output Stream.
+- The first slice implemented end-to-end Session Live View with runner events, CLI stderr rendering, approval stderr migration, and stdout contract tests.
+- The follow-up slice implemented provider-level Model Output Stream for text chunks without replacing Session Live View.
+- Model Output Stream enters the provider-agnostic model boundary through an optional output-delta callback and is bridged into structured `model_output_delta` live events.
+- DeepSeek streaming emits real text deltas into the Session Live View while still returning a complete final `ModelTurnOutput` for tool calls, usage, final-answer handling, and audit flow.
+- Token or chunk deltas are live presentation only and are not persisted as ordinary Trace events.
 - Interactive terminal runs enable Session Live View by default and render it to stderr, while stdout remains reserved for the final Session summary.
 - Approval prompts and interactive patch previews also render to stderr so stdout remains script-friendly.
 - Non-interactive output remains script-friendly, with live presentation disabled unless explicitly requested.
