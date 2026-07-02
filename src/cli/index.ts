@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "./parseArgs.js";
+import type { ForgeCommand } from "./parseArgs.js";
 import { helpText } from "./help.js";
 import { runAgent } from "../agent/runAgent.js";
 import { loadConfig, routeModel, setGlobalConfigValue } from "../config/index.js";
@@ -60,15 +61,13 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
       case "version":
         return ok("0.1.0");
       case "run": {
-        const modelClient = command.live
-          ? await (options.createLiveModelClient ?? createDeepSeekLiveModelClient)({
-              workflow: command.workflow,
-              modelOverride: command.model,
-              homeDir: options.homeDir,
-              workspaceRoot,
-              env: options.env ?? process.env,
-            })
-          : undefined;
+        if (command.preview) {
+          const config = await loadConfig({
+            homeDir: options.homeDir,
+            workspaceRoot,
+          });
+          return ok(formatSessionPreview(command, config));
+        }
         const result = await runAgent({
           workflow: command.workflow,
           workflowVariant: command.workflowVariant,
@@ -82,12 +81,10 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
           budgetUsd: command.budgetUsd,
           homeDir: options.homeDir,
           workspaceRoot,
-          modelClient,
           act: command.act,
           approvalHandler: command.act
             ? options.approvalHandler ?? createTerminalApprovalHandler()
             : undefined,
-          onLiveEvent: command.live ? options.onLiveEvent : undefined,
         });
         return ok(result.summary);
       }
@@ -251,12 +248,113 @@ async function createDeepSeekLiveModelClient(
   const apiKeyEnv = config.providers.deepseek.apiKeyEnv;
   const apiKey = input.env[apiKeyEnv];
   if (!apiKey)
-    throw new Error(`${apiKeyEnv} is required for --live DeepSeek execution.`);
+    throw new Error(
+      `${apiKeyEnv} is required for model-backed DeepSeek execution.`,
+    );
   return new DeepSeekModelClient({ apiKey, model: route.model });
 }
 
 function ok(stdout: string): RunCliResult {
   return { stdout, stderr: "", exitCode: 0 };
+}
+
+type RunCommand = Extract<ForgeCommand, { kind: "run" }>;
+type LoadedConfig = Awaited<ReturnType<typeof loadConfig>>;
+
+function formatSessionPreview(
+  command: RunCommand,
+  config: LoadedConfig,
+): string {
+  const route = routeModel(config, command.workflow, command.model);
+  const provider = providerForModel(route.model, config);
+  const runnable = route.model.startsWith("deepseek-");
+  return [
+    "Session Preview",
+    `Workflow: ${command.workflow}`,
+    ...(command.workflowVariant
+      ? [`Workflow variant: ${command.workflowVariant}`]
+      : []),
+    ...(command.creativeInputKind
+      ? [`Creative input kind: ${command.creativeInputKind}`]
+      : []),
+    ...(command.creativeStyle ? [`Creative style: ${command.creativeStyle}`] : []),
+    `Task: ${command.task}`,
+    `Model route: ${route.model} (${route.reason})`,
+    `Runnable: ${runnable ? "yes" : "no"}`,
+    ...(runnable
+      ? []
+      : [
+          `Runnable reason: model-backed execution currently supports DeepSeek routes only; ${route.model} is not runnable.`,
+        ]),
+    `Required provider env var: ${provider.apiKeyEnv}`,
+    `Budget: ${formatPreviewBudget(command, config)}`,
+    `Action mode: ${formatPreviewActionMode(command)}`,
+    `Read scope: ${formatPreviewReadScope(command)}`,
+    `Context attachments: ${formatPreviewContextAttachments(command)}`,
+    `Capabilities: ${formatPreviewCapabilities(command)}`,
+    "Persistence: none; no Session or Trace will be created",
+  ].join("\n");
+}
+
+function providerForModel(
+  model: string,
+  config: LoadedConfig,
+): { name: string; apiKeyEnv: string } {
+  if (model.startsWith("deepseek-")) {
+    return { name: "deepseek", apiKeyEnv: config.providers.deepseek.apiKeyEnv };
+  }
+  if (
+    model.startsWith("gpt-") ||
+    model.startsWith("o1") ||
+    model.startsWith("o3") ||
+    model.startsWith("o4")
+  ) {
+    return { name: "openai", apiKeyEnv: config.providers.openai.apiKeyEnv };
+  }
+  if (model.startsWith("claude-")) {
+    return {
+      name: "anthropic",
+      apiKeyEnv: config.providers.anthropic.apiKeyEnv,
+    };
+  }
+  return { name: "unknown", apiKeyEnv: "unknown" };
+}
+
+function formatPreviewBudget(
+  command: RunCommand,
+  config: LoadedConfig,
+): string {
+  if (command.budgetUsd !== undefined)
+    return `$${command.budgetUsd.toFixed(2)} requested`;
+  return `$${config.budgets.maxEstimatedCostUsd.toFixed(2)} max estimated`;
+}
+
+function formatPreviewActionMode(command: RunCommand): string {
+  if (command.workflow !== "coding") return "not available for writing";
+  return command.act ? "action-capable; approvals required" : "read-only";
+}
+
+function formatPreviewReadScope(command: RunCommand): string {
+  if (command.workflow !== "coding") return "not available for writing";
+  return command.allowedReadPaths && command.allowedReadPaths.length > 0
+    ? command.allowedReadPaths.join(", ")
+    : "workspace default";
+}
+
+function formatPreviewContextAttachments(command: RunCommand): string {
+  const attachments = [
+    ...command.contextFiles,
+    ...(command.continuationFile ? [command.continuationFile] : []),
+  ];
+  return attachments.length > 0 ? attachments.join(", ") : "none";
+}
+
+function formatPreviewCapabilities(command: RunCommand): string {
+  if (command.workflow === "writing")
+    return "model text generation and plan updates; no workspace, Git, patch, or command tools";
+  if (command.act)
+    return "workspace read, Git status/diff, plan updates, patch requests, configured command requests";
+  return "workspace read, Git status/diff, plan updates";
 }
 
 function formatSessionList(sessions: Awaited<ReturnType<typeof listSessions>>): string {

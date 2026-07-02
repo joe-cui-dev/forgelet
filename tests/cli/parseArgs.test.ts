@@ -9,35 +9,42 @@ test("parses a simple run task", () => {
     contextFiles: [],
     model: undefined,
     budgetUsd: undefined,
-    live: false,
+    preview: false,
     act: false
   });
 });
 
 test("parses run options", () => {
-  expect(parseArgs(["--live", "--context", "issue.md", "--model", "deepseek-v4-pro", "--budget", "0.25", "fix bug"])).toEqual({
+  expect(parseArgs(["--preview", "--context", "issue.md", "--allow-read", "src", "--model", "deepseek-v4-pro", "--budget", "0.25", "fix bug"])).toEqual({
     kind: "run",
     workflow: "coding",
     task: "fix bug",
     contextFiles: ["issue.md"],
+    allowedReadPaths: ["src"],
     model: "deepseek-v4-pro",
     budgetUsd: 0.25,
-    live: true,
+    preview: true,
     act: false
   });
 });
 
 test("parses actionable coding runs", () => {
-  expect(parseArgs(["--live", "--act", "fix bug"])).toEqual({
+  expect(parseArgs(["--preview", "--act", "fix bug"])).toEqual({
     kind: "run",
     workflow: "coding",
     task: "fix bug",
     contextFiles: [],
     model: undefined,
     budgetUsd: undefined,
-    live: true,
+    preview: true,
     act: true
   });
+});
+
+test("rejects the removed --live option", () => {
+  expect(() => parseArgs(["--live", "fix bug"])).toThrow(
+    /Unknown option: --live/,
+  );
 });
 
 test("parses a Session Continuation resume command", () => {
@@ -89,7 +96,7 @@ test("rejects --allow-read without a path", () => {
 });
 
 test("rejects actionable writing runs", () => {
-  expect(() => parseArgs(["write", "--live", "--act", "revise this"])).toThrow(/--act is only available for the coding workflow/);
+  expect(() => parseArgs(["write", "--preview", "--act", "revise this"])).toThrow(/--act is only available for the coding workflow/);
 });
 
 test("parses a writing workflow task", () => {
@@ -100,7 +107,20 @@ test("parses a writing workflow task", () => {
     contextFiles: ["draft.md"],
     model: undefined,
     budgetUsd: undefined,
-    live: false,
+    preview: false,
+    act: false
+  });
+});
+
+test("parses a writing workflow preview", () => {
+  expect(parseArgs(["write", "--preview", "--context", "draft.md", "revise this"])).toEqual({
+    kind: "run",
+    workflow: "writing",
+    task: "revise this",
+    contextFiles: ["draft.md"],
+    model: undefined,
+    budgetUsd: undefined,
+    preview: true,
     act: false
   });
 });
@@ -126,7 +146,7 @@ test("parses a creative writing workflow variant", () => {
     contextFiles: ["draft.md"],
     model: undefined,
     budgetUsd: undefined,
-    live: false,
+    preview: false,
     act: false
   });
 });
@@ -150,7 +170,32 @@ test("parses a prompt-only creative writing workflow variant", () => {
     contextFiles: [],
     model: undefined,
     budgetUsd: undefined,
-    live: false,
+    preview: false,
+    act: false
+  });
+});
+
+test("parses a creative writing workflow preview", () => {
+  expect(
+    parseArgs([
+      "write",
+      "--preview",
+      "--creative",
+      "--style",
+      "vivid",
+      "write a rain-soaked convenience store scene",
+    ]),
+  ).toEqual({
+    kind: "run",
+    workflow: "writing",
+    workflowVariant: "creative",
+    creativeStyle: "vivid",
+    creativeInputKind: "draft",
+    task: "write a rain-soaked convenience store scene",
+    contextFiles: [],
+    model: undefined,
+    budgetUsd: undefined,
+    preview: true,
     act: false
   });
 });
@@ -177,7 +222,7 @@ test("parses a creative Writing Artifact Continuation", () => {
     continuationFile: ".forgelet/writing/chapter-1.md",
     model: undefined,
     budgetUsd: undefined,
-    live: false,
+    preview: false,
     act: false
   });
 });

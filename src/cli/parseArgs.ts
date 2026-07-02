@@ -18,7 +18,7 @@ export type ForgeCommand =
       allowedReadPaths?: string[];
       model?: string;
       budgetUsd?: number;
-      live: boolean;
+      preview: boolean;
       act: boolean;
     }
   | { kind: "resume"; sessionId: string; instruction: string; act: boolean }
@@ -147,7 +147,7 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
   let workflowVariant: WorkflowVariant | undefined;
   let creativeStyle: CreativeStyle | undefined;
   let continuationFile: string | undefined;
-  let live = false;
+  let preview = false;
   let act = false;
   const taskParts: string[] = [];
 
@@ -210,8 +210,8 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
       creativeStyle = value;
       continue;
     }
-    if (arg === "--live") {
-      live = true;
+    if (arg === "--preview") {
+      preview = true;
       continue;
     }
     if (arg === "--act") {
@@ -252,16 +252,16 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
   return {
     kind: "run",
     workflow,
-    workflowVariant,
-    creativeStyle,
-    creativeInputKind,
+    ...(workflowVariant ? { workflowVariant } : {}),
+    ...(creativeStyle ? { creativeStyle } : {}),
+    ...(creativeInputKind ? { creativeInputKind } : {}),
     task,
     contextFiles,
     ...(continuationFile ? { continuationFile } : {}),
     ...(allowedReadPaths.length > 0 ? { allowedReadPaths } : {}),
     model,
     budgetUsd,
-    live,
+    preview,
     act,
   };
 }

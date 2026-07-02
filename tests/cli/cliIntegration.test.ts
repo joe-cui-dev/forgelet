@@ -6,8 +6,6 @@ import { tmpdir } from "os";
 import { runAgent } from "../../src/agent/runAgent.js";
 import { runCli } from "../../src/cli/index.js";
 import { FakeModelClient } from "../../src/models/testing/index.js";
-import type { SessionLiveEvent } from "../../src/sessionLiveView/index.js";
-import { createTerminalSessionLiveEventSink } from "../../src/sessionLiveView/index.js";
 
 test("CLI lists and shows project sessions", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-"));
@@ -539,72 +537,120 @@ test("CLI entrypoint runs when invoked through an npm-link style symlink", async
 
   expect(result.stderr).toBe("");
   expect(result.stdout).toMatch(/Forgelet/);
-  expect(result.stdout).toMatch(/--live/);
+  expect(result.stdout).toMatch(/--preview/);
+  expect(result.stdout).not.toMatch(/--live/);
 });
 
-test("CLI can inject a Session Live View sink without changing stdout", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-live-"));
-  const liveEvents: SessionLiveEvent[] = [];
+test("CLI preview prints run shape without creating a model-backed Session", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-preview-"));
+  let modelFactoryCalled = false;
 
-  const result = await runCli(["--live", "summarize the repo"], {
+  const result = await runCli(["--preview", "inspect this repo"], {
     workspaceRoot,
-    createLiveModelClient: async () =>
-      new FakeModelClient([
-        { content: "The repo is ready.", toolCalls: [], finishReason: "stop" },
-      ]),
-    onLiveEvent: (event) => {
-      liveEvents.push(event);
+    createLiveModelClient: async () => {
+      modelFactoryCalled = true;
+      throw new Error("model factory should not be called for preview");
     },
   });
 
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
-  expect(result.stdout).toMatch(/The repo is ready\./);
-  expect(result.stdout).not.toMatch(/Model turn 1 started/);
-  expect(liveEvents).toEqual(
-    expect.arrayContaining([
-      {
-        type: "session_started",
-        workflow: "coding",
-        task: "summarize the repo",
-      },
-      {
-        type: "model_turn_started",
-        turnIndex: 0,
-        model: "deepseek-v4-flash",
-      },
-      { type: "session_finished", status: "completed" },
-    ]),
+  expect(modelFactoryCalled).toBe(false);
+  expect(result.stdout).toMatch(/Session Preview/);
+  expect(result.stdout).toMatch(/Workflow: coding/);
+  expect(result.stdout).toMatch(/Task: inspect this repo/);
+  expect(result.stdout).toMatch(
+    /Model route: deepseek-v4-flash \(default route for coding workflow\)/,
   );
+  expect(result.stdout).toMatch(/Runnable: yes/);
+  expect(result.stdout).toMatch(/Required provider env var: DEEPSEEK_API_KEY/);
+  expect(result.stdout).toMatch(
+    /Persistence: none; no Session or Trace will be created/,
+  );
+  await expect(readdir(join(workspaceRoot, ".forgelet", "sessions"))).rejects.toThrow();
 });
 
-test("CLI --live streams model output through the live sink without changing stdout", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-delta-"));
-  const liveWrites: string[] = [];
-  const liveSink = createTerminalSessionLiveEventSink((text) => {
-    liveWrites.push(text);
-  });
+test("CLI preview reports action posture, read scope, context, and budget", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-preview-act-"));
+  let approvalRequested = false;
 
-  const result = await runCli(["--live", "summarize the repo"], {
-    workspaceRoot,
-    createLiveModelClient: async () =>
-      new FakeModelClient([
-        {
-          content: "The repo is ready.",
-          toolCalls: [],
-          finishReason: "stop",
-          outputDeltas: ["The repo", " is ready."],
-        },
-      ]),
-    onLiveEvent: liveSink,
-  });
+  const result = await runCli(
+    [
+      "--preview",
+      "--act",
+      "--context",
+      "issue.md",
+      "--allow-read",
+      "src",
+      "--budget",
+      "0.10",
+      "fix the failing test",
+    ],
+    {
+      workspaceRoot,
+      approvalHandler: async () => {
+        approvalRequested = true;
+        return { status: "approved", reason: "unused" };
+      },
+    },
+  );
+
+  expect(result.exitCode).toBe(0);
+  expect(approvalRequested).toBe(false);
+  expect(result.stdout).toMatch(/Session Preview/);
+  expect(result.stdout).toMatch(/Budget: \$0\.10 requested/);
+  expect(result.stdout).toMatch(/Action mode: action-capable; approvals required/);
+  expect(result.stdout).toMatch(/Read scope: src/);
+  expect(result.stdout).toMatch(/Context attachments: issue\.md/);
+  expect(result.stdout).toMatch(/patch requests, configured command requests/);
+});
+
+test("CLI preview succeeds for unsupported provider routes as not runnable", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-preview-route-"));
+
+  const result = await runCli(
+    ["--preview", "--model", "gpt-5", "inspect this repo"],
+    { workspaceRoot },
+  );
 
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
-  expect(result.stdout).toMatch(/The repo is ready\./);
-  expect(result.stdout).not.toMatch(/Model turn 1 started/);
-  expect(result.stdout).not.toMatch(/The repo is ready\.\nModel turn/);
-  expect(liveWrites.join("")).toContain("The repo is ready.\nModel turn 1 finished");
+  expect(result.stdout).toMatch(/Model route: gpt-5 \(CLI model override\)/);
+  expect(result.stdout).toMatch(/Runnable: no/);
+  expect(result.stdout).toMatch(/Runnable reason: .*DeepSeek routes only/);
+  expect(result.stdout).toMatch(/Required provider env var: OPENAI_API_KEY/);
+});
+
+test("CLI preview reports creative writing variants without persistence", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-preview-writing-"),
+  );
+
+  const result = await runCli(
+    [
+      "write",
+      "--preview",
+      "--creative",
+      "--style",
+      "vivid",
+      "write a rain-soaked convenience store scene",
+    ],
+    { workspaceRoot },
+  );
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toMatch(/Session Preview/);
+  expect(result.stdout).toMatch(/Workflow: writing/);
+  expect(result.stdout).toMatch(/Workflow variant: creative/);
+  expect(result.stdout).toMatch(/Creative input kind: draft/);
+  expect(result.stdout).toMatch(/Creative style: vivid/);
+  expect(result.stdout).toMatch(/Action mode: not available for writing/);
+  expect(result.stdout).toMatch(/Capabilities: model text generation and plan updates/);
+  expect(result.stdout).toMatch(
+    /Persistence: none; no Session or Trace will be created/,
+  );
+  await expect(readdir(join(workspaceRoot, ".forgelet", "sessions"))).rejects.toThrow();
 });
 
 function execNode(
@@ -784,118 +830,12 @@ test("CLI rejects an invalid active observation working-set target", async () =>
   );
 });
 
-test("CLI --live runs a read-only Session with an injected live model client", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-live-"));
-  await writeFile(
-    join(workspaceRoot, "example.ts"),
-    "export const answer = 'needle';\n",
-    "utf8",
-  );
-  const modelClient = new FakeModelClient([
-    {
-      toolCalls: [
-        { id: "call_search", name: "search_text", input: { query: "needle" } },
-      ],
-    },
-    { content: "Found needle in example.ts.", toolCalls: [] },
-  ]);
-
-  const result = await runCli(["--live", "find needle"], {
-    workspaceRoot,
-    env: {},
-    createLiveModelClient: async (input) => {
-      expect(input.workflow).toBe("coding");
-      expect(input.modelOverride).toBe(undefined);
-      return modelClient;
-    },
-  });
-
-  expect(result.exitCode).toBe(0);
-  expect(result.stdout).toMatch(/Forgelet session completed/);
-  expect(result.stdout).toMatch(/Found needle in example.ts/);
-  expect(modelClient.turnInputs.length).toBe(2);
-});
-
-test("CLI --live continues a saved creative Writing Artifact", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-writing-continuation-"));
-  await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
-  await writeFile(
-    join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"),
-    "Mara opened the brass door.\n",
-    "utf8",
-  );
-  const modelClient = new FakeModelClient([
-    { content: "She stepped into a room full of rain.", toolCalls: [] },
-  ]);
-
-  const result = await runCli(
-    [
-      "write",
-      "--live",
-      "--creative",
-      "--style",
-      "vivid",
-      "--continue",
-      ".forgelet/writing/chapter-1.md",
-      "continue the next chapter",
-    ],
-    {
-      workspaceRoot,
-      env: {},
-      createLiveModelClient: async (input) => {
-        expect(input.workflow).toBe("writing");
-        expect(input.modelOverride).toBe(undefined);
-        return modelClient;
-      },
-    },
-  );
-
-  expect(result.exitCode).toBe(0);
-  expect(result.stderr).toBe("");
-  expect(result.stdout).toMatch(/Workflow: writing/);
-  expect(result.stdout).toMatch(/Workflow variant: creative/);
-  expect(result.stdout).toMatch(/Draft/);
-  expect(result.stdout).toMatch(/Writing artifact: \.forgelet\/writing\//);
-
-  const createdArtifactPath = result.stdout.match(
-    /Writing artifact: (\.forgelet\/writing\/[^ ]+)/,
-  )?.[1];
-  expect(createdArtifactPath).toBeTruthy();
-  expect(createdArtifactPath).not.toBe(".forgelet/writing/chapter-1.md");
-  await expect(
-    readFile(join(workspaceRoot, createdArtifactPath ?? ""), "utf8"),
-  ).resolves.toBe("She stepped into a room full of rain.\n");
-  await expect(
-    readFile(join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"), "utf8"),
-  ).resolves.toBe("Mara opened the brass door.\n");
-
-  const sessionFiles = await readdir(join(workspaceRoot, ".forgelet", "sessions"));
-  const trace = await readFile(
-    join(workspaceRoot, ".forgelet", "sessions", sessionFiles[0] ?? ""),
-    "utf8",
-  );
-  const events = trace
-    .trim()
-    .split("\n")
-    .map((line) => JSON.parse(line));
-  expect(events.find((event) => event.type === "session_started")?.payload).toMatchObject({
-    workflow: "writing",
-    workflowVariant: "creative",
-    creativeInputKind: "continuation",
-  });
-  expect(events.find((event) => event.type === "context_attachment")?.payload).toMatchObject({
-    uri: ".forgelet/writing/chapter-1.md",
-    mimeType: "text/markdown",
-  });
-});
-
 test("CLI invalid Writing Artifact Continuation paths point users toward saved artifacts", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-writing-continuation-error-"));
 
   const result = await runCli(
     [
       "write",
-      "--live",
       "--creative",
       "--style",
       "vivid",
@@ -905,9 +845,6 @@ test("CLI invalid Writing Artifact Continuation paths point users toward saved a
     ],
     {
       workspaceRoot,
-      env: {},
-      createLiveModelClient: async () =>
-        new FakeModelClient([{ content: "unused", toolCalls: [] }]),
     },
   );
 
@@ -1164,140 +1101,14 @@ test("CLI resume rejects Writing Workflow Sessions in the first slice", async ()
   expect(result.stderr).toMatch(/Writing Workflow resume is not available yet/);
 });
 
-test("CLI --live runs a creative writing Revision Pack Session", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-creative-"));
-  await writeFile(join(workspaceRoot, "draft.md"), "The room was cold.\n", "utf8");
-  const modelClient = new FakeModelClient([
-    { content: "The room breathed winter through the walls.", toolCalls: [] },
-  ]);
-
-  const result = await runCli(
-    [
-      "write",
-      "--live",
-      "--creative",
-      "--style",
-      "vivid",
-      "--context",
-      "draft.md",
-      "revise this scene",
-    ],
-    {
-      workspaceRoot,
-      env: {},
-      createLiveModelClient: async (input) => {
-        expect(input.workflow).toBe("writing");
-        return modelClient;
-      },
-    },
-  );
-
-  expect(result.exitCode).toBe(0);
-  expect(result.stdout).toMatch(/Workflow variant: creative/);
-  expect(result.stdout).toMatch(/Creative style: vivid/);
-  expect(result.stdout).toMatch(/Alternatives/);
-  expect(result.stdout).toMatch(/Writing artifact: \.forgelet\/writing\//);
-
-  const artifactFiles = await readdir(join(workspaceRoot, ".forgelet", "writing"));
-  expect(artifactFiles).toHaveLength(1);
-  await expect(
-    readFile(join(workspaceRoot, ".forgelet", "writing", artifactFiles[0] ?? ""), "utf8"),
-  ).resolves.toBe("The room breathed winter through the walls.\n");
-
-  const traceFiles = await readdir(join(workspaceRoot, ".forgelet", "sessions"));
-  const trace = await readFile(
-    join(workspaceRoot, ".forgelet", "sessions", traceFiles[0] ?? ""),
-    "utf8",
-  );
-  const started = trace
-    .trim()
-    .split("\n")
-    .map((line) => JSON.parse(line))
-    .find((event) => event.type === "session_started");
-  expect(started.payload).toMatchObject({
-    workflow: "writing",
-    workflowVariant: "creative",
-    creativeStyle: "vivid",
-  });
-});
-
-test("CLI --live runs prompt-only creative writing without context attachments", async () => {
-  const workspaceRoot = await mkdtemp(
-    join(tmpdir(), "forgelet-cli-creative-brief-"),
-  );
-  const modelClient = new FakeModelClient([
-    { content: "Rain silvered the convenience store windows.", toolCalls: [] },
-  ]);
-
-  const result = await runCli(
-    [
-      "write",
-      "--live",
-      "--creative",
-      "--style",
-      "vivid",
-      "write a rain-soaked convenience store scene",
-    ],
-    {
-      workspaceRoot,
-      env: {},
-      createLiveModelClient: async (input) => {
-        expect(input.workflow).toBe("writing");
-        return modelClient;
-      },
-    },
-  );
-
-  expect(result.exitCode).toBe(0);
-  expect(result.stdout).toMatch(/Workflow variant: creative/);
-  expect(result.stdout).toMatch(/Creative style: vivid/);
-  expect(result.stdout).toMatch(/Draft/);
-  expect(result.stdout).not.toMatch(/Critique/);
-  expect(result.stdout).not.toMatch(/Revision/);
-  expect(result.stdout).not.toMatch(/Alternatives/);
-  expect(result.stdout).not.toMatch(/Variants/);
-  expect(result.stdout).not.toMatch(/Notes/);
-  expect(result.stdout).toMatch(/Writing artifact: \.forgelet\/writing\//);
-
-  const artifactFiles = await readdir(join(workspaceRoot, ".forgelet", "writing"));
-  expect(artifactFiles).toHaveLength(1);
-  await expect(
-    readFile(join(workspaceRoot, ".forgelet", "writing", artifactFiles[0] ?? ""), "utf8"),
-  ).resolves.toBe("Rain silvered the convenience store windows.\n");
-
-  const traceFiles = await readdir(join(workspaceRoot, ".forgelet", "sessions"));
-  const trace = await readFile(
-    join(workspaceRoot, ".forgelet", "sessions", traceFiles[0] ?? ""),
-    "utf8",
-  );
-  const events = trace
-    .trim()
-    .split("\n")
-    .map((line) => JSON.parse(line));
-  const started = events.find((event) => event.type === "session_started");
-  expect(started.payload).toMatchObject({
-    workflow: "writing",
-    workflowVariant: "creative",
-    creativeStyle: "vivid",
-  });
-  expect(events.some((event) => event.type === "context_attachment")).toBe(
-    false,
-  );
-});
-
 test("CLI records repeated --allow-read entries as the Session Read Scope", async () => {
   const workspaceRoot = await mkdtemp(
     join(tmpdir(), "forgelet-cli-read-scope-"),
   );
   await mkdir(join(workspaceRoot, "src", "workflows"), { recursive: true });
   await writeFile(join(workspaceRoot, "README.md"), "Forgelet\n", "utf8");
-  const modelClient = new FakeModelClient([
-    { content: "Scope recorded.", toolCalls: [] },
-  ]);
-
   const result = await runCli(
     [
-      "--live",
       "--allow-read",
       "./README.md",
       "--allow-read",
@@ -1306,8 +1117,6 @@ test("CLI records repeated --allow-read entries as the Session Read Scope", asyn
     ],
     {
       workspaceRoot,
-      env: {},
-      createLiveModelClient: async () => modelClient,
     },
   );
 
@@ -1339,137 +1148,7 @@ test("CLI rejects absolute Session Read Scope paths", async () => {
   expect(result.stderr).toMatch(/--allow-read paths must be workspace-relative/);
 });
 
-test("CLI live Sessions use the global active observation target", async () => {
-  const homeDir = await mkdtemp(join(tmpdir(), "forgelet-cli-live-home-"));
-  const workspaceRoot = await mkdtemp(
-    join(tmpdir(), "forgelet-cli-live-compaction-"),
-  );
-  await mkdir(join(homeDir, ".forgelet"), { recursive: true });
-  await writeFile(
-    join(homeDir, ".forgelet", "config.json"),
-    JSON.stringify({ activeContext: { maxObservationBytes: 4_096 } }),
-    "utf8",
-  );
-  await writeFile(join(workspaceRoot, "first.txt"), "a".repeat(8_000), "utf8");
-  await writeFile(join(workspaceRoot, "second.txt"), "b".repeat(8_000), "utf8");
-  const modelClient = new FakeModelClient([
-    {
-      toolCalls: [
-        { id: "call_first", name: "read_file", input: { path: "first.txt" } },
-      ],
-    },
-    {
-      toolCalls: [
-        { id: "call_second", name: "read_file", input: { path: "second.txt" } },
-      ],
-    },
-    { content: "Both files inspected.", toolCalls: [] },
-  ]);
-
-  await runCli(["--live", "inspect both files"], {
-    homeDir,
-    workspaceRoot,
-    env: {},
-    createLiveModelClient: async () => modelClient,
-  });
-
-  const oldObservation = JSON.parse(
-    modelClient.turnInputs[2]?.messages.filter(
-      (message) => message.role === "tool",
-    )[0]?.content ?? "{}",
-  );
-  expect(oldObservation.compacted).toBe(true);
-});
-
-test("CLI --live loads Durable Memory with trace provenance", async () => {
-  const workspaceRoot = await mkdtemp(
-    join(tmpdir(), "forgelet-cli-live-memory-"),
-  );
-  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
-  await writeFile(
-    join(workspaceRoot, ".forgelet", "memory.md"),
-    "Remember to prefer npm test for verification in this workspace.\n",
-    "utf8",
-  );
-  const modelClient = new FakeModelClient([
-    { content: "I used the accepted memory.", toolCalls: [] },
-  ]);
-
-  const result = await runCli(["--live", "inspect memory"], {
-    workspaceRoot,
-    env: {},
-    createLiveModelClient: async () => modelClient,
-  });
-
-  expect(result.exitCode).toBe(0);
-  expect(modelClient.turnInputs[0]?.messages[1]?.content).toMatch(
-    /Accepted Durable Memory/,
-  );
-  expect(modelClient.turnInputs[0]?.messages[1]?.content).toMatch(
-    /prefer npm test/,
-  );
-
-  const tracePath = result.stdout.match(/Trace: (.+)$/m)?.[1];
-  expect(tracePath).toBeTruthy();
-  const trace = await readFile(tracePath ?? "", "utf8");
-  expect(trace).toMatch(/"type":"memory_loaded"/);
-  expect(trace).toMatch(/"path":".forgelet\/memory.md"/);
-  expect(trace).toMatch(/"preview":"Remember to prefer npm test/);
-  expect(trace).not.toMatch(/"content":"Remember to prefer npm test/);
-});
-
-test("CLI --live --act runs an actionable coding Session with injected approval", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-act-"));
-  await execGit(workspaceRoot, ["init"]);
-  await writeFile(join(workspaceRoot, "example.txt"), "original\n", "utf8");
-  await execGit(workspaceRoot, ["add", "example.txt"]);
-  await execGit(workspaceRoot, ["commit", "-m", "baseline"]);
-  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
-  const command = `${process.execPath} -e "console.log('verified')"`;
-  await writeFile(
-    join(workspaceRoot, ".forgelet", "config.json"),
-    JSON.stringify({ safeCommands: [command], commandTimeoutMs: 1_000 }),
-    "utf8",
-  );
-  const patch = [
-    "diff --git a/example.txt b/example.txt",
-    "--- a/example.txt",
-    "+++ b/example.txt",
-    "@@ -1 +1 @@",
-    "-original",
-    "+changed",
-    "",
-  ].join("\n");
-  const modelClient = new FakeModelClient([
-    {
-      toolCalls: [{ id: "call_patch", name: "apply_patch", input: { patch } }],
-    },
-    {
-      toolCalls: [
-        { id: "call_command", name: "run_command", input: { command } },
-      ],
-    },
-    { content: "Changed example.txt.", toolCalls: [] },
-  ]);
-
-  const result = await runCli(["--live", "--act", "change example"], {
-    workspaceRoot,
-    env: {},
-    createLiveModelClient: async () => modelClient,
-    approvalHandler: async () => ({
-      status: "approved",
-      reason: "Approved by test.",
-    }),
-  });
-
-  expect(result.exitCode).toBe(0);
-  await expect(
-    readFile(join(workspaceRoot, "example.txt"), "utf8"),
-  ).resolves.toBe("changed\n");
-  expect(result.stdout).toMatch(/Changed example\.txt/);
-});
-
-test("CLI --live requires a DeepSeek API key", async () => {
+test("CLI rejects the removed --live option before provider validation", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-live-key-"));
 
   const result = await runCli(["--live", "inspect repo"], {
@@ -1478,12 +1157,10 @@ test("CLI --live requires a DeepSeek API key", async () => {
   });
 
   expect(result.exitCode).toBe(1);
-  expect(result.stderr).toMatch(
-    /DEEPSEEK_API_KEY is required for --live DeepSeek execution/,
-  );
+  expect(result.stderr).toMatch(/Unknown option: --live/);
 });
 
-test("CLI --live rejects non-DeepSeek routes", async () => {
+test("CLI rejects the removed --live option before route validation", async () => {
   const workspaceRoot = await mkdtemp(
     join(tmpdir(), "forgelet-cli-live-route-"),
   );
@@ -1494,7 +1171,5 @@ test("CLI --live rejects non-DeepSeek routes", async () => {
   });
 
   expect(result.exitCode).toBe(1);
-  expect(result.stderr).toMatch(
-    /Live execution currently supports DeepSeek models only/,
-  );
+  expect(result.stderr).toMatch(/Unknown option: --live/);
 });
