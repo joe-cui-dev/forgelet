@@ -153,7 +153,7 @@ const toApprovalExplanation = (
 });
 
 const asWorkflow = (value: unknown): WorkflowKind =>
-  value === "writing" ? "writing" : "coding";
+  value === "writing" || value === "learning" ? value : "coding";
 
 function asSessionAudit(value: unknown): SessionAudit | undefined {
   return isRecord(value) &&

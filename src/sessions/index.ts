@@ -69,7 +69,8 @@ export async function listSessions(workspaceRoot: string): Promise<SessionSummar
 }
 
 function asWorkflow(value: unknown): WorkflowKind {
-  return value === "writing" ? "writing" : "coding";
+  if (value === "writing" || value === "learning") return value;
+  return "coding";
 }
 
 function asSessionStatus(value: unknown): SessionStatus {

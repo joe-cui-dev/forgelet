@@ -55,6 +55,8 @@ test("loads merged default, global, and project config", async () => {
   expect(config.fallbackModel).toBe("gpt-5");
   expect(config.routing.coding.default).toBe("deepseek-v4-flash");
   expect(config.routing.writing.default).toBe("deepseek-v4-flash");
+  expect(config.routing.learning.default).toBe("deepseek-v4-flash");
+  expect(config.routing.learning.review).toBe("deepseek-v4-flash");
   expect(config.safeCommands).toEqual(["npm test"]);
   expect(config.commandTimeoutMs).toBe(12_345);
   expect(config.maxPatchBytes).toBe(54_321);

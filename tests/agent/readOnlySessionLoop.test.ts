@@ -1266,6 +1266,65 @@ test("a coding Session exposes only registry-projected tool schemas to the model
   expect(tools.some((tool) => "capability" in tool)).toBe(false);
 });
 
+test("a learning Session exposes only plan updates to the model", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-learning-tools-"));
+  await writeFile(join(workspaceRoot, "paper.md"), "# Paper\nSource text.\n", "utf8");
+  const modelClient = new FakeModelClient([
+    { content: "## Summary\nLearned from the source.", toolCalls: [] },
+  ]);
+
+  await runAgent({
+    workflow: "learning",
+    task: "teach me the core ideas",
+    contextFiles: ["paper.md"],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const tools = modelClient.turnInputs[0]?.tools ?? [];
+  expect(tools.map((tool) => tool.name)).toEqual(["update_plan"]);
+  expect(tools.some((tool) => tool.name === "read_file")).toBe(false);
+  expect(tools.some((tool) => tool.name === "git_diff")).toBe(false);
+  expect(tools.some((tool) => tool.name === "apply_patch")).toBe(false);
+  expect(tools.some((tool) => tool.name === "run_command")).toBe(false);
+});
+
+test("a learning Session normalizes model output into a source-linked Learning Pack", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-learning-pack-"));
+  await writeFile(join(workspaceRoot, "paper.md"), "# Paper\nSource text.\n", "utf8");
+  const modelClient = new FakeModelClient([
+    { content: "These are the core ideas.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "learning",
+    task: "teach me the core ideas",
+    contextFiles: ["paper.md"],
+    workspaceRoot,
+    modelClient,
+  });
+
+  expect(result.summary).toMatch(/## Summary\nThese are the core ideas\./);
+  expect(result.summary).toMatch(/## Key Concepts/);
+  expect(result.summary).toMatch(/## Source Links/);
+  expect(result.summary).toMatch(/- file: paper\.md/);
+  expect(result.summary).toMatch(/title: paper\.md/);
+  expect(result.summary).toMatch(/uri: paper\.md/);
+  expect(result.summary).toMatch(/contentHash: [a-f0-9]{64}/);
+  expect(result.summary).toMatch(/contentBytes: 21/);
+  expect(result.summary).toMatch(/## Open Questions/);
+  expect(result.summary).toMatch(/## Review Prompts/);
+
+  const systemMessage = modelClient.turnInputs[0]?.messages.find(
+    (message) => message.role === "system",
+  )?.content ?? "";
+  expect(systemMessage).toMatch(/source-backed Learning Workflow Session/);
+  expect(systemMessage).toMatch(/Learning Pack/);
+  expect(systemMessage).toMatch(/Source Links/);
+  expect(systemMessage).toMatch(/Durable Memory as preference or terminology guidance/);
+  expect(systemMessage).toMatch(/note-writing/);
+});
+
 test("an actionable coding Session can patch, run a configured command, inspect diff, and finish", async () => {
   const workspaceRoot = await mkdtemp(
     join(tmpdir(), "forgelet-actionable-session-"),

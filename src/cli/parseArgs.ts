@@ -84,6 +84,10 @@ export function parseArgs(argv: string[]): ForgeCommand {
     return parseRun(args.slice(1), "writing");
   }
 
+  if (first === "learn") {
+    return parseRun(args.slice(1), "learning");
+  }
+
   if (first?.startsWith("-")) throw new Error(`Unknown option: ${first}`);
   throw new Error(`Unknown command: ${first}`);
 }
@@ -209,6 +213,8 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
     }
     if (arg === "--allow-read") {
       rejectOptionAfterTask(taskParts, arg);
+      if (workflow === "learning")
+        throw new Error("--allow-read is not available for the learning workflow.");
       const value = args[++i];
       if (!value) throw new Error("Missing value for --allow-read");
       allowedReadPaths.push(value);
@@ -272,8 +278,12 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
     throw new Error(
       workflow === "writing"
         ? 'Usage: forge write "<task>"'
-        : 'Usage: forge code "<task>"',
+        : workflow === "learning"
+          ? 'Usage: forge learn --context <source> "<task>"'
+          : 'Usage: forge code "<task>"',
     );
+  if (workflow === "learning" && contextFiles.length === 0 && !withBrowser)
+    throw new Error("forge learn requires --context or --with-browser.");
   if (creativeStyle && workflowVariant !== "creative")
     throw new Error("--style is only available with --creative.");
   if (continuationFile && workflow !== "writing")

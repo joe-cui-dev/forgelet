@@ -612,6 +612,90 @@ test("CLI preview reports action posture, read scope, context, and budget", asyn
   expect(result.stdout).toMatch(/patch requests, configured command requests/);
 });
 
+test("CLI preview reports a source-backed learning workflow without persistence", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-preview-learn-"));
+  let modelFactoryCalled = false;
+
+  const result = await runCli(
+    ["learn", "--preview", "--context", "paper.md", "teach me the core ideas"],
+    {
+      workspaceRoot,
+      createLiveModelClient: async () => {
+        modelFactoryCalled = true;
+        throw new Error("model factory should not be called for preview");
+      },
+    },
+  );
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(modelFactoryCalled).toBe(false);
+  expect(result.stdout).toMatch(/Session Preview/);
+  expect(result.stdout).toMatch(/Workflow: learning/);
+  expect(result.stdout).toMatch(/Task: teach me the core ideas/);
+  expect(result.stdout).toMatch(
+    /Model route: deepseek-v4-flash \(default route for learning workflow\)/,
+  );
+  expect(result.stdout).toMatch(/Action mode: not available for learning/);
+  expect(result.stdout).toMatch(/Read scope: not available for learning/);
+  expect(result.stdout).toMatch(/Context attachments: paper\.md/);
+  expect(result.stdout).toMatch(
+    /source context, model text generation, and plan updates; no workspace, Git, patch, command, note-writing, or browser automation tools/,
+  );
+  expect(result.stdout).toMatch(
+    /Persistence: none; no Session or Trace will be created/,
+  );
+  await expect(readdir(join(workspaceRoot, ".forgelet", "sessions"))).rejects.toThrow();
+});
+
+test("CLI runs a source-backed learning workflow and does not write Knowledge Library notes", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-learn-"));
+  await writeFile(join(workspaceRoot, "paper.md"), "# Paper\nSource text.\n", "utf8");
+
+  const result = await runCli(
+    ["learn", "--context", "paper.md", "teach me the core ideas"],
+    {
+      workspaceRoot,
+      createLiveModelClient: async () =>
+        new FakeModelClient([
+          { content: "These are the core ideas.", toolCalls: [] },
+        ]),
+    },
+  );
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toMatch(/Workflow: learning/);
+  expect(result.stdout).toMatch(/## Summary\nThese are the core ideas\./);
+  expect(result.stdout).toMatch(/## Source Links/);
+  expect(result.stdout).toMatch(/- file: paper\.md/);
+  expect(result.stdout).toMatch(/Trace: /);
+  const traceFiles = await readdir(join(workspaceRoot, ".forgelet", "sessions"));
+  expect(traceFiles).toHaveLength(1);
+  const trace = await readFile(
+    join(workspaceRoot, ".forgelet", "sessions", traceFiles[0] ?? ""),
+    "utf8",
+  );
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(events[0]?.payload.workflow).toBe("learning");
+  expect(events.some((event) => event.type === "context_attachment")).toBe(true);
+  const finalSummary = events.find((event) => event.type === "final_summary");
+  expect(finalSummary?.payload.summary).toMatch(/## Review Prompts/);
+  const sessionId = (traceFiles[0] ?? "").replace(/\.jsonl$/, "");
+  const show = await runCli(["sessions", "show", sessionId], { workspaceRoot });
+  expect(show.exitCode).toBe(0);
+  expect(show.stdout).toMatch(/Workflow: learning/);
+  expect(show.stdout).toMatch(/Context attachments: paper\.md/);
+  const explain = await runCli(["explain", sessionId], { workspaceRoot });
+  expect(explain.exitCode).toBe(0);
+  expect(explain.stdout).toMatch(/Session explanation: sess_/);
+  expect(explain.stdout).toMatch(/Workflow: learning/);
+  await expect(readdir(join(workspaceRoot, ".forgelet", "knowledge"))).rejects.toThrow();
+});
+
 test("CLI prints the current browser snapshot metadata", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-browser-"));
   const homeDir = await mkdtemp(join(tmpdir(), "forgelet-cli-browser-home-"));
@@ -1495,6 +1579,43 @@ test("CLI resume rejects Writing Workflow Sessions in the first slice", async ()
 
   expect(result.exitCode).toBe(1);
   expect(result.stderr).toMatch(/Writing Workflow resume is not available yet/);
+});
+
+test("CLI resume rejects Learning Workflow Sessions in the first slice", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-resume-learning-"));
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(sessionDir, "sess_learning.jsonl"),
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-07-03T00:00:00.000Z",
+        sessionId: "sess_learning",
+        payload: {
+          workflow: "learning",
+          startedAt: "2026-07-03T00:00:00.000Z",
+        },
+      }),
+      JSON.stringify({
+        type: "session_finished",
+        ts: "2026-07-03T00:00:02.000Z",
+        sessionId: "sess_learning",
+        payload: { status: "completed" },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+
+  const result = await runCli(["resume", "sess_learning", "expand the open questions"], {
+    workspaceRoot,
+    env: {},
+    createLiveModelClient: async () =>
+      new FakeModelClient([{ content: "should not run", toolCalls: [] }]),
+  });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toMatch(/Learning Workflow resume is not available yet/);
 });
 
 test("CLI records repeated --allow-read entries as the Session Read Scope", async () => {

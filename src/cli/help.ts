@@ -15,6 +15,9 @@ Usage:
   forge write --preview --creative --style vivid "write a rain-soaked convenience store scene"
   forge write --creative --style vivid --context scene.md "revise this scene"
   forge write --creative --style vivid --continue .forgelet/writing/chapter-1.md "continue the next chapter"
+  forge learn --context paper.md "teach me the core ideas"
+  forge learn --with-browser "turn this article into study notes"
+  forge learn --preview --context paper.md "teach me the core ideas"
   forge code --model deepseek-v4-pro "<task>"
   forge --version | -v
   forge code --budget 0.25 "<task>"
@@ -35,6 +38,7 @@ Usage:
 Use --preview to inspect the selected Workflow, route, budget, read scope, and capabilities without calling a model or creating a Session or Trace. Repeat --allow-read with workspace-relative file or directory paths to constrain workspace and Git reads for one Session. Add --with-browser to attach the current browser snapshot as read-only context. Add --act for coding runs that may request confirmed file edits and configured commands.
 
 Writing runs return Critique, Revision, and Notes, and model-backed writing Sessions save the drafted or revised prose under .forgelet/writing/. Creative writing runs use a Creative Brief with optional context: prompt-only briefs return Draft only; context-backed revisions return Critique, Revision, Alternatives, and Notes. Use --continue with a Markdown Writing Artifact to produce a new Draft without overwriting the source. Styles: vivid, tight, literary, plain.
+Learning runs require --context or --with-browser and return a source-linked Learning Pack with Summary, Key Concepts, Source Links, Open Questions, and Review Prompts. The first slice records Session output and Trace evidence only; it does not write Knowledge Library notes.
 Session Continuation supports live Coding Workflow resume. Use plain resume for read-only continuation, or resume --act to request confirmed file edits and configured commands in the new child Session.
 V1 config set supports memoryFile, activeContext config keys, and provider API key env vars.`;
 }

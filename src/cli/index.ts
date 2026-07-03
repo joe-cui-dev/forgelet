@@ -134,6 +134,8 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
           workspaceRoot,
           command.sessionId,
         );
+        if (continuationContext.sourceWorkflow === "learning")
+          throw new Error("Learning Workflow resume is not available yet.");
         if (continuationContext.sourceWorkflow !== "coding")
           throw new Error("Writing Workflow resume is not available yet.");
         const modelClient = await (
@@ -432,11 +434,13 @@ function formatPreviewBudget(
 }
 
 function formatPreviewActionMode(command: RunCommand): string {
+  if (command.workflow === "learning") return "not available for learning";
   if (command.workflow !== "coding") return "not available for writing";
   return command.act ? "action-capable; approvals required" : "read-only";
 }
 
 function formatPreviewReadScope(command: RunCommand): string {
+  if (command.workflow === "learning") return "not available for learning";
   if (command.workflow !== "coding") return "not available for writing";
   return command.allowedReadPaths && command.allowedReadPaths.length > 0
     ? command.allowedReadPaths.join(", ")
@@ -470,6 +474,8 @@ function formatPreviewBrowserContext(
 }
 
 function formatPreviewCapabilities(command: RunCommand): string {
+  if (command.workflow === "learning")
+    return "source context, model text generation, and plan updates; no workspace, Git, patch, command, note-writing, or browser automation tools";
   if (command.workflow === "writing")
     return "model text generation and plan updates; no workspace, Git, patch, or command tools";
   if (command.act)

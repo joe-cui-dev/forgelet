@@ -6,6 +6,7 @@ import type { WorkflowKind } from "../types.js";
 export interface RoutingConfig {
   coding: StageRoutingConfig;
   writing: StageRoutingConfig;
+  learning: StageRoutingConfig;
   fallback: string;
 }
 
@@ -65,6 +66,10 @@ export const defaultConfig: ForgeletConfig = {
       review: "deepseek-v4-flash",
     },
     writing: {
+      default: "deepseek-v4-flash",
+      review: "deepseek-v4-flash",
+    },
+    learning: {
       default: "deepseek-v4-flash",
       review: "deepseek-v4-flash",
     },

@@ -184,6 +184,45 @@ test("parses a writing workflow preview", () => {
   });
 });
 
+test("parses a source-backed learning workflow task", () => {
+  expect(parseArgs(["learn", "--context", "paper.md", "teach me"])).toEqual({
+    kind: "run",
+    workflow: "learning",
+    task: "teach me",
+    contextFiles: ["paper.md"],
+    model: undefined,
+    budgetUsd: undefined,
+    preview: false,
+    act: false
+  });
+});
+
+test("parses a browser-backed learning workflow task", () => {
+  expect(parseArgs(["learn", "--with-browser", "study this"])).toEqual({
+    kind: "run",
+    workflow: "learning",
+    task: "study this",
+    contextFiles: [],
+    withBrowser: true,
+    model: undefined,
+    budgetUsd: undefined,
+    preview: false,
+    act: false
+  });
+});
+
+test("rejects learning workflow runs without an explicit source", () => {
+  expect(() => parseArgs(["learn", "teach me"])).toThrow(
+    /forge learn requires --context or --with-browser/,
+  );
+});
+
+test("rejects workspace read scope for learning workflow runs", () => {
+  expect(() =>
+    parseArgs(["learn", "--allow-read", "src", "--context", "paper.md", "teach me"]),
+  ).toThrow(/--allow-read is not available for the learning workflow/);
+});
+
 test("parses a creative writing workflow variant", () => {
   expect(
     parseArgs([

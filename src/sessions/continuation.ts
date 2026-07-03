@@ -326,7 +326,8 @@ function asSourceStatus(value: string): SessionFinishStatus | "incomplete" {
 }
 
 function asWorkflow(value: unknown): WorkflowKind {
-  return value === "writing" ? "writing" : "coding";
+  if (value === "writing" || value === "learning") return value;
+  return "coding";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -1,4 +1,4 @@
-export type WorkflowKind = "coding" | "writing";
+export type WorkflowKind = "coding" | "writing" | "learning";
 
 export type WorkflowVariant = "creative";
 export type CreativeStyle = "vivid" | "tight" | "literary" | "plain";
