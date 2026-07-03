@@ -1,4 +1,5 @@
 import { expect, test } from "@jest/globals";
+import { createHash } from "node:crypto";
 import { execFile } from "child_process";
 import { mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from "fs/promises";
 import { join } from "path";
@@ -1701,6 +1702,113 @@ test("CLI rejects singular session command input without calling a model", async
   expect(result.exitCode).toBe(1);
   expect(modelFactoryCalled).toBe(false);
   expect(result.stderr).toMatch(/Unknown command: session/);
+});
+
+test("CLI creates a project Knowledge Note from a completed Learning Session", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-notes-"));
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(sessionDir, "sess_learn.jsonl"),
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-07-03T00:00:00.000Z",
+        sessionId: "sess_learn",
+        payload: { workflow: "learning", startedAt: "2026-07-03T00:00:00.000Z" },
+      }),
+      JSON.stringify({
+        type: "user_task",
+        ts: "2026-07-03T00:00:00.000Z",
+        sessionId: "sess_learn",
+        payload: { task: "Teach Me Core Ideas" },
+      }),
+      JSON.stringify({
+        type: "context_attachment",
+        ts: "2026-07-03T00:00:00.000Z",
+        sessionId: "sess_learn",
+        payload: {
+          id: "ctx_1",
+          source: "file",
+          title: "paper.md",
+          uri: "paper.md",
+          mimeType: "text/markdown",
+          contentBytes: 128,
+          contentHash: createHash("sha256").update("paper").digest("hex"),
+          preview: "Paper preview",
+          trustLevel: "workspace",
+        },
+      }),
+      JSON.stringify({
+        type: "final_summary",
+        ts: "2026-07-03T00:00:01.000Z",
+        sessionId: "sess_learn",
+        payload: { summary: "## Summary\nCore ideas." },
+      }),
+      JSON.stringify({
+        type: "session_finished",
+        ts: "2026-07-03T00:00:02.000Z",
+        sessionId: "sess_learn",
+        payload: { status: "completed" },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+
+  const result = await runCli(
+    ["notes", "create", "--scope", "project", "--from-session", "sess_learn"],
+    { workspaceRoot },
+  );
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toMatch(/Knowledge Note created/);
+  expect(result.stdout).toMatch(
+    /Path: \.forgelet\/knowledge\/teach-me-core-ideas-sess_learn\.md/,
+  );
+  expect(result.stdout).toMatch(/Source Session: sess_learn/);
+  expect(result.stdout).toMatch(/Sources: 1/);
+  expect(result.stdout).toMatch(/Content hash: [a-f0-9]{64}/);
+});
+
+test("CLI searches accepted project Knowledge Notes", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-notes-search-"));
+  await mkdir(join(workspaceRoot, ".forgelet", "knowledge"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "knowledge", "workflow-note.md"),
+    [
+      "---",
+      "type: knowledge-note",
+      "scope: project",
+      "title: Workflow Graph Design",
+      "sourceSessionId: sess_learn",
+      "sourceWorkflow: learning",
+      "createdAt: 2026-07-03T01:02:03.000Z",
+      "contentHash: abc123",
+      "sources: []",
+      "---",
+      "",
+      "# Workflow Graph Design",
+      "",
+      "## Summary",
+      "Workflow graph design keeps the agent path explicit.",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const result = await runCli(
+    ["notes", "search", "--scope", "project", "--limit", "5", "workflow graph"],
+    { workspaceRoot },
+  );
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toMatch(/Knowledge Notes Search/);
+  expect(result.stdout).toMatch(/Scope: project/);
+  expect(result.stdout).toMatch(/Path: \.forgelet\/knowledge/);
+  expect(result.stdout).toMatch(/Query: workflow graph/);
+  expect(result.stdout).toMatch(/Results: 1/);
+  expect(result.stdout).toMatch(/1\. Workflow Graph Design/);
+  expect(result.stdout).toMatch(/Source Session: sess_learn/);
+  expect(result.stdout).toMatch(/Snippet: .*Workflow graph design/i);
 });
 
 test("CLI rejects the removed --live option before provider validation", async () => {

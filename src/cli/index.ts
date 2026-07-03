@@ -17,6 +17,12 @@ import {
   type LoadedBrowserSnapshot,
 } from "../browser/index.js";
 import { installChromeNativeMessagingHost } from "../browser/nativeHostInstall.js";
+import {
+  createKnowledgeNote,
+  searchKnowledgeNotes,
+  type CreatedKnowledgeNote,
+  type KnowledgeNoteSearch,
+} from "../knowledge/index.js";
 import { listSessions, showSession } from "../sessions/index.js";
 import {
   buildContinuationContext,
@@ -183,6 +189,26 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
         return ok(formatSessionDetail(await showSession(workspaceRoot, command.sessionId)));
       case "explain":
         return ok(formatSessionExplanation(await explainSession(workspaceRoot, command.sessionId)));
+      case "notes-create":
+        return ok(
+          formatCreatedKnowledgeNote(
+            await createKnowledgeNote(workspaceRoot, {
+              scope: command.scope,
+              fromSessionId: command.fromSessionId,
+              title: command.title,
+            }),
+          ),
+        );
+      case "notes-search":
+        return ok(
+          formatKnowledgeNoteSearch(
+            await searchKnowledgeNotes(workspaceRoot, {
+              scope: command.scope,
+              query: command.query,
+              limit: command.limit,
+            }),
+          ),
+        );
       case "memory-suggest":
         return ok(formatMemorySuggestion(await suggestMemoryFromSession(workspaceRoot, command.sessionId)));
       case "memory-accept":
@@ -578,6 +604,33 @@ function formatConversationCompaction(
     `Bytes removed: ${compaction.bytesRemoved}`,
     `Maximum residual overage: ${compaction.maxResidualOverageBytes} bytes`,
   ];
+}
+
+function formatCreatedKnowledgeNote(note: CreatedKnowledgeNote): string {
+  return [
+    "Knowledge Note created",
+    `Path: ${note.path}`,
+    `Source Session: ${note.sourceSessionId}`,
+    `Sources: ${note.sourceCount}`,
+    `Content hash: ${note.contentHash}`,
+  ].join("\n");
+}
+
+function formatKnowledgeNoteSearch(search: KnowledgeNoteSearch): string {
+  return [
+    "Knowledge Notes Search",
+    `Scope: ${search.scope}`,
+    `Path: ${search.path}`,
+    `Query: ${search.query}`,
+    `Results: ${search.results.length}`,
+    ...search.results.flatMap((result, index) => [
+      "",
+      `${index + 1}. ${result.title}`,
+      `   Path: ${result.path}`,
+      `   Source Session: ${result.sourceSessionId}`,
+      `   Snippet: ${result.snippet}`,
+    ]),
+  ].join("\n");
 }
 
 function formatMemorySuggestion(suggestion: MemorySuggestion): string {

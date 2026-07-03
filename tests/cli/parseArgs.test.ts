@@ -67,6 +67,46 @@ test("parses browser context commands", () => {
   });
 });
 
+test("parses project Knowledge Note creation", () => {
+  expect(
+    parseArgs(["notes", "create", "--scope", "project", "--from-session", "sess_123"]),
+  ).toEqual({
+    kind: "notes-create",
+    scope: "project",
+    fromSessionId: "sess_123",
+    title: undefined,
+  });
+});
+
+test("parses project Knowledge Notes search", () => {
+  expect(
+    parseArgs(["notes", "search", "--scope", "project", "--limit", "5", "workflow graph"]),
+  ).toEqual({
+    kind: "notes-search",
+    scope: "project",
+    query: "workflow graph",
+    limit: 5,
+  });
+});
+
+test("rejects unsupported Knowledge Notes command shapes clearly", () => {
+  expect(() =>
+    parseArgs(["notes", "create", "--scope", "personal", "--from-session", "sess_123"]),
+  ).toThrow(/Personal Knowledge Scope is not available yet/);
+  expect(() => parseArgs(["notes", "create", "--scope", "project"])).toThrow(
+    /forge notes create --scope project --from-session <sessionId> \[--title <title>\]/,
+  );
+  expect(() => parseArgs(["notes", "search", "--scope", "project"])).toThrow(
+    /forge notes search --scope project \[--limit <n>\] "<query>"/,
+  );
+  expect(() =>
+    parseArgs(["notes", "search", "--scope", "project", "--limit", "0", "query"]),
+  ).toThrow(/--limit must be a positive integer/);
+  expect(() =>
+    parseArgs(["notes", "search", "--scope", "project", "--json", "query"]),
+  ).toThrow(/JSON output is not available yet/);
+});
+
 test("parses actionable coding runs", () => {
   expect(parseArgs(["code", "--preview", "--act", "fix bug"])).toEqual({
     kind: "run",

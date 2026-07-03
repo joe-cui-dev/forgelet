@@ -145,7 +145,8 @@ precondition for short-form creative rewriting.
 ## Learning Workflow
 
 The Learning Workflow turns explicit source material into a source-linked
-Learning Pack without writing Knowledge Library notes.
+Learning Pack. Learning Sessions do not write Knowledge Library notes during
+the Session.
 
 ```bash
 forge learn --context paper.md "teach me the core ideas"
@@ -159,8 +160,26 @@ It returns a Learning Pack with `Summary`, `Key Concepts`, `Source Links`,
 Session output and Trace evidence under `.forgelet/sessions/`, including source
 attachment metadata. They do not write `.forgelet/knowledge/`.
 
-`forge notes create/search` is a later explicit Knowledge Library workflow for
-turning accepted learning output into Markdown notes.
+## Knowledge Notes
+
+Knowledge Notes are explicit promotions from completed, source-backed Learning
+Sessions into project Markdown files under `.forgelet/knowledge/`.
+
+```bash
+forge notes create --scope project --from-session <learning-session-id>
+forge notes create --scope project --from-session <learning-session-id> --title "Custom title"
+forge notes search --scope project "workflow graph design"
+forge notes search --scope project --limit 5 "workflow graph design"
+```
+
+`forge notes create` deterministically promotes the Learning Pack recorded in
+`final_summary.summary`; it does not call a model, create a new Session, mutate
+the source Trace, or ask for a second confirmation. Re-running creation for the
+same Session fails instead of overwriting the existing note.
+
+`forge notes search` performs local case-insensitive Markdown search over
+accepted project notes. Personal scope, JSON output, embeddings, and persistent
+indexes are not available in this slice.
 
 ## Context Attachments
 

@@ -28,6 +28,18 @@ export type ForgeCommand =
   | { kind: "sessions-list" }
   | { kind: "sessions-show"; sessionId: string }
   | { kind: "explain"; sessionId: string }
+  | {
+      kind: "notes-create";
+      scope: "project";
+      fromSessionId: string;
+      title?: string;
+    }
+  | {
+      kind: "notes-search";
+      scope: "project";
+      query: string;
+      limit: number;
+    }
   | { kind: "memory-suggest"; sessionId: string }
   | { kind: "memory-accept"; suggestionId: string }
   | { kind: "browser-read-current" }
@@ -62,6 +74,10 @@ export function parseArgs(argv: string[]): ForgeCommand {
 
   if (first === "browser") {
     return parseBrowser(args.slice(1));
+  }
+
+  if (first === "notes") {
+    return parseNotes(args.slice(1));
   }
 
   if (first === "explain") {
@@ -106,6 +122,77 @@ function parseBrowser(args: string[]): ForgeCommand {
   throw new Error(
     "Usage: forge browser read-current | forge browser install-host --extension-id <chrome-extension-id>",
   );
+}
+
+function parseNotes(args: string[]): ForgeCommand {
+  if (args[0] === "search") return parseNotesSearch(args.slice(1));
+  if (args[0] !== "create") throw new Error("Usage: forge notes create --scope project --from-session <sessionId> [--title <title>]");
+  let scope: string | undefined;
+  let fromSessionId: string | undefined;
+  let title: string | undefined;
+
+  for (let i = 1; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === "--scope") {
+      scope = args[++i];
+      continue;
+    }
+    if (arg === "--from-session") {
+      fromSessionId = args[++i];
+      continue;
+    }
+    if (arg === "--title") {
+      title = args[++i];
+      continue;
+    }
+    throw new Error(`Unsupported notes create option: ${arg}`);
+  }
+
+  if (scope === "personal")
+    throw new Error("Personal Knowledge Scope is not available yet.");
+  if (scope !== "project")
+    throw new Error("The first Knowledge Notes slice requires --scope project.");
+  if (!fromSessionId)
+    throw new Error("Usage: forge notes create --scope project --from-session <sessionId> [--title <title>]");
+
+  return { kind: "notes-create", scope, fromSessionId, title };
+}
+
+function parseNotesSearch(args: string[]): ForgeCommand {
+  let scope: string | undefined;
+  let limit = 10;
+  const queryParts: string[] = [];
+
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === "--scope") {
+      scope = args[++i];
+      continue;
+    }
+    if (arg === "--limit") {
+      const value = args[++i];
+      const parsed = Number(value);
+      if (!Number.isInteger(parsed) || parsed <= 0)
+        throw new Error("--limit must be a positive integer");
+      limit = parsed;
+      continue;
+    }
+    if (arg === "--json") {
+      throw new Error("JSON output is not available yet.");
+    }
+    if (arg?.startsWith("-"))
+      throw new Error(`Unsupported notes search option: ${arg}`);
+    queryParts.push(arg ?? "");
+  }
+
+  if (scope === "personal")
+    throw new Error("Personal Knowledge Scope is not available yet.");
+  if (scope !== "project")
+    throw new Error("The first Knowledge Notes slice requires --scope project.");
+  const query = queryParts.join(" ").trim();
+  if (!query)
+    throw new Error('Usage: forge notes search --scope project [--limit <n>] "<query>"');
+  return { kind: "notes-search", scope, query, limit };
 }
 
 function parseConfig(args: string[]): ForgeCommand {

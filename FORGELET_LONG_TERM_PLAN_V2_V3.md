@@ -651,9 +651,21 @@ Acceptance criteria:
 - Learning has an independent `routing.learning` config key, initially defaulting to the same low-cost model as writing.
 - `--preview` works without creating a Session or Trace.
 - `--act`, `--allow-read`, and Learning Workflow resume are explicitly unavailable in the first slice.
-- No Knowledge Library notes are written yet; `forge notes create/search` remains the next slice.
+- Learning Sessions do not write Knowledge Library notes themselves; note promotion is handled by the explicit Knowledge Notes slice.
 
-Execution plan for the next Knowledge Notes slice: [Knowledge Notes Execution Plan](./docs/knowledge-notes-execution-plan.md).
+### V2 Issue 4b: Add project Knowledge Notes
+
+Implement `forge notes create/search` as the first explicit Knowledge Library slice after the Learning Workflow.
+
+Execution plan: [Knowledge Notes Execution Plan](./docs/knowledge-notes-execution-plan.md).
+
+Acceptance criteria:
+
+- `forge notes create --scope project --from-session <sessionId>` promotes a completed, source-backed Learning Session into one Markdown Knowledge Note under `.forgelet/knowledge/`.
+- Re-running create for the same Session does not overwrite or duplicate the existing note.
+- Knowledge Notes include YAML frontmatter with source Session metadata, content hash, and source attachment provenance.
+- `forge notes search --scope project [--limit <n>] "<query>"` performs local case-insensitive Markdown search over accepted project notes.
+- Notes commands do not create Sessions, mutate source Traces, call a model, expose Workflow tools, or implement personal scope yet.
 
 ### V2 Issue 5: Add project memory workflow
 
