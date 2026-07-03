@@ -16,6 +16,18 @@ _Avoid_: The Forgelet product, generic agent loop
 The second Forgelet workflow shape, focused on drafting, revising, critiquing, or restructuring prose from user-provided text context. In V1 it exists to validate that the **Agent Kernel** is not coding-specific.
 _Avoid_: Chat mode, document editor
 
+**Learning Workflow**:
+A Forgelet workflow focused on turning source material into structured understanding, such as summaries, key concepts, open questions, review prompts, and source-linked learning outputs. A Learning Workflow uses **Context Attachments** or browser context as source material; it is not the same as a **Writing Workflow**, **Knowledge Library**, or **Durable Memory**.
+_Avoid_: Writing variant, notes app, memory extraction
+
+**Learning Pack**:
+The default output shape of a **Learning Workflow**, containing structured understanding of source material for immediate reading and later review. A Learning Pack is Session output with source provenance; it is not a **Knowledge Library** note until the user explicitly saves it.
+_Avoid_: Knowledge note, memory entry, article draft
+
+**Source Provenance**:
+The visible identity of source material used by a **Session**, including enough origin, trust, and integrity context for a user to understand where an output came from. Source Provenance supports review and later knowledge curation; it is not a promise of sentence-level citation.
+_Avoid_: Full citation graph, hidden prompt source, unverified reference
+
 **Critique and Revision**:
 The default V1 output shape for a **Writing Workflow**: Forgelet explains the main writing issues, states the revision strategy, and returns a revised version. The critique and the revision are both part of the result.
 _Avoid_: Final text only, writing chat reply
@@ -201,6 +213,10 @@ Domain expert: "Not before writing and knowledge workflows. V2 should prove sour
 Dev: "Should a paper summary go into memory?"
 
 Domain expert: "No. It should become a Knowledge Library note if the user accepts it. Durable Memory is reserved for reusable agent guidance, not full learning artifacts."
+
+Dev: "Is `forge learn` just another writing command?"
+
+Domain expert: "No. A Learning Workflow produces a Learning Pack from source material. It can later feed a Knowledge Library note, but it is not itself a note-writing command."
 
 Dev: "Should a note about this repo and a personal essay outline live together?"
 

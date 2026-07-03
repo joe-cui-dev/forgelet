@@ -169,6 +169,8 @@ Compaction is a model-context optimization, not a Trace rewrite. The Trace remai
 
 Promote the V1 writing skeleton into a useful source-linked writing and learning workflow.
 
+Execution plan for the first source-linked learning slice: [Learning Workflow Execution Plan](./docs/learning-workflow-execution-plan.md).
+
 **Use cases**
 
 ```bash
@@ -630,6 +632,26 @@ Acceptance criteria:
 - Trace remains immutable and metadata-first; compaction does not rewrite saved Trace evidence.
 - Budget updates distinguish complete active conversation pressure from persisted Trace size and from the V1 observation byte target.
 - Tests cover semantic retention, tool-argument handling, and resumed Session reconstruction.
+
+### V2 Issue 4a: Add source-linked learning workflow
+
+Implement `forge learn` as a source-backed Learning Workflow that produces a normalized Learning Pack from explicit context attachments or a user-approved browser snapshot.
+
+Execution plan: [Learning Workflow Execution Plan](./docs/learning-workflow-execution-plan.md).
+
+Acceptance criteria:
+
+- `forge learn --context paper.md "teach me the core ideas"` routes to a top-level Learning Workflow.
+- `forge learn --with-browser "turn this article into study notes"` uses the current browser snapshot as source material.
+- `forge learn` requires at least one explicit source: `--context` or `--with-browser`.
+- The first slice accepts multiple sources and lists attachment-level Source Provenance.
+- The final output is normalized to a Learning Pack with `Summary`, `Key Concepts`, `Source Links`, `Open Questions`, and `Review Prompts`.
+- `Source Links` are filled from loaded source metadata rather than trusted only to model prose.
+- Learning uses `read_context`, `update_plan`, and `model_generate_text`; it does not receive workspace, git, shell, patch, command, note-writing, or browser automation capabilities.
+- Learning has an independent `routing.learning` config key, initially defaulting to the same low-cost model as writing.
+- `--preview` works without creating a Session or Trace.
+- `--act`, `--allow-read`, and Learning Workflow resume are explicitly unavailable in the first slice.
+- No Knowledge Library notes are written yet; `forge notes create/search` remains the next slice.
 
 ### V2 Issue 5: Add project memory workflow
 
