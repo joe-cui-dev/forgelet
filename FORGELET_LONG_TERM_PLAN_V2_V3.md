@@ -653,6 +653,8 @@ Acceptance criteria:
 - `--act`, `--allow-read`, and Learning Workflow resume are explicitly unavailable in the first slice.
 - No Knowledge Library notes are written yet; `forge notes create/search` remains the next slice.
 
+Execution plan for the next Knowledge Notes slice: [Knowledge Notes Execution Plan](./docs/knowledge-notes-execution-plan.md).
+
 ### V2 Issue 5: Add project memory workflow
 
 Add memory show/suggest/accept commands.

@@ -234,21 +234,12 @@ Suggested tests:
 
 ## Second-Slice Notes Workflow
 
-Do not implement this in the first slice, but leave the path clear for:
+Do not implement this in the first learning slice. The follow-up Knowledge Notes slice is now specified in [Knowledge Notes Execution Plan](./knowledge-notes-execution-plan.md):
 
 ```bash
 forge notes create --scope project --from-session <sessionId>
 forge notes search --scope project "workflow graph design"
 ```
-
-Open decisions for the notes slice:
-
-- Knowledge Note file naming and frontmatter.
-- Whether `notes create` allows editing before save.
-- How to select content from a Learning Session.
-- Whether `--scope personal` is accepted, rejected, or reserved.
-- How much Source Provenance to preserve in the Markdown note.
-- Whether note search is plain-text first or introduces a rebuildable index.
 
 ## Non-Goals
 

@@ -136,6 +136,10 @@ _Avoid_: Generic notes app, chat writing assistant
 User-approved Markdown notes stored in a **Knowledge Scope**. The Knowledge Library stores source-linked articles, outlines, summaries, and learning notes for humans to read and reuse; it is not the same as **Durable Memory**.
 _Avoid_: Memory file, vector database, terminal-only output
 
+**Knowledge Note**:
+A user-approved Markdown artifact in a **Knowledge Library**, usually promoted from a source-backed **Learning Pack** or other reviewed **Session** output. A Knowledge Note is human-facing knowledge material, not **Durable Memory** and not an automatic byproduct of a **Learning Workflow**.
+_Avoid_: Learning Pack, memory entry, scratch note, automatic summary
+
 **Knowledge Scope**:
 The ownership boundary for a **Knowledge Library**. Project knowledge lives under `.forgelet/knowledge/`; personal knowledge lives under `~/.forgelet/knowledge/`; V2 implements project scope first while preserving the same Markdown model for personal scope later.
 _Avoid_: Single notes folder, hidden global knowledge
@@ -221,6 +225,10 @@ Domain expert: "No. A Learning Workflow produces a Learning Pack from source mat
 Dev: "Should a note about this repo and a personal essay outline live together?"
 
 Domain expert: "No. They use the same Markdown note model, but different Knowledge Scopes: project notes stay in `.forgelet/knowledge/`, while personal notes belong in `~/.forgelet/knowledge/`."
+
+Dev: "Can `forge notes create` save any Session output as a note?"
+
+Domain expert: "No. The first Knowledge Note workflow promotes completed, source-backed Learning Packs into project Knowledge Notes. Failed, stopped, writing, or coding Sessions need separate curation rules before they belong in the Knowledge Library."
 
 Dev: "Should Forgelet become a web app?"
 

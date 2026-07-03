@@ -142,6 +142,26 @@ treated as supporting references, and the result is a new Draft Pack saved under
 Long-form Writing Project continuity is a later V2 design step; it is not a
 precondition for short-form creative rewriting.
 
+## Learning Workflow
+
+The Learning Workflow turns explicit source material into a source-linked
+Learning Pack without writing Knowledge Library notes.
+
+```bash
+forge learn --context paper.md "teach me the core ideas"
+forge learn --with-browser "turn this article into study notes"
+forge learn --preview --context paper.md "teach me the core ideas"
+```
+
+`forge learn` requires at least one source: `--context` or `--with-browser`.
+It returns a Learning Pack with `Summary`, `Key Concepts`, `Source Links`,
+`Open Questions`, and `Review Prompts`. Model-backed learning Sessions record
+Session output and Trace evidence under `.forgelet/sessions/`, including source
+attachment metadata. They do not write `.forgelet/knowledge/`.
+
+`forge notes create/search` is a later explicit Knowledge Library workflow for
+turning accepted learning output into Markdown notes.
+
 ## Context Attachments
 
 Attach text context with `--context`.
