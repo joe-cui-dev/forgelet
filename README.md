@@ -35,6 +35,14 @@ structure and Trace evidence. It writes the Session Trace under the project's
 `.forgelet/sessions/` directory and prints the Trace path for review; it does
 not score prose quality or write revised prose back to the repo.
 
+`npm run smoke:learning` runs a real Learning Workflow smoke test with
+`fixtures/learning/article.md`. It validates Learning Pack structure and Trace
+evidence, and asserts that the Session does not write `.forgelet/knowledge/`.
+
+`npm run smoke:knowledge-notes` runs the Learning smoke path, then promotes the
+completed Learning Session with `forge notes create --scope project`, and checks
+that `forge notes search --scope project` can find the accepted Markdown note.
+
 ## Coding Workflow
 
 By default, Forgelet creates a model-backed read-only Coding Session. Read-only Sessions can search, read files, inspect git status/diff, update the Session plan, and write Trace evidence.
