@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { readdir, readFile, realpath } from "node:fs/promises";
-import { extname, relative, resolve } from "node:path";
+import { readFile } from "node:fs/promises";
 import type {
   AgentPlan,
   PlanStatus,
@@ -13,6 +12,12 @@ import {
   doesPathOverlapSessionReadScope,
   isPathInSessionReadScope,
 } from "../readScope/index.js";
+import { summarizeWorkspace } from "./workspaceSummary.js";
+import {
+  listWorkspaceFiles,
+  readTextIfSmall,
+  safeWorkspacePath,
+} from "./workspacePaths.js";
 
 const READ_FILE_LIMIT_BYTES = 20 * 1024;
 const GIT_DIFF_LIMIT_BYTES = 20 * 1024;
@@ -40,7 +45,7 @@ export const createReadOnlyTools = (plan: AgentPlan): ToolDefinition[] => {
       execute: async (input, ctx) => {
         const path = optionalString(input, "path") ?? ".";
         const root = await safeWorkspacePath(ctx.workspaceRoot, path);
-        const files = await listFiles(
+        const { files } = await listWorkspaceFiles(
           root,
           ctx.workspaceRoot,
           ctx.readScope,
@@ -78,7 +83,7 @@ export const createReadOnlyTools = (plan: AgentPlan): ToolDefinition[] => {
         const query = requiredString(input, "query");
         const path = optionalString(input, "path") ?? ".";
         const root = await safeWorkspacePath(ctx.workspaceRoot, path);
-        const files = await listFiles(
+        const { files } = await listWorkspaceFiles(
           root,
           ctx.workspaceRoot,
           ctx.readScope,
@@ -103,6 +108,30 @@ export const createReadOnlyTools = (plan: AgentPlan): ToolDefinition[] => {
           },
         };
       },
+    },
+    {
+      name: "workspace_summary",
+      providerId: "workspace",
+      capability: "read_workspace",
+      description:
+        "Summarize the current workspace shape, scripts, dependencies, entrypoints, tests, and high-signal excerpts.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: { type: "string" },
+          maxFiles: { type: "number" },
+          maxExcerptBytes: { type: "number" },
+        },
+        additionalProperties: false,
+      },
+      classify: async (input, ctx) =>
+        classifyCollectionRead(
+          "workspace_summary",
+          optionalString(input, "path") ?? ".",
+          input,
+          ctx,
+        ),
+      execute: summarizeWorkspace,
     },
     {
       name: "read_file",
@@ -328,7 +357,7 @@ export const createReadOnlyTools = (plan: AgentPlan): ToolDefinition[] => {
 };
 
 const classifyCollectionRead = async (
-  toolName: "list_files" | "search_text",
+  toolName: "list_files" | "search_text" | "workspace_summary",
   path: string,
   input: unknown,
   ctx: ToolContext,
@@ -357,63 +386,6 @@ const classifyCollectionRead = async (
   };
 };
 
-// Resolves a path through realpath so symlinks cannot escape the workspace.
-const safeWorkspacePath = async (
-  workspaceRoot: string,
-  path: string,
-): Promise<string> => {
-  const absolute = resolve(workspaceRoot, path);
-  const [realWorkspaceRoot, realTarget] = await Promise.all([
-    realpath(workspaceRoot),
-    realpath(absolute),
-  ]);
-  const rel = relative(realWorkspaceRoot, realTarget);
-  if (rel.startsWith(".."))
-    throw new Error(`Path is outside workspace: ${path}`);
-  return realTarget;
-};
-
-// Recursively lists workspace files while skipping generated and internal folders.
-const listFiles = async (
-  root: string,
-  workspaceRoot: string,
-  readScope?: string[],
-): Promise<string[]> => {
-  const realWorkspaceRoot = await realpath(workspaceRoot);
-  const entries = await readdir(root, { withFileTypes: true });
-  const files: string[] = [];
-  for (const entry of entries) {
-    if (
-      entry.name === ".git" ||
-      entry.name === ".forgelet" ||
-      entry.name === "node_modules" ||
-      entry.name === "dist" ||
-      entry.name === "dist-test"
-    )
-      continue;
-    const absolute = resolve(root, entry.name);
-    if (entry.isDirectory()) {
-      if (
-        await doesPathOverlapSessionReadScope(
-          workspaceRoot,
-          absolute,
-          readScope,
-        )
-      )
-        files.push(
-          ...(await listFiles(absolute, workspaceRoot, readScope)),
-        );
-    } else if (entry.isFile()) {
-      const path = relative(realWorkspaceRoot, absolute);
-      if (
-        await isPathInSessionReadScope(workspaceRoot, path, readScope)
-      )
-        files.push(path);
-    }
-  }
-  return files.sort();
-};
-
 // Formats read_file results with metadata for truncation and range modes to support iterative reads by the model and human inspection of tool results.
 const readFileToolResult = (
   path: string,
@@ -437,20 +409,6 @@ const readFileToolResult = (
       ...options.rangeMetadata,
     },
   };
-};
-
-// Returns UTF-8 text only for files that look safe and useful to search.
-const readTextIfSmall = async (path: string): Promise<string | undefined> => {
-  const ext = extname(path);
-  if ([".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".zip"].includes(ext))
-    return undefined;
-  try {
-    const buffer = await readFile(path);
-    if (buffer.includes(0)) return undefined;
-    return buffer.toString("utf8");
-  } catch {
-    return undefined;
-  }
 };
 
 // Keeps git integration read-only and degrades gracefully outside a git checkout.

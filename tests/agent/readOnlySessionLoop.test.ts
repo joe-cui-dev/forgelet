@@ -174,6 +174,58 @@ test("a model-backed coding Session emits Session Live View events without writi
   expect(eventTypes).not.toContain("session_live_event");
 });
 
+test("workspace_summary returns Markdown observations and compact trace metadata", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-summary-loop-"));
+  await writeFile(
+    join(workspaceRoot, "package.json"),
+    JSON.stringify({ scripts: { test: "jest" } }, null, 2),
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        { id: "call_summary", name: "workspace_summary", input: {} },
+      ],
+    },
+    {
+      content: "Workspace summary inspected.",
+      toolCalls: [],
+      finishReason: "stop",
+    },
+  ]);
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "summarize workspace",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const toolMessage = JSON.parse(
+    modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "{}",
+  );
+  expect(toolMessage.content).toMatch(/# Workspace/);
+  expect(toolMessage.metadata).toMatchObject({
+    path: ".",
+    scopeConstrained: false,
+  });
+
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const summaryResult = events.find(
+    (event) =>
+      event.type === "tool_result" &&
+      event.payload.toolName === "workspace_summary",
+  );
+  expect(summaryResult).toBeTruthy();
+  expect("content" in summaryResult.payload).toBe(false);
+  expect(summaryResult.payload.preview).toMatch(/# Workspace/);
+});
+
 test("a model-backed coding Session streams model output deltas through Session Live View only", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-live-delta-"));
   const modelClient = new FakeModelClient([
@@ -1203,6 +1255,7 @@ test("a coding Session exposes only registry-projected tool schemas to the model
   expect(tools.map((tool) => tool.name)).toEqual([
     "list_files",
     "search_text",
+    "workspace_summary",
     "read_file",
     "git_status",
     "git_diff",
@@ -1277,6 +1330,7 @@ test("an actionable coding Session can patch, run a configured command, inspect 
   expect(modelClient.turnInputs[0]?.tools.map((tool) => tool.name)).toEqual([
     "list_files",
     "search_text",
+    "workspace_summary",
     "read_file",
     "git_status",
     "git_diff",
@@ -1814,7 +1868,34 @@ test("an actionable coding Session prompts the model with action and approval bo
   expect(systemPrompt).toMatch(/apply_patch/);
   expect(systemPrompt).toMatch(/run_command/);
   expect(systemPrompt).toMatch(/permission and approval/);
+  expect(systemPrompt).toMatch(/workspace_summary/);
   expect(systemPrompt).not.toMatch(/do not claim to write files or run commands/);
+});
+
+test("a read-only coding Session prompts the model to use workspace_summary for unfamiliar workspaces", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-summary-prompt-"));
+  const modelClient = new FakeModelClient([
+    { content: "I will summarize the workspace first.", toolCalls: [] },
+  ]);
+
+  await runAgent({
+    workflow: "coding",
+    task: "understand this workspace",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const systemPrompt = modelClient.turnInputs[0]?.messages.find(
+    (message) => message.role === "system",
+  )?.content ?? "";
+
+  expect(systemPrompt).toMatch(/workspace_summary/);
+  expect(systemPrompt).toMatch(/unfamiliar workspace/);
+  expect(systemPrompt).toMatch(/search_text/);
+  expect(systemPrompt).toMatch(/read_file/);
+  expect(systemPrompt).toMatch(/git_status/);
+  expect(systemPrompt).toMatch(/git_diff/);
 });
 
 function escapeRegExp(value: string): string {
@@ -1880,6 +1961,7 @@ test("a writing Session returns the V1 Critique Revision Notes shape", async () 
 
   expect(systemPrompt).toMatch(/Critique, Revision, Notes/);
   expect(systemPrompt).toMatch(/do not request workspace, git, shell, patch, or command tools/);
+  expect(systemPrompt).not.toMatch(/workspace_summary/);
   expect(result.summary).toMatch(/Critique\n/);
   expect(result.summary).toMatch(/Revision\nMake it shorter\./);
   expect(result.summary).toMatch(/Notes\n/);

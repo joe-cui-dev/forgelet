@@ -1387,10 +1387,16 @@ const systemPromptFor = (
         ]
       : []),
   ];
+  const codingWorkspaceSummaryGuidance = [
+    "When you need an overview of an unfamiliar workspace, call workspace_summary first.",
+    "Follow up with targeted search_text, read_file, git_status, or git_diff only when specific evidence is needed.",
+    "workspace_summary is an on-demand tool result; do not assume it was automatically injected.",
+  ];
   if (session.workflow === "coding" && act)
     return [
       ...common,
       "This is an actionable Coding Workflow Session.",
+      ...codingWorkspaceSummaryGuidance,
       "You may request apply_patch and run_command only when those tools are provided.",
       "Every file edit or command must pass Forgelet permission and approval boundaries before it runs.",
       "Do not claim verification succeeded unless a run_command observation shows the command ran successfully.",
@@ -1400,6 +1406,7 @@ const systemPromptFor = (
       ...common,
       "This is a read-only Coding Workflow Session.",
       "Read-only tools may inspect workspace content; do not claim to write files or run commands.",
+      ...codingWorkspaceSummaryGuidance,
     ].join("\n");
   if (session.workflowVariant === "creative" && session.creativeInputKind === "draft")
     return [
