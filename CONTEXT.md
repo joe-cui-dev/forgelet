@@ -88,6 +88,10 @@ _Avoid_: Prompt paste, hidden source, trace content
 The current model-facing working set assembled for a **Session** turn, including task context, attachments, recent interaction, and tool observations. Active Context may be compacted without changing the **Trace**.
 _Avoid_: Trace, durable memory, full session history
 
+**Workspace Summary**:
+A deterministic, on-demand overview of the current project workspace exposed to a **Session** through read **Capabilities**. A Workspace Summary combines structural signals with bounded high-signal excerpts so the model can understand the project shape without becoming **Durable Memory**, a **Knowledge Library** note, or an unrestricted bypass around **Session Read Scope**.
+_Avoid_: Repository cache, project memory, hidden index
+
 **Session Live View**:
 The real-time user-facing view of a running **Session**, showing visible progress such as model turns, tool calls, permission checkpoints, command execution, budget updates, and final output. A Session Live View is presentation, not the **Trace** itself.
 _Avoid_: Trace stream, fake progress, transcript
@@ -237,6 +241,10 @@ Domain expert: "Not when it has a Session Read Scope. The read Capability remain
 Dev: "Does that prevent me from attaching a file outside the Session Read Scope?"
 
 Domain expert: "No. A Context Attachment is material you explicitly provide; the Session Read Scope limits the model's workspace exploration, not that attachment."
+
+Dev: "Can a Workspace Summary describe files outside a narrow Session Read Scope?"
+
+Domain expert: "No. It is produced through read Capabilities, so it must summarize only workspace material the Session is allowed to read."
 
 Dev: "If the Trace only stores a preview, does the model also lose everything it read?"
 

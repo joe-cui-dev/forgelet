@@ -275,6 +275,8 @@ Given a failing test command, Forgelet should:
 
 Improve code understanding without jumping straight to embeddings.
 
+Execution plan: [Workspace Summary Execution Plan](./docs/workspace-summary-execution-plan.md)
+
 **Capabilities**
 
 - Symbol search
@@ -296,15 +298,57 @@ read_dependency_graph
 
 **Recommended approach**
 
-Use cheap static analysis first:
+Start with a deterministic, on-demand `workspace_summary` tool rather than a
+persistent index. The first slice should combine structural signals with bounded
+high-signal excerpts:
 
 - `package.json`
-- TypeScript config
-- import graph
-- ripgrep
+- TypeScript config and similar project config files
+- package scripts and dependency hints
+- source, test, fixture, and documentation directory shape
+- entrypoint candidates and a small number of bounded excerpts from high-signal
+  files such as README, manifests, configs, and likely entrypoints
 - test filename conventions
 
+Expose `workspace_summary` as a normal model-callable read tool. Do not inject
+the summary body into every Coding Session by default. Instead, teach the Coding
+Workflow prompt to call `workspace_summary` first when the task requires an
+overview of an unfamiliar workspace, then use targeted search/read tools for
+follow-up evidence. Future automatic injection can be added behind an explicit
+option or a narrower workflow trigger once the tool output is proven useful.
+
+The first implementation belongs to the `workspace` Tool Provider and requires
+only the `read_workspace` Capability. It should not read Git tracked-file state,
+status, or diffs; current-change evidence remains the job of `git_status` and
+`git_diff`.
+
+Keep the first tool schema small: optional `path`, `maxFiles`, and
+`maxExcerptBytes` only. `path` narrows the summarized workspace area and must
+still overlap the Session Read Scope; budget parameters reduce output size but
+never expand what the Session may read. Do not add glob patterns, include/exclude
+rules, section toggles, or depth controls until a concrete workflow needs them.
+
+Implement the summary logic in `src/tools/workspaceSummary.ts` and register the
+tool from the existing read-only tool set in `src/tools/readOnly.ts`. Keep scan,
+classification, rendering, and budget logic independently testable without
+introducing a new Tool Provider abstraction in the first slice.
+
+The tool result should follow the existing observation shape: `data.content`
+contains a compact Markdown rendering for the model, while additional structured
+fields preserve machine-readable sections such as scripts, configs, directory
+shape, entrypoint candidates, excerpts, truncation state, and scope metadata for
+tests, `forge explain`, and future UI surfaces. The Markdown rendering should
+include a short limits section when relevant, naming the effective path, whether
+the Session Read Scope constrained the result, active budgets, skipped generated
+or internal directories, and truncated excerpts. Avoid a full candidate-by-
+candidate audit log in the first slice.
+
 Avoid vector database indexing until there is a clear need.
+
+No ADR is needed for the first on-demand tool slice because the decision is
+local and reversible. Revisit ADR coverage only if Forgelet adds a persistent
+workspace index, cache invalidation policy, embedding-backed retrieval, or
+default automatic Workspace Summary injection.
 
 ### 8. Richer Plan and Review Loop
 
