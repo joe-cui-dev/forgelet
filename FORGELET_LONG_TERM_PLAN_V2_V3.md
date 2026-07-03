@@ -509,8 +509,27 @@ Add the read-only browser extension and Native Messaging host that produce the s
 Acceptance criteria:
 
 - The extension lets the user explicitly share the current page with Forgelet.
-- The Native Messaging host writes the current page URL, title, selected text, extracted main text, optional screenshot path metadata, content hash, byte counts, and capture time in the V2 Issue 2 snapshot format.
+- The extension source lives under `src/browser/extension/`, with build output copied to `dist/browser-extension/` for Chrome's unpacked-extension loading path.
+- The extension exposes both a popup share action for whole-page context and a context-menu share action for selected text.
+- The producer writes the minimum snapshot implied by the user's share action: selected-text sharing writes selected text, while whole-page sharing writes extracted main text.
+- Whole-page sharing extracts main text with a lightweight DOM strategy that prefers primary content containers and falls back to normalized page text when no primary content can be found.
+- The Native Messaging host is implemented in the existing Node/TypeScript codebase so it can share snapshot validation, hashing, byte counting, and tests with the CLI-side browser snapshot consumer.
+- The first producer slice targets Chrome only; Chromium-family and Firefox support can be added after the Chrome dogfood path is reliable.
+- The Chrome extension uses minimal user-triggered permissions: `activeTab`, `scripting`, `contextMenus`, and `nativeMessaging`, without broad host permissions or always-on content scripts.
+- `forge browser install-host --extension-id <chrome-extension-id>` installs the Chrome Native Messaging host manifest for local dogfood and authorizes only the provided unpacked extension id; the first slice still uses manually loaded unpacked extension files rather than a packaged browser-store release.
+- The Native Messaging host writes the raw snapshot fields consumed by V2 Issue 2: current page URL, title, selected text or extracted main text, optional screenshot path metadata, and capture time. The snapshot file does not need to persist content hash or byte counts; the host may compute them for its response summary and the CLI consumer recomputes them when loading the snapshot.
+- The first extension producer keeps `screenshotPath` as an optional schema field but does not capture or write screenshots; screenshot capture is a later opt-in slice.
+- The Native Messaging host writes the snapshot atomically by creating a temporary file and renaming it over `~/.forgelet/browser/current-page.json`; only the most recent snapshot is retained.
+- The Native Messaging host responds to the extension with a metadata-only write summary, including success or error, snapshot path, URL, title, content kind, content bytes, content hash, and capture time; it does not echo full page content back to the extension UI.
+- The first Native Messaging protocol accepts one command, `shareCurrentPage`, with a typed payload for the user-approved page snapshot; additional host commands are deferred until a later slice.
+- After a successful share, the extension shows the metadata summary and suggests CLI follow-up commands such as `forge browser read-current` and `forge code --with-browser "<task>"`; it does not launch Forgelet Sessions itself.
 - The producer path does not add a localhost service, browser mutation, cookies, localStorage, password fields, clicking, typing, or form submission.
+
+Test coverage:
+
+- Native Messaging host coverage for message framing, `shareCurrentPage` payload validation, atomic snapshot writes, metadata-only responses, and clear error responses.
+- Browser extension core-function coverage for selected-text versus whole-page payload construction, lightweight main-text extraction fallback behavior, and successful share summary rendering.
+- Manual Chrome dogfood coverage for loading the unpacked extension, installing the host manifest, sharing selected text, sharing whole-page context, verifying `forge browser read-current`, and running a `--with-browser` preview.
 
 ### V2 Issue 3: Implement session resume
 

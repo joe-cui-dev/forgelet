@@ -159,13 +159,14 @@ Attach the most recent browser snapshot with `--with-browser`.
 
 ```bash
 forge browser read-current
+forge browser install-host --extension-id <chrome-extension-id>
 forge code --with-browser "implement the issue I am viewing"
 forge write --with-browser "turn this article into an outline"
 ```
 
 Forgelet reads a short-lived snapshot from `~/.forgelet/browser/current-page.json`. The snapshot can include URL, title, capture time, selected text, extracted main text, and optional screenshot path metadata. `--with-browser` prefers selected text and falls back to main text. Before a Session runs, Forgelet prints the browser source URL, title, capture time, content kind, and byte count.
 
-Browser context is read-only. It becomes a `ContextAttachment` with `source: "browser"` and `trustLevel: "external"`. Trace records attachment metadata, hash, size, and preview; it does not persist full page text. The browser extension and Native Messaging producer are a later slice.
+Browser context is read-only. It becomes a `ContextAttachment` with `source: "browser"` and `trustLevel: "external"`. Trace records attachment metadata, hash, size, and preview; it does not persist full page text. The local Chrome producer is an unpacked extension plus a Native Messaging host. Build the project, load `dist/browser-extension/` in Chrome, copy the unpacked extension id, then run `forge browser install-host --extension-id <chrome-extension-id>`.
 
 ## Sessions, Explain, and Memory
 

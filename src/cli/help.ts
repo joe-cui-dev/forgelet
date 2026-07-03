@@ -27,6 +27,7 @@ Usage:
   forge resume <sessionId> "<instruction>"
   forge resume <sessionId> --act "<instruction>"
   forge browser read-current
+  forge browser install-host --extension-id <chrome-extension-id>
   forge explain <sessionId>
   forge memory suggest <sessionId>
   forge memory accept <suggestionId>

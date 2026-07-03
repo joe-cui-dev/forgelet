@@ -32,6 +32,17 @@ test("parses browser context commands", () => {
   expect(parseArgs(["browser", "read-current"])).toEqual({
     kind: "browser-read-current",
   });
+  expect(
+    parseArgs([
+      "browser",
+      "install-host",
+      "--extension-id",
+      "abcdefghijklmnopabcdefghijklmnop",
+    ]),
+  ).toEqual({
+    kind: "browser-install-host",
+    extensionId: "abcdefghijklmnopabcdefghijklmnop",
+  });
   expect(parseArgs(["code", "--with-browser", "implement this issue"])).toEqual({
     kind: "run",
     workflow: "coding",

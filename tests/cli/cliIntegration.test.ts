@@ -646,6 +646,48 @@ test("CLI prints the current browser snapshot metadata", async () => {
   expect(result.stdout).toMatch(/Content bytes: 46/);
 });
 
+test("CLI installs the Chrome Native Messaging host manifest", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-browser-host-"));
+  const homeDir = await mkdtemp(join(tmpdir(), "forgelet-cli-browser-host-home-"));
+
+  const result = await runCli(
+    [
+      "browser",
+      "install-host",
+      "--extension-id",
+      "abcdefghijklmnopabcdefghijklmnop",
+    ],
+    { homeDir, workspaceRoot },
+  );
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toMatch(/Chrome Native Messaging host installed/);
+  const manifestPath = join(
+    homeDir,
+    "Library",
+    "Application Support",
+    "Google",
+    "Chrome",
+    "NativeMessagingHosts",
+    "com.forgelet.browser_context.json",
+  );
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  expect(manifest).toEqual({
+    name: "com.forgelet.browser_context",
+    description: "Forgelet browser context snapshot producer",
+    path: join(
+      homeDir,
+      ".forgelet",
+      "browser",
+      "native-host",
+      "forgelet-browser-host",
+    ),
+    type: "stdio",
+    allowed_origins: ["chrome-extension://abcdefghijklmnopabcdefghijklmnop/"],
+  });
+});
+
 test("CLI preview with browser context shows the browser source before a Session", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-browser-preview-"));
   const homeDir = await mkdtemp(

@@ -31,6 +31,7 @@ export type ForgeCommand =
   | { kind: "memory-suggest"; sessionId: string }
   | { kind: "memory-accept"; suggestionId: string }
   | { kind: "browser-read-current" }
+  | { kind: "browser-install-host"; extensionId: string }
   | { kind: "help" }
   | { kind: "version" };
 
@@ -91,7 +92,16 @@ function parseBrowser(args: string[]): ForgeCommand {
   if (args[0] === "read-current" && args.length === 1) {
     return { kind: "browser-read-current" };
   }
-  throw new Error("Usage: forge browser read-current");
+  if (
+    args[0] === "install-host" &&
+    args[1] === "--extension-id" &&
+    args.length === 3
+  ) {
+    return { kind: "browser-install-host", extensionId: args[2] ?? "" };
+  }
+  throw new Error(
+    "Usage: forge browser read-current | forge browser install-host --extension-id <chrome-extension-id>",
+  );
 }
 
 function parseConfig(args: string[]): ForgeCommand {

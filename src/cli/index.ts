@@ -16,6 +16,7 @@ import {
   loadCurrentBrowserSnapshot,
   type LoadedBrowserSnapshot,
 } from "../browser/index.js";
+import { installChromeNativeMessagingHost } from "../browser/nativeHostInstall.js";
 import { listSessions, showSession } from "../sessions/index.js";
 import {
   buildContinuationContext,
@@ -190,6 +191,16 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
             await loadCurrentBrowserSnapshot({ homeDir: options.homeDir }),
           ),
         );
+      case "browser-install-host":
+        return ok(
+          formatInstalledChromeNativeHost(
+            await installChromeNativeMessagingHost({
+              extensionId: command.extensionId,
+              homeDir: options.homeDir ?? process.env.HOME ?? "",
+              workspaceRoot,
+            }),
+          ),
+        );
       default: {
         const exhaustive: never = command;
         throw new Error(`Unhandled command: ${JSON.stringify(exhaustive)}`);
@@ -199,6 +210,19 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
     const message = error instanceof Error ? error.message : String(error);
     return { stdout: "", stderr: `forge: ${message}`, exitCode: 1 };
   }
+}
+
+function formatInstalledChromeNativeHost(input: {
+  manifestPath: string;
+  hostPath: string;
+  extensionId: string;
+}): string {
+  return [
+    "Chrome Native Messaging host installed",
+    `Extension id: ${input.extensionId}`,
+    `Manifest: ${input.manifestPath}`,
+    `Host: ${input.hostPath}`,
+  ].join("\n");
 }
 
 function formatBrowserSnapshot(snapshot: LoadedBrowserSnapshot): string {

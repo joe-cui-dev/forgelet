@@ -13,7 +13,7 @@
     "ARCHITECTURE.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node dist/browser/extension/buildExtension.js",
     "typecheck": "tsc -p tsconfig.test.json --noEmit",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand",
     "smoke:deepseek": "npm run build && node dist/models/providers/deepseekSmoke.js",

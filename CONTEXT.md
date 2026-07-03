@@ -136,6 +136,10 @@ _Avoid_: Web app product, autonomous control panel
 The V2 read-only browser integration where a user-approved extension sends the current page URL, title, selected text, extracted page text, and optional screenshot metadata into Forgelet as a browser context attachment.
 _Avoid_: Browser automation, cookie access, hidden page scraping
 
+**Browser Snapshot Producer**:
+The user-triggered side of the **Browser Context Bridge** that creates a short-lived current-page snapshot for Forgelet to consume as browser context. It produces context only after an explicit user action; it is not a browser automation agent or background scraper.
+_Avoid_: Production snapshot, browser automation, background capture
+
 **Cost-Aware Model Routing**:
 The Forgelet principle that model choice is part of the workflow decision, not a hidden provider detail. Forgelet prefers low-cost models by default and makes any capability upgrade explicit and traceable.
 _Avoid_: Cheap model mode, fixed model choice
