@@ -3,6 +3,7 @@ dist/
 dist-test/
 .forgelet/sessions/
 .forgelet/writing/
+.forgelet/knowledge/
 .forgelet/tmp/
 .env
 .env.*

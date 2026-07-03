@@ -397,6 +397,9 @@ export const runWorkflowSession = async (
     await traceWriter.append(
       createTraceEvent(sessionId, "final_summary", new Date().toISOString(), {
         summary: withTracePath(executionSummary, traceWriter.tracePath),
+        ...(input.workflow === "learning" && execution.finalContent
+          ? { finalContent: execution.finalContent }
+          : {}),
         ...(writingArtifact ? { writingArtifact } : {}),
         ...(execution.audit ? { audit: execution.audit } : {}),
       }),

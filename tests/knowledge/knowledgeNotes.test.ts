@@ -58,6 +58,79 @@ test("creates a project Knowledge Note from a completed source-backed Learning S
   expect(note).toContain("## Key Concepts\n- Workflow graph design");
 });
 
+test("creates a Knowledge Note from pure final content instead of terminal Session summary", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-knowledge-"));
+  await writeLearningTrace(workspaceRoot, "sess_learn", [
+    event("session_started", "sess_learn", {
+      workflow: "learning",
+      startedAt: "2026-07-03T00:00:00.000Z",
+    }),
+    event("user_task", "sess_learn", { task: "Teach Me Core Ideas" }),
+    sourceAttachmentEvent("sess_learn", "paper.md"),
+    event("final_summary", "sess_learn", {
+      summary: [
+        "Forgelet session completed: sess_learn",
+        "Workflow: learning",
+        "Task: Teach Me Core Ideas",
+        "Trace: /tmp/workspace/.forgelet/sessions/sess_learn.jsonl",
+      ].join("\n"),
+      finalContent: "## Summary\nCore ideas.\n\n## Review Prompts\nCheck yourself.",
+    }),
+    event("session_finished", "sess_learn", { status: "completed" }),
+  ]);
+
+  const result = await createKnowledgeNote(workspaceRoot, {
+    scope: "project",
+    fromSessionId: "sess_learn",
+    createdAt: "2026-07-03T01:02:03.000Z",
+  });
+
+  const note = await readFile(join(workspaceRoot, result.path), "utf8");
+  expect(note).toContain("# Teach Me Core Ideas\n\n## Summary\nCore ideas.");
+  expect(note).not.toContain("Forgelet session completed");
+  expect(note).not.toContain("Workflow: learning\nTask:");
+  expect(note).not.toContain("Trace: /tmp/workspace");
+});
+
+test("strips terminal Session summary wrapper from legacy Learning traces", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-knowledge-"));
+  await writeLearningTrace(workspaceRoot, "sess_legacy", [
+    event("session_started", "sess_legacy", {
+      workflow: "learning",
+      startedAt: "2026-07-03T00:00:00.000Z",
+    }),
+    event("user_task", "sess_legacy", { task: "Legacy Learning" }),
+    sourceAttachmentEvent("sess_legacy", "paper.md"),
+    event("final_summary", "sess_legacy", {
+      summary: [
+        "Forgelet session completed: sess_legacy",
+        "Workflow: learning",
+        "Task: Legacy Learning",
+        "Model turns: 2",
+        "## Summary",
+        "Core ideas.",
+        "",
+        "## Review Prompts",
+        "Check yourself.",
+        "Trace: /tmp/workspace/.forgelet/sessions/sess_legacy.jsonl",
+      ].join("\n"),
+    }),
+    event("session_finished", "sess_legacy", { status: "completed" }),
+  ]);
+
+  const result = await createKnowledgeNote(workspaceRoot, {
+    scope: "project",
+    fromSessionId: "sess_legacy",
+    createdAt: "2026-07-03T01:02:03.000Z",
+  });
+
+  const note = await readFile(join(workspaceRoot, result.path), "utf8");
+  expect(note).toContain("# Legacy Learning\n\n## Summary\nCore ideas.");
+  expect(note).toContain("## Review Prompts\nCheck yourself.");
+  expect(note).not.toContain("Forgelet session completed");
+  expect(note).not.toContain("Trace: /tmp/workspace");
+});
+
 test("does not overwrite an existing Knowledge Note for the same Session", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-knowledge-"));
   await writeLearningTrace(workspaceRoot, "sess_learn", [

@@ -685,6 +685,9 @@ test("CLI runs a source-backed learning workflow and does not write Knowledge Li
   expect(events.some((event) => event.type === "context_attachment")).toBe(true);
   const finalSummary = events.find((event) => event.type === "final_summary");
   expect(finalSummary?.payload.summary).toMatch(/## Review Prompts/);
+  expect(finalSummary?.payload.finalContent).toMatch(/## Summary\nThese are the core ideas\./);
+  expect(finalSummary?.payload.finalContent).not.toMatch(/Forgelet session completed/);
+  expect(finalSummary?.payload.finalContent).not.toMatch(/Trace: /);
   const sessionId = (traceFiles[0] ?? "").replace(/\.jsonl$/, "");
   const show = await runCli(["sessions", "show", sessionId], { workspaceRoot });
   expect(show.exitCode).toBe(0);

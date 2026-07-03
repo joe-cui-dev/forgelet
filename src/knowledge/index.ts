@@ -150,9 +150,33 @@ function sourceLearningSession(events: TraceEvent[], sessionId: string): {
 
   return {
     task: typeof task?.payload.task === "string" ? task.payload.task : sessionId,
-    summary: finalSummary.payload.summary,
+    summary: knowledgeNoteBodyFromFinalSummary(finalSummary.payload),
     attachments,
   };
+}
+
+function knowledgeNoteBodyFromFinalSummary(
+  payload: Record<string, unknown>,
+): string {
+  if (
+    typeof payload.finalContent === "string" &&
+    payload.finalContent.trim().length > 0
+  )
+    return payload.finalContent;
+
+  const summary = typeof payload.summary === "string" ? payload.summary : "";
+  return stripTerminalSummaryWrapper(summary);
+}
+
+function stripTerminalSummaryWrapper(summary: string): string {
+  const firstLearningHeading = summary.search(
+    /^##\s+(Summary|Key Concepts|Source Links|Open Questions|Review Prompts)\s*$/im,
+  );
+  const withoutHeader =
+    firstLearningHeading >= 0 ? summary.slice(firstLearningHeading) : summary;
+  return withoutHeader
+    .replace(/\nTrace:\s+\S+\s*$/m, "")
+    .trim();
 }
 
 function renderKnowledgeNote(input: {
