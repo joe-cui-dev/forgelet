@@ -35,6 +35,11 @@ structure and Trace evidence. It writes the Session Trace under the project's
 `.forgelet/sessions/` directory and prints the Trace path for review; it does
 not score prose quality or write revised prose back to the repo.
 
+`npm run smoke:writing-artifacts` runs a real prompt-only Creative Writing
+Workflow, verifies that it creates `.forgelet/writing/*.md` and
+`.forgelet/sessions/*.jsonl`, then checks `forge write artifacts list` and
+`forge write artifacts show <sessionId>` without creating extra Session Traces.
+
 `npm run smoke:learning` runs a real Learning Workflow smoke test with
 `fixtures/learning/article.md`. It validates Learning Pack structure and Trace
 evidence, and asserts that the Session does not write `.forgelet/knowledge/`.
