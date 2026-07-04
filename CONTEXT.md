@@ -52,6 +52,10 @@ _Avoid_: Single polished answer, variant-only response, editor chat
 A human-facing prose result produced by a **Writing Workflow**, such as a draft or revision, that can be read, reused, or selected as source material for later writing work.
 _Avoid_: Trace event, hidden memory, context file
 
+**Writing Artifact Catalog**:
+A project-local derived view over saved **Writing Artifacts** and their **Trace** provenance that helps users find, inspect, and reuse prior writing outputs. A Writing Artifact Catalog is not a separate content store, does not own prose, does not inspect arbitrary Markdown files, and should not be confused with a **Knowledge Library**.
+_Avoid_: Writing Artifact Library, Knowledge Library, project memory, hidden storage, Markdown viewer
+
 **Writing Artifact Continuation**:
 A new **Creative Writing Workflow** Session that uses a prior **Writing Artifact** as the source text for continuing prose. It produces a new writing result without reopening the prior **Session**, mutating its **Trace**, or becoming a full **Writing Project**.
 _Avoid_: Session Continuation, appended trace, project continuity

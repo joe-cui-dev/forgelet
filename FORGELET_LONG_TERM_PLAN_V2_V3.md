@@ -509,6 +509,23 @@ Acceptance criteria:
 - The first implementation produces a Draft Pack with one continued draft and saves it as a new `.forgelet/writing/` artifact without overwriting the selected artifact.
 - This slice remains short-form artifact continuation and does not create a long-form Writing Project model, chapter registry, or persistent story bible.
 
+### V2 Issue 0b: Add Writing Artifact Catalog
+
+Let users find, inspect, and reuse project-local **Writing Artifacts** after the short-form continuation path exists, without introducing full **Writing Project** continuity.
+
+Execution plan: [Writing Artifact Catalog Execution Plan](./docs/writing-artifact-catalog-execution-plan.md).
+
+Acceptance criteria:
+
+- `forge write artifacts list` shows a project-local Writing Artifact Catalog derived from `.forgelet/sessions/*.jsonl` `writing_artifact` events and `.forgelet/writing/*.md` files.
+- `forge write artifacts show <artifact>` accepts a project Writing Artifact path or producing Session id; it does not introduce a separate Artifact id.
+- The Catalog is Trace-first with filesystem reconciliation: Trace-backed artifacts are listed with provenance, missing files are marked `missing`, and files under `.forgelet/writing/` without Trace provenance are marked `untracked`.
+- `list` uses a human-readable block format, sorts newest first, includes untracked artifacts by default, and remains deterministic.
+- `show` defaults to bounded preview output; `--full` prints the full artifact body.
+- Catalog commands are deterministic read operations: they do not create Sessions, write Traces, call models, mutate artifacts, update memory, or create Knowledge Notes.
+- The first slice is project-only and has no `--scope`, search, filter, limit, sort, JSON, delete, rename, or interactive picker support.
+- `show` rejects arbitrary external Markdown paths; the Catalog only inspects project Writing Artifacts.
+
 ### V2 Issue 1: Add browser context attachment interface
 
 Implement browser-origin `ContextAttachment` support without connecting a real browser yet.
