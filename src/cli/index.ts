@@ -28,8 +28,10 @@ import {
   findWritingArtifactEntry,
   readWritingArtifactCatalog,
   readWritingArtifactContent,
+  searchWritingArtifacts,
   type WritingArtifactCatalog,
   type WritingArtifactCatalogEntry,
+  type WritingArtifactSearchResult,
 } from "../writingArtifacts/index.js";
 import {
   buildContinuationContext,
@@ -218,6 +220,15 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
         );
       case "writing-artifacts-list":
         return ok(formatWritingArtifactCatalog(await readWritingArtifactCatalog(workspaceRoot)));
+      case "writing-artifacts-search":
+        return ok(
+          formatWritingArtifactSearch(
+            await searchWritingArtifacts(workspaceRoot, {
+              query: command.query,
+              limit: command.limit,
+            }),
+          ),
+        );
       case "writing-artifacts-show": {
         const entry = await findWritingArtifactEntry({
           workspaceRoot,
@@ -311,6 +322,26 @@ function formatWritingArtifactCatalog(catalog: WritingArtifactCatalog): string {
       "",
     ]),
   ].join("\n").trimEnd();
+}
+
+function formatWritingArtifactSearch(search: WritingArtifactSearchResult): string {
+  return [
+    "Writing Artifact Catalog Search",
+    `Path: ${search.path}`,
+    `Query: ${search.query}`,
+    `Results: ${search.entries.length}`,
+    ...search.entries.flatMap((entry, index) => [
+      "",
+      `${index + 1}. ${entry.path.replace(/^\.forgelet\/writing\//, "")}`,
+      `   Status: ${entry.status}`,
+      `   Kind: ${entry.contentKind}`,
+      `   Session: ${entry.sessionId ?? "none"}`,
+      `   Created: ${entry.createdAt}`,
+      ...(entry.task ? [`   Task: ${entry.task}`] : []),
+      `   Snippet: ${entry.snippet}`,
+      `   Continue: ${formatWritingArtifactContinueHint(entry)}`,
+    ]),
+  ].join("\n");
 }
 
 function formatWritingArtifactContinueHint(

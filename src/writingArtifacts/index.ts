@@ -29,6 +29,16 @@ export interface WritingArtifactCatalogEntry {
   tracePath?: string;
 }
 
+export interface WritingArtifactSearchResult {
+  path: ".forgelet/writing";
+  query: string;
+  entries: WritingArtifactSearchEntry[];
+}
+
+export interface WritingArtifactSearchEntry extends WritingArtifactCatalogEntry {
+  snippet: string;
+}
+
 export async function readWritingArtifactCatalog(
   workspaceRoot: string,
 ): Promise<WritingArtifactCatalog> {
@@ -58,6 +68,38 @@ export async function readWritingArtifactCatalog(
     entries: [...byPath.values()].sort((left, right) =>
       right.createdAt.localeCompare(left.createdAt),
     ),
+  };
+}
+
+export async function searchWritingArtifacts(
+  workspaceRoot: string,
+  input: { query: string; limit: number },
+): Promise<WritingArtifactSearchResult> {
+  const query = input.query.trim();
+  if (!query) throw new Error("Writing Artifact Catalog search query is required.");
+  const catalog = await readWritingArtifactCatalog(workspaceRoot);
+  const matches: WritingArtifactSearchEntry[] = [];
+
+  for (const entry of catalog.entries) {
+    if (entry.status !== "missing") {
+      const body = await readFile(join(workspaceRoot, entry.path), "utf8");
+      const bodySnippet = findSnippet(body, query);
+      if (bodySnippet) {
+        matches.push({ ...entry, snippet: bodySnippet });
+        continue;
+      }
+    }
+    const metadata = searchableMetadata(entry);
+    const metadataSnippet = findSnippet(metadata, query);
+    if (metadataSnippet) {
+      matches.push({ ...entry, snippet: snippetForEntry(entry, metadataSnippet) });
+    }
+  }
+
+  return {
+    path: catalog.path,
+    query,
+    entries: matches.slice(0, input.limit),
   };
 }
 
@@ -200,4 +242,34 @@ function workspaceRelative(workspaceRoot: string, path: string): string {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return typeof error === "object" && error !== null && "code" in error;
+}
+
+function searchableMetadata(entry: WritingArtifactCatalogEntry): string {
+  return [
+    basename(entry.path),
+    entry.sessionId,
+    entry.contentKind,
+    entry.creativeStyle,
+    entry.task,
+  ]
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .join("\n");
+}
+
+function findSnippet(text: string, query: string): string | undefined {
+  const index = text.toLocaleLowerCase().indexOf(query.toLocaleLowerCase());
+  if (index < 0) return undefined;
+  const start = Math.max(0, index - 24);
+  const end = Math.min(text.length, index + query.length + 24);
+  const prefix = start > 0 ? "..." : "";
+  const suffix = end < text.length ? "..." : "";
+  return `${prefix}${text.slice(start, end).replace(/\s+/g, " ").trim()}${suffix}`;
+}
+
+function snippetForEntry(
+  entry: WritingArtifactCatalogEntry,
+  snippet: string,
+): string {
+  if (entry.status === "missing") return "unavailable; artifact file is missing";
+  return snippet;
 }

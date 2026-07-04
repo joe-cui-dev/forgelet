@@ -38,7 +38,7 @@ not score prose quality or write revised prose back to the repo.
 `npm run smoke:writing-artifacts` runs a real prompt-only Creative Writing
 Workflow, verifies that it creates `.forgelet/writing/*.md` and
 `.forgelet/sessions/*.jsonl`, then checks `forge write artifacts list` and
-`forge write artifacts show <sessionId>` without creating extra Session Traces.
+`forge write artifacts show/search` without creating extra Session Traces.
 
 `npm run smoke:learning` runs a real Learning Workflow smoke test with
 `fixtures/learning/article.md`. It validates Learning Pack structure and Trace
@@ -122,6 +122,8 @@ forge write --creative --style vivid --continue .forgelet/writing/chapter-1.md "
 forge write artifacts list
 forge write artifacts show .forgelet/writing/chapter-1.md
 forge write artifacts show <sessionId> --full
+forge write artifacts search "rain scene"
+forge write artifacts search --limit 5 "chapter"
 ```
 
 Built-in styles are `vivid`, `tight`, `literary`, and `plain`.
@@ -158,7 +160,9 @@ treated as supporting references, and the result is a new Draft Pack saved under
 Use the project-local Writing Artifact Catalog to find saved outputs and preview
 their prose without creating a Session or calling a model. The catalog is derived
 from `.forgelet/sessions/*.jsonl` and `.forgelet/writing/*.md`; it marks missing
-trace-backed files and untracked local Markdown artifacts explicitly.
+trace-backed files and untracked local Markdown artifacts explicitly. Catalog
+search is local, deterministic, and case-insensitive; it matches artifact bodies
+plus catalog metadata and defaults to 10 newest results.
 
 Long-form Writing Project continuity is a later V2 design step; it is not a
 precondition for short-form creative rewriting.

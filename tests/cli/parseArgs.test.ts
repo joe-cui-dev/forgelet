@@ -381,6 +381,36 @@ test("parses Writing Artifact Catalog commands", () => {
     artifact: "sess_abc",
     full: true,
   });
+  expect(parseArgs(["write", "artifacts", "search", "rain"])).toEqual({
+    kind: "writing-artifacts-search",
+    query: "rain",
+    limit: 10,
+  });
+  expect(
+    parseArgs(["write", "artifacts", "search", "--limit", "5", "chapter"]),
+  ).toEqual({
+    kind: "writing-artifacts-search",
+    query: "chapter",
+    limit: 5,
+  });
+});
+
+test("rejects malformed Writing Artifact Catalog search commands", () => {
+  expect(() => parseArgs(["write", "artifacts", "search"])).toThrow(
+    /forge write artifacts search \[--limit <n>\] "<query>"/,
+  );
+  expect(() => parseArgs(["write", "artifacts", "search", "   "])).toThrow(
+    /forge write artifacts search \[--limit <n>\] "<query>"/,
+  );
+  expect(() =>
+    parseArgs(["write", "artifacts", "search", "--limit", "0", "rain"]),
+  ).toThrow(/--limit must be a positive integer/);
+  expect(() =>
+    parseArgs(["write", "artifacts", "search", "rain", "--limit", "5"]),
+  ).toThrow(/Unsupported Writing Artifact Catalog option after query: --limit/);
+  expect(() =>
+    parseArgs(["write", "artifacts", "search", "--json", "rain"]),
+  ).toThrow(/Unsupported Writing Artifact Catalog option: --json/);
 });
 
 test("rejects misplaced Writing Artifact Continuation options", () => {

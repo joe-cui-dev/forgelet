@@ -958,6 +958,86 @@ test("CLI lists Writing Artifact Catalog entries without starting a Session", as
   expect(after).toEqual(before);
 });
 
+test("CLI searches Writing Artifact Catalog entries without starting a Session", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-artifacts-search-"));
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "writing", "rain-sess_search.md"),
+    "Neon rain scene with a humming freezer.\n",
+    "utf8",
+  );
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "writing", "loose-rain.md"),
+    "Loose rain vignette.\n",
+    "utf8",
+  );
+  await writeFile(
+    join(sessionDir, "sess_search.jsonl"),
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-07-04T10:00:00.000Z",
+        sessionId: "sess_search",
+        payload: {
+          workflow: "writing",
+          workflowVariant: "creative",
+          creativeStyle: "vivid",
+        },
+      }),
+      JSON.stringify({
+        type: "user_task",
+        ts: "2026-07-04T10:00:01.000Z",
+        sessionId: "sess_search",
+        payload: { task: "write rain" },
+      }),
+      JSON.stringify({
+        type: "writing_artifact",
+        ts: "2026-07-04T10:22:00.000Z",
+        sessionId: "sess_search",
+        payload: {
+          path: ".forgelet/writing/rain-sess_search.md",
+          contentKind: "draft",
+          contentBytes: 40,
+        },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+
+  const before = await readdir(sessionDir);
+  const result = await runCli(
+    ["write", "artifacts", "search", "--limit", "1", "rain"],
+    {
+      workspaceRoot,
+      createLiveModelClient: async () => {
+        throw new Error("model factory should not be called for artifact search");
+      },
+    },
+  );
+  const noResults = await runCli(["write", "artifacts", "search", "moon"], {
+    workspaceRoot,
+  });
+  const after = await readdir(sessionDir);
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toMatch(/Writing Artifact Catalog Search/);
+  expect(result.stdout).toMatch(/Path: \.forgelet\/writing/);
+  expect(result.stdout).toMatch(/Query: rain/);
+  expect(result.stdout).toMatch(/Results: 1/);
+  expect(result.stdout).toMatch(/rain-sess_search\.md/);
+  expect(result.stdout).toMatch(/Status: available/);
+  expect(result.stdout).toMatch(/Snippet: .*rain/);
+  expect(result.stdout).toMatch(
+    /Continue: forge write --creative --style vivid --continue \.forgelet\/writing\/rain-sess_search\.md "<brief>"/,
+  );
+  expect(noResults.exitCode).toBe(0);
+  expect(noResults.stdout).toMatch(/Results: 0/);
+  expect(after).toEqual(before);
+});
+
 test("CLI shows Writing Artifacts by path or Session id with preview and full body", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-artifacts-show-"));
   const sessionDir = join(workspaceRoot, ".forgelet", "sessions");

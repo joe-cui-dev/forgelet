@@ -36,6 +36,25 @@ test("Writing Artifact Catalog smoke evidence accepts catalog list and show outp
       "Preview:",
       "Rain brightened the store windows.",
     ].join("\n"),
+    searchStdout: [
+      "Writing Artifact Catalog Search",
+      "Path: .forgelet/writing",
+      "Query: rain",
+      "Results: 1",
+      "",
+      "1. rain-sess_artifacts.md",
+      "   Status: available",
+      "   Kind: draft",
+      "   Session: sess_artifacts",
+      "   Snippet: Rain brightened the store windows.",
+      "   Continue: forge write --creative --style vivid --continue .forgelet/writing/rain-sess_artifacts.md \"<brief>\"",
+    ].join("\n"),
+    limitedSearchStdout: [
+      "Writing Artifact Catalog Search",
+      "Path: .forgelet/writing",
+      "Query: rain",
+      "Results: 1",
+    ].join("\n"),
     tracePath: "/repo/.forgelet/sessions/sess_artifacts.jsonl",
     traceEvents: [
       {
@@ -104,6 +123,10 @@ test("Writing Artifact Catalog smoke runs write, list, and show through the CLI"
       "  console.log('Writing Artifact\\nPath: .forgelet/writing/rain-sess_artifacts.md\\nStatus: available\\nSession: sess_artifacts\\nContinue: forge write --creative --style vivid --continue .forgelet/writing/rain-sess_artifacts.md \"<brief>\"\\n\\nPreview:\\nRain brightened the store windows.');",
       "  process.exit(0);",
       "}",
+      "if (args[0] === 'write' && args[1] === 'artifacts' && args[2] === 'search') {",
+      "  console.log('Writing Artifact Catalog Search\\nPath: .forgelet/writing\\nQuery: rain\\nResults: 1\\n\\n1. rain-sess_artifacts.md\\n   Status: available\\n   Kind: draft\\n   Session: sess_artifacts\\n   Snippet: Rain brightened the store windows.\\n   Continue: forge write --creative --style vivid --continue .forgelet/writing/rain-sess_artifacts.md \"<brief>\"');",
+      "  process.exit(0);",
+      "}",
       "if (!args.includes('--creative')) process.exit(20);",
       "writeFileSync(join(writingDir, 'rain-sess_artifacts.md'), 'Rain brightened the store windows.\\n');",
       "const event = (type, payload) => JSON.stringify({ type, sessionId: 'sess_artifacts', payload });",
@@ -127,4 +150,5 @@ test("Writing Artifact Catalog smoke runs write, list, and show through the CLI"
   expect(result.workspaceRoot).toBe(testRoot);
   expect(result.listStdout).toMatch(/Writing Artifact Catalog/);
   expect(result.showStdout).toMatch(/Preview:/);
+  expect(result.searchStdout).toMatch(/Writing Artifact Catalog Search/);
 });

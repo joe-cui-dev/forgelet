@@ -42,6 +42,7 @@ export type ForgeCommand =
     }
   | { kind: "writing-artifacts-list" }
   | { kind: "writing-artifacts-show"; artifact: string; full: boolean }
+  | { kind: "writing-artifacts-search"; query: string; limit: number }
   | { kind: "memory-suggest"; sessionId: string }
   | { kind: "memory-accept"; suggestionId: string }
   | { kind: "browser-read-current" }
@@ -114,6 +115,7 @@ export function parseArgs(argv: string[]): ForgeCommand {
 function parseWritingArtifacts(args: string[]): ForgeCommand {
   if (args[0] === "list" && args.length === 1)
     return { kind: "writing-artifacts-list" };
+  if (args[0] === "search") return parseWritingArtifactsSearch(args.slice(1));
   if (args[0] === "show") {
     const artifact = args[1];
     if (!artifact)
@@ -128,8 +130,39 @@ function parseWritingArtifacts(args: string[]): ForgeCommand {
     return { kind: "writing-artifacts-show", artifact, full };
   }
   throw new Error(
-    "Usage: forge write artifacts list | forge write artifacts show <artifact> [--full]",
+    "Usage: forge write artifacts list | forge write artifacts show <artifact> [--full] | forge write artifacts search [--limit <n>] \"<query>\"",
   );
+}
+
+function parseWritingArtifactsSearch(args: string[]): ForgeCommand {
+  let limit = 10;
+  const queryParts: string[] = [];
+
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (queryParts.length > 0 && arg?.startsWith("-"))
+      throw new Error(
+        `Unsupported Writing Artifact Catalog option after query: ${arg}`,
+      );
+    if (arg === "--limit") {
+      const value = args[++i];
+      const parsed = Number(value);
+      if (!Number.isInteger(parsed) || parsed <= 0)
+        throw new Error("--limit must be a positive integer");
+      limit = parsed;
+      continue;
+    }
+    if (arg?.startsWith("-"))
+      throw new Error(`Unsupported Writing Artifact Catalog option: ${arg}`);
+    queryParts.push(arg ?? "");
+  }
+
+  const query = queryParts.join(" ").trim();
+  if (!query)
+    throw new Error(
+      'Usage: forge write artifacts search [--limit <n>] "<query>"',
+    );
+  return { kind: "writing-artifacts-search", query, limit };
 }
 
 function parseBrowser(args: string[]): ForgeCommand {

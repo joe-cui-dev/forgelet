@@ -2,7 +2,10 @@ import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@jest/globals";
-import { readWritingArtifactCatalog } from "../../src/writingArtifacts/index.js";
+import {
+  readWritingArtifactCatalog,
+  searchWritingArtifacts,
+} from "../../src/writingArtifacts/index.js";
 
 test("reads a Writing Artifact Catalog from traces and local artifacts", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-writing-artifacts-"));
@@ -90,6 +93,120 @@ test("reads a Writing Artifact Catalog from traces and local artifacts", async (
   });
   expect(catalog.entries[2]).not.toHaveProperty("sessionId");
   expect(catalog.entries[2]).not.toHaveProperty("tracePath");
+});
+
+test("searches available Writing Artifact bodies with case-insensitive snippets", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-writing-search-"));
+  await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "writing", "rain-sess_rain.md"),
+    "The neon RAIN scene keeps humming after midnight.\n",
+    "utf8",
+  );
+  await writeTrace(workspaceRoot, "sess_rain", [
+    event("session_started", "sess_rain", {
+      workflow: "writing",
+      workflowVariant: "creative",
+      creativeStyle: "vivid",
+    }),
+    event("user_task", "sess_rain", {
+      task: "write a convenience store scene",
+    }),
+    event("writing_artifact", "sess_rain", {
+      path: ".forgelet/writing/rain-sess_rain.md",
+      contentKind: "draft",
+      contentBytes: 50,
+    }, "2026-07-04T10:22:00.000Z"),
+  ]);
+
+  const result = await searchWritingArtifacts(workspaceRoot, {
+    query: "rain scene",
+    limit: 10,
+  });
+
+  expect(result.path).toBe(".forgelet/writing");
+  expect(result.query).toBe("rain scene");
+  expect(result.entries).toHaveLength(1);
+  expect(result.entries[0]).toEqual(
+    expect.objectContaining({
+      path: ".forgelet/writing/rain-sess_rain.md",
+      status: "available",
+    }),
+  );
+  expect(result.entries[0]?.snippet).toContain("RAIN scene");
+});
+
+test("searches Catalog metadata and applies newest-first limits across statuses", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-writing-search-"));
+  await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "writing", "body-sess_body.md"),
+    "A midnight market scene with rain on the glass.\n",
+    "utf8",
+  );
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "writing", "untracked-market.md"),
+    "Loose market vignette.\n",
+    "utf8",
+  );
+  await utimes(
+    join(workspaceRoot, ".forgelet", "writing", "untracked-market.md"),
+    new Date("2026-07-04T10:30:00.000Z"),
+    new Date("2026-07-04T10:30:00.000Z"),
+  );
+  await writeTrace(workspaceRoot, "sess_body", [
+    event("session_started", "sess_body", {
+      workflow: "writing",
+      workflowVariant: "creative",
+      creativeStyle: "vivid",
+    }),
+    event("user_task", "sess_body", { task: "write a city scene" }),
+    event("writing_artifact", "sess_body", {
+      path: ".forgelet/writing/body-sess_body.md",
+      contentKind: "draft",
+      contentBytes: 48,
+    }, "2026-07-04T10:00:00.000Z"),
+  ]);
+  await writeTrace(workspaceRoot, "sess_missing", [
+    event("session_started", "sess_missing", {
+      workflow: "writing",
+      workflowVariant: "creative",
+      creativeStyle: "plain",
+    }),
+    event("user_task", "sess_missing", { task: "missing market scene" }),
+    event("writing_artifact", "sess_missing", {
+      path: ".forgelet/writing/missing-sess_missing.md",
+      contentKind: "revision",
+      contentBytes: 42,
+    }, "2026-07-04T11:00:00.000Z"),
+  ]);
+
+  const result = await searchWritingArtifacts(workspaceRoot, {
+    query: "market",
+    limit: 2,
+  });
+
+  expect(result.entries.map((entry) => entry.path)).toEqual([
+    ".forgelet/writing/missing-sess_missing.md",
+    ".forgelet/writing/untracked-market.md",
+  ]);
+  expect(result.entries[0]).toEqual(
+    expect.objectContaining({
+      status: "missing",
+      snippet: "unavailable; artifact file is missing",
+    }),
+  );
+  expect(result.entries[1]).toEqual(
+    expect.objectContaining({
+      status: "untracked",
+    }),
+  );
+
+  const noResults = await searchWritingArtifacts(workspaceRoot, {
+    query: "does-not-exist",
+    limit: 10,
+  });
+  expect(noResults.entries).toEqual([]);
 });
 
 async function writeTrace(

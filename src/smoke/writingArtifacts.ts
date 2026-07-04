@@ -11,6 +11,8 @@ export interface WritingArtifactsSmokeEvidence {
   writeStdout: string;
   listStdout: string;
   showStdout: string;
+  searchStdout: string;
+  limitedSearchStdout: string;
   tracePath: string;
   traceEvents: unknown[];
   traceFilesAfterWrite: string[];
@@ -34,6 +36,8 @@ export interface WritingArtifactsSmokeRun
   writeStdout: string;
   listStdout: string;
   showStdout: string;
+  searchStdout: string;
+  limitedSearchStdout: string;
   workspaceRoot: string;
 }
 
@@ -89,6 +93,18 @@ export async function runWritingArtifactsSmoke(
     ["write", "artifacts", "show", sessionId],
     options.env,
   );
+  const searchStdout = await runForgeCli(
+    options.cliPath,
+    options.workspaceRoot,
+    ["write", "artifacts", "search", "rain"],
+    options.env,
+  );
+  const limitedSearchStdout = await runForgeCli(
+    options.cliPath,
+    options.workspaceRoot,
+    ["write", "artifacts", "search", "--limit", "1", "rain"],
+    options.env,
+  );
   const traceFilesAfterCatalogReads = [
     ...(await listTraceFiles(options.workspaceRoot)),
   ].sort();
@@ -97,6 +113,8 @@ export async function runWritingArtifactsSmoke(
     writeStdout,
     listStdout,
     showStdout,
+    searchStdout,
+    limitedSearchStdout,
     tracePath,
     traceEvents,
     traceFilesAfterWrite,
@@ -108,6 +126,8 @@ export async function runWritingArtifactsSmoke(
     writeStdout,
     listStdout,
     showStdout,
+    searchStdout,
+    limitedSearchStdout,
     workspaceRoot: options.workspaceRoot,
   };
 }
@@ -161,6 +181,15 @@ export function validateWritingArtifactsSmokeEvidence(
   assertContains(evidence.showStdout, "Continue:");
   assertContains(evidence.showStdout, "Preview:");
   assertContains(evidence.showStdout, artifactPath);
+  assertContains(evidence.searchStdout, "Writing Artifact Catalog Search");
+  assertContains(evidence.searchStdout, "Query: rain");
+  assertContains(evidence.searchStdout, "Results: ");
+  assertContains(evidence.searchStdout, "Status: available");
+  assertContains(evidence.searchStdout, "Snippet:");
+  assertContains(evidence.searchStdout, artifactPath.replace(".forgelet/writing/", ""));
+  assertContains(evidence.limitedSearchStdout, "Writing Artifact Catalog Search");
+  assertContains(evidence.limitedSearchStdout, "Query: rain");
+  assertContains(evidence.limitedSearchStdout, "Results: 1");
 
   if (
     evidence.traceFilesAfterWrite.join("\n") !==
@@ -283,6 +312,9 @@ async function main(): Promise<void> {
       "",
       "Catalog:",
       result.listStdout.trim(),
+      "",
+      "Catalog search:",
+      result.searchStdout.trim(),
       "",
       "Artifact preview:",
       result.showStdout.trim(),
