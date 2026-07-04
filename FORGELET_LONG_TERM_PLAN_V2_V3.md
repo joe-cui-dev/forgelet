@@ -524,6 +524,9 @@ Acceptance criteria:
 - `show` defaults to bounded preview output; `--full` prints the full artifact body.
 - Catalog commands are deterministic read operations: they do not create Sessions, write Traces, call models, mutate artifacts, update memory, or create Knowledge Notes.
 - The first slice is project-only and has no `--scope`, search, filter, limit, sort, JSON, delete, rename, or interactive picker support.
+- The second thin slice adds `forge write artifacts search [--limit <n>] "<query>"` as local case-insensitive substring search over Writing Artifact body text plus Catalog metadata.
+- Search includes available and untracked artifact bodies, searches missing artifacts only by metadata, sorts matches by `createdAt` descending, applies a default limit of 10 after sorting, and keeps the same no-Session/no-Trace/no-model boundary.
+- Search remains a Catalog command, not a Knowledge Library query: no vector index, relevance scoring, JSON output, filters, sort flags, or arbitrary Markdown search.
 - `show` rejects arbitrary external Markdown paths; the Catalog only inspects project Writing Artifacts.
 
 ### V2 Issue 1: Add browser context attachment interface
