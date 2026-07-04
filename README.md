@@ -114,6 +114,9 @@ by default without overwriting context attachments.
 forge write --creative --style vivid "write a rain-soaked convenience store scene"
 forge write --creative --style vivid --context scene.md "revise this scene"
 forge write --creative --style vivid --continue .forgelet/writing/chapter-1.md "continue the next chapter"
+forge write artifacts list
+forge write artifacts show .forgelet/writing/chapter-1.md
+forge write artifacts show <sessionId> --full
 ```
 
 Built-in styles are `vivid`, `tight`, `literary`, and `plain`.
@@ -146,6 +149,11 @@ Continue a saved Markdown Writing Artifact with `--continue`. The selected
 artifact is used as the prose source, repeated `--context` attachments are
 treated as supporting references, and the result is a new Draft Pack saved under
 `.forgelet/writing/` without overwriting the source artifact.
+
+Use the project-local Writing Artifact Catalog to find saved outputs and preview
+their prose without creating a Session or calling a model. The catalog is derived
+from `.forgelet/sessions/*.jsonl` and `.forgelet/writing/*.md`; it marks missing
+trace-backed files and untracked local Markdown artifacts explicitly.
 
 Long-form Writing Project continuity is a later V2 design step; it is not a
 precondition for short-form creative rewriting.

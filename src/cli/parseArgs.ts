@@ -40,6 +40,8 @@ export type ForgeCommand =
       query: string;
       limit: number;
     }
+  | { kind: "writing-artifacts-list" }
+  | { kind: "writing-artifacts-show"; artifact: string; full: boolean }
   | { kind: "memory-suggest"; sessionId: string }
   | { kind: "memory-accept"; suggestionId: string }
   | { kind: "browser-read-current" }
@@ -97,6 +99,7 @@ export function parseArgs(argv: string[]): ForgeCommand {
   if (first === "write") {
     if (args[1] === "resume")
       throw new Error("Writing Workflow resume is not available yet.");
+    if (args[1] === "artifacts") return parseWritingArtifacts(args.slice(2));
     return parseRun(args.slice(1), "writing");
   }
 
@@ -106,6 +109,27 @@ export function parseArgs(argv: string[]): ForgeCommand {
 
   if (first?.startsWith("-")) throw new Error(`Unknown option: ${first}`);
   throw new Error(`Unknown command: ${first}`);
+}
+
+function parseWritingArtifacts(args: string[]): ForgeCommand {
+  if (args[0] === "list" && args.length === 1)
+    return { kind: "writing-artifacts-list" };
+  if (args[0] === "show") {
+    const artifact = args[1];
+    if (!artifact)
+      throw new Error(
+        "Usage: forge write artifacts list | forge write artifacts show <artifact> [--full]",
+      );
+    const remaining = args.slice(2);
+    const full = remaining.includes("--full");
+    const unsupported = remaining.find((arg) => arg !== "--full");
+    if (unsupported)
+      throw new Error(`Unsupported Writing Artifact Catalog option: ${unsupported}`);
+    return { kind: "writing-artifacts-show", artifact, full };
+  }
+  throw new Error(
+    "Usage: forge write artifacts list | forge write artifacts show <artifact> [--full]",
+  );
 }
 
 function parseBrowser(args: string[]): ForgeCommand {

@@ -25,6 +25,13 @@ import {
 } from "../knowledge/index.js";
 import { listSessions, showSession } from "../sessions/index.js";
 import {
+  findWritingArtifactEntry,
+  readWritingArtifactCatalog,
+  readWritingArtifactContent,
+  type WritingArtifactCatalog,
+  type WritingArtifactCatalogEntry,
+} from "../writingArtifacts/index.js";
+import {
   buildContinuationContext,
   formatContinuationHeader,
 } from "../sessions/continuation.js";
@@ -209,6 +216,28 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
             }),
           ),
         );
+      case "writing-artifacts-list":
+        return ok(formatWritingArtifactCatalog(await readWritingArtifactCatalog(workspaceRoot)));
+      case "writing-artifacts-show": {
+        const entry = await findWritingArtifactEntry({
+          workspaceRoot,
+          artifact: command.artifact,
+        });
+        if (entry.status === "missing")
+          throw new Error(
+            `Writing artifact file is missing: ${entry.path}. Trace provenance still exists at ${entry.tracePath ?? "unknown"}.`,
+          );
+        return ok(
+          formatWritingArtifactDetail({
+            entry,
+            ...(await readWritingArtifactContent({
+              workspaceRoot,
+              entry,
+              full: command.full,
+            })),
+          }),
+        );
+      }
       case "memory-suggest":
         return ok(formatMemorySuggestion(await suggestMemoryFromSession(workspaceRoot, command.sessionId)));
       case "memory-accept":
@@ -250,6 +279,70 @@ function formatInstalledChromeNativeHost(input: {
     `Extension id: ${input.extensionId}`,
     `Manifest: ${input.manifestPath}`,
     `Host: ${input.hostPath}`,
+  ].join("\n");
+}
+
+function formatWritingArtifactCatalog(catalog: WritingArtifactCatalog): string {
+  const untracked = catalog.entries.filter(
+    (entry) => entry.status === "untracked",
+  ).length;
+  if (catalog.entries.length === 0)
+    return [
+      "Writing Artifact Catalog",
+      `Path: ${catalog.path}`,
+      "Artifacts: 0",
+      "Untracked: 0",
+    ].join("\n");
+  return [
+    "Writing Artifact Catalog",
+    `Path: ${catalog.path}`,
+    `Artifacts: ${catalog.entries.length}`,
+    `Untracked: ${untracked}`,
+    "",
+    ...catalog.entries.flatMap((entry, index) => [
+      `${index + 1}. ${entry.path.replace(/^\.forgelet\/writing\//, "")}`,
+      `   Status: ${entry.status}`,
+      `   Kind: ${entry.contentKind}`,
+      `   Session: ${entry.sessionId ?? "none"}`,
+      `   Created: ${entry.createdAt}`,
+      ...(entry.task ? [`   Task: ${entry.task}`] : []),
+      `   Bytes: ${entry.contentBytes}`,
+      `   Continue: ${formatWritingArtifactContinueHint(entry)}`,
+      "",
+    ]),
+  ].join("\n").trimEnd();
+}
+
+function formatWritingArtifactContinueHint(
+  entry: WritingArtifactCatalogEntry,
+): string {
+  if (entry.status === "missing")
+    return "unavailable; artifact file is missing";
+  const style = entry.creativeStyle ?? "<style>";
+  return `forge write --creative --style ${style} --continue ${entry.path} "<brief>"`;
+}
+
+function formatWritingArtifactDetail(input: {
+  entry: WritingArtifactCatalogEntry;
+  body: string;
+  truncated: boolean;
+}): string {
+  const entry = input.entry;
+  return [
+    "Writing Artifact",
+    `Path: ${entry.path}`,
+    `Status: ${entry.status}`,
+    `Kind: ${entry.contentKind}`,
+    `Session: ${entry.sessionId ?? "none"}`,
+    `Created: ${entry.createdAt}`,
+    ...(entry.task ? [`Task: ${entry.task}`] : []),
+    `Bytes: ${entry.contentBytes}`,
+    `Trace: ${entry.tracePath ?? "none"}`,
+    `Continue: ${formatWritingArtifactContinueHint(entry)}`,
+    "",
+    "Preview:",
+    input.body,
+    ...(input.truncated ? ["[truncated]"] : []),
   ].join("\n");
 }
 

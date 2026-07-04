@@ -890,6 +890,199 @@ test("CLI preview reports creative writing variants without persistence", async 
   await expect(readdir(join(workspaceRoot, ".forgelet", "sessions"))).rejects.toThrow();
 });
 
+test("CLI lists Writing Artifact Catalog entries without starting a Session", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-artifacts-list-"));
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "writing", "rain-sess_artifact.md"),
+    "Draft body\n",
+    "utf8",
+  );
+  await writeFile(
+    join(sessionDir, "sess_artifact.jsonl"),
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-07-04T10:00:00.000Z",
+        sessionId: "sess_artifact",
+        payload: {
+          workflow: "writing",
+          workflowVariant: "creative",
+          creativeStyle: "vivid",
+        },
+      }),
+      JSON.stringify({
+        type: "user_task",
+        ts: "2026-07-04T10:00:01.000Z",
+        sessionId: "sess_artifact",
+        payload: { task: "write rain" },
+      }),
+      JSON.stringify({
+        type: "writing_artifact",
+        ts: "2026-07-04T10:22:00.000Z",
+        sessionId: "sess_artifact",
+        payload: {
+          path: ".forgelet/writing/rain-sess_artifact.md",
+          contentKind: "draft",
+          contentBytes: 11,
+        },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+
+  const before = await readdir(sessionDir);
+  const result = await runCli(["write", "artifacts", "list"], {
+    workspaceRoot,
+    createLiveModelClient: async () => {
+      throw new Error("model factory should not be called for artifact catalog");
+    },
+  });
+  const after = await readdir(sessionDir);
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toMatch(/Writing Artifact Catalog/);
+  expect(result.stdout).toMatch(/Path: \.forgelet\/writing/);
+  expect(result.stdout).toMatch(/Artifacts: 1/);
+  expect(result.stdout).toMatch(/rain-sess_artifact\.md/);
+  expect(result.stdout).toMatch(/Status: available/);
+  expect(result.stdout).toMatch(/Kind: draft/);
+  expect(result.stdout).toMatch(/Session: sess_artifact/);
+  expect(result.stdout).toMatch(/Task: write rain/);
+  expect(result.stdout).toMatch(
+    /Continue: forge write --creative --style vivid --continue \.forgelet\/writing\/rain-sess_artifact\.md "<brief>"/,
+  );
+  expect(after).toEqual(before);
+});
+
+test("CLI shows Writing Artifacts by path or Session id with preview and full body", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-artifacts-show-"));
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
+  await mkdir(sessionDir, { recursive: true });
+  const body = `${"A".repeat(4_050)}\nTHE END\n`;
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "writing", "rain-sess_artifact.md"),
+    body,
+    "utf8",
+  );
+  await writeFile(
+    join(sessionDir, "sess_artifact.jsonl"),
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-07-04T10:00:00.000Z",
+        sessionId: "sess_artifact",
+        payload: {
+          workflow: "writing",
+          workflowVariant: "creative",
+          creativeStyle: "vivid",
+        },
+      }),
+      JSON.stringify({
+        type: "user_task",
+        ts: "2026-07-04T10:00:01.000Z",
+        sessionId: "sess_artifact",
+        payload: { task: "write rain" },
+      }),
+      JSON.stringify({
+        type: "writing_artifact",
+        ts: "2026-07-04T10:22:00.000Z",
+        sessionId: "sess_artifact",
+        payload: {
+          path: ".forgelet/writing/rain-sess_artifact.md",
+          contentKind: "draft",
+          contentBytes: Buffer.byteLength(body, "utf8"),
+        },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+
+  const preview = await runCli(
+    ["write", "artifacts", "show", ".forgelet/writing/rain-sess_artifact.md"],
+    { workspaceRoot },
+  );
+  const full = await runCli(
+    ["write", "artifacts", "show", "sess_artifact", "--full"],
+    { workspaceRoot },
+  );
+
+  expect(preview.exitCode).toBe(0);
+  expect(preview.stderr).toBe("");
+  expect(preview.stdout).toMatch(/Writing Artifact/);
+  expect(preview.stdout).toMatch(/Path: \.forgelet\/writing\/rain-sess_artifact\.md/);
+  expect(preview.stdout).toMatch(/Session: sess_artifact/);
+  expect(preview.stdout).toMatch(/Trace: \.forgelet\/sessions\/sess_artifact\.jsonl/);
+  expect(preview.stdout).toMatch(/Preview:\nA+/);
+  expect(preview.stdout).toMatch(/\[truncated\]/);
+  expect(preview.stdout).not.toContain("THE END");
+  expect(full.exitCode).toBe(0);
+  expect(full.stdout).toContain("THE END");
+  expect(full.stdout).not.toMatch(/\[truncated\]/);
+});
+
+test("CLI handles untracked, missing, and external Writing Artifact show requests", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-artifacts-show-errors-"));
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "writing", "loose.md"),
+    "Loose body\n",
+    "utf8",
+  );
+  await writeFile(
+    join(sessionDir, "sess_missing_artifact.jsonl"),
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-07-04T10:00:00.000Z",
+        sessionId: "sess_missing_artifact",
+        payload: { workflow: "writing", workflowVariant: "creative" },
+      }),
+      JSON.stringify({
+        type: "writing_artifact",
+        ts: "2026-07-04T10:22:00.000Z",
+        sessionId: "sess_missing_artifact",
+        payload: {
+          path: ".forgelet/writing/missing.md",
+          contentKind: "draft",
+          contentBytes: 99,
+        },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+
+  const untracked = await runCli(
+    ["write", "artifacts", "show", ".forgelet/writing/loose.md"],
+    { workspaceRoot },
+  );
+  const missing = await runCli(
+    ["write", "artifacts", "show", "sess_missing_artifact"],
+    { workspaceRoot },
+  );
+  const external = await runCli(
+    ["write", "artifacts", "show", "README.md"],
+    { workspaceRoot },
+  );
+
+  expect(untracked.exitCode).toBe(0);
+  expect(untracked.stdout).toMatch(/Status: untracked/);
+  expect(untracked.stdout).toMatch(/Trace: none/);
+  expect(untracked.stdout).toMatch(/Loose body/);
+  expect(missing.exitCode).toBe(1);
+  expect(missing.stderr).toMatch(/artifact file is missing/);
+  expect(missing.stderr).toMatch(/Trace provenance still exists/);
+  expect(missing.stderr).toMatch(/\.forgelet\/sessions\/sess_missing_artifact\.jsonl/);
+  expect(external.exitCode).toBe(1);
+  expect(external.stderr).toMatch(/only previews files under \.forgelet\/writing/);
+});
+
 test("CLI default coding run creates a model-backed Session", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-default-model-"));
   const modelClient = new FakeModelClient([
@@ -1290,6 +1483,8 @@ test("CLI help documents the active observation config key", async () => {
   expect(result.stdout).toMatch(
     /forge write --creative --style vivid --continue \.forgelet\/writing\/chapter-1\.md "continue the next chapter"/,
   );
+  expect(result.stdout).toMatch(/forge write artifacts list/);
+  expect(result.stdout).toMatch(/forge write artifacts show <sessionId> --full/);
   expect(result.stdout).toMatch(
     /config set supports memoryFile, activeContext config keys, and provider API key env vars/,
   );

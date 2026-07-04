@@ -365,6 +365,24 @@ test("parses a creative Writing Artifact Continuation", () => {
   });
 });
 
+test("parses Writing Artifact Catalog commands", () => {
+  expect(parseArgs(["write", "artifacts", "list"])).toEqual({
+    kind: "writing-artifacts-list",
+  });
+  expect(
+    parseArgs(["write", "artifacts", "show", ".forgelet/writing/chapter-1.md"]),
+  ).toEqual({
+    kind: "writing-artifacts-show",
+    artifact: ".forgelet/writing/chapter-1.md",
+    full: false,
+  });
+  expect(parseArgs(["write", "artifacts", "show", "sess_abc", "--full"])).toEqual({
+    kind: "writing-artifacts-show",
+    artifact: "sess_abc",
+    full: true,
+  });
+});
+
 test("rejects misplaced Writing Artifact Continuation options", () => {
   expect(() =>
     parseArgs(["code", "--continue", "chapter-1.md", "continue the next chapter"]),
