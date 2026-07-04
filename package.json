@@ -1,7 +1,7 @@
 {
   "name": "forgelet",
   "version": "0.1.0",
-  "description": "Local-first CLI coding agent for small repository tasks.",
+  "description": "Local-first CLI agent workbench for coding, writing, learning, and knowledge workflows.",
   "type": "module",
   "bin": {
     "forge": "./dist/cli/index.js"
@@ -10,7 +10,8 @@
     "dist",
     "fixtures",
     "README.md",
-    "ARCHITECTURE.md"
+    "AGENTS.md",
+    "ROADMAP.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && node dist/browser/extension/buildExtension.js",
@@ -26,7 +27,7 @@
   "keywords": [
     "agent",
     "cli",
-    "coding-agent",
+    "agent-workbench",
     "local-first"
   ],
   "license": "UNLICENSED",
