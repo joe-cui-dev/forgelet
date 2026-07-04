@@ -1,7 +1,7 @@
 import { expect, test } from "@jest/globals";
 import { createHash } from "node:crypto";
 import { execFile } from "child_process";
-import { mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from "fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, symlink, utimes, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { runAgent } from "../../src/agent/runAgent.js";
@@ -973,6 +973,11 @@ test("CLI searches Writing Artifact Catalog entries without starting a Session",
     "Loose rain vignette.\n",
     "utf8",
   );
+  await utimes(
+    join(workspaceRoot, ".forgelet", "writing", "loose-rain.md"),
+    new Date("2026-07-04T09:00:00.000Z"),
+    new Date("2026-07-04T09:00:00.000Z"),
+  );
   await writeFile(
     join(sessionDir, "sess_search.jsonl"),
     [
@@ -1562,6 +1567,9 @@ test("CLI help documents the active observation config key", async () => {
   expect(result.stdout).toMatch(/forge resume <sessionId> --act "<instruction>"/);
   expect(result.stdout).toMatch(
     /forge write --creative --style vivid --continue \.forgelet\/writing\/chapter-1\.md "continue the next chapter"/,
+  );
+  expect(result.stdout).toMatch(
+    /Styles: plain, vivid, tight, literary, cinematic, minimal, lyrical, noir, warm, sharp, sensual, ardent/,
   );
   expect(result.stdout).toMatch(/forge write artifacts list/);
   expect(result.stdout).toMatch(/forge write artifacts show <sessionId> --full/);

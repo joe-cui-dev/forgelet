@@ -1,7 +1,19 @@
 export type WorkflowKind = "coding" | "writing" | "learning";
 
 export type WorkflowVariant = "creative";
-export type CreativeStyle = "vivid" | "tight" | "literary" | "plain";
+export type CreativeStyle =
+  | "plain"
+  | "vivid"
+  | "tight"
+  | "literary"
+  | "cinematic"
+  | "minimal"
+  | "lyrical"
+  | "noir"
+  | "warm"
+  | "sharp"
+  | "sensual"
+  | "ardent";
 export type CreativeInputKind = "draft" | "revision" | "continuation";
 
 export type AgentStage =

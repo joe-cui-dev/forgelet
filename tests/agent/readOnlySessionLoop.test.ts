@@ -568,8 +568,63 @@ test("a creative writing Session returns a Revision Pack", async () => {
   const systemMessage = modelClient.turnInputs[0]?.messages.find(
     (message) => message.role === "system",
   )?.content ?? "";
+  expect(systemMessage).toMatch(/Style Preset: vivid/);
+  expect(systemMessage).toMatch(/Instructions:/);
+  expect(systemMessage).toMatch(/Avoid:/);
+  expect(systemMessage).toMatch(/Revision focus:/);
+  expect(systemMessage).not.toMatch(/Style: vivid/);
   expect(systemMessage).toMatch(/Return a Revision Pack/);
   expect(systemMessage).not.toMatch(/Return a Draft Pack/);
+});
+
+test("a creative writing Session uses local Style Preset overrides without tracing the definition", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-creative-local-style-"));
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(join(workspaceRoot, "draft.md"), "The room was cold.\n", "utf8");
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "style-presets.local.json"),
+    JSON.stringify({
+      vivid: {
+        label: "Private visible label.",
+        aim: "Private visible aim.",
+        instructions: [
+          "Private visible instruction one.",
+          "Private visible instruction two.",
+          "Private visible instruction three.",
+        ],
+        avoid: ["Private visible avoid one.", "Private visible avoid two."],
+        revisionFocus: [
+          "Private visible revision one.",
+          "Private visible revision two.",
+        ],
+      },
+    }),
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([
+    { content: "The room breathed winter through the walls.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "writing",
+    workflowVariant: "creative",
+    creativeStyle: "vivid",
+    task: "revise this scene",
+    contextFiles: ["draft.md"],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const systemMessage = modelClient.turnInputs[0]?.messages.find(
+    (message) => message.role === "system",
+  )?.content ?? "";
+  expect(systemMessage).toMatch(/Private visible label/);
+  expect(systemMessage).toMatch(/Private visible instruction three/);
+
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  expect(trace).toMatch(/"creativeStyle":"vivid"/);
+  expect(trace).not.toMatch(/Private visible label/);
+  expect(trace).not.toMatch(/Private visible instruction/);
 });
 
 test("a prompt-only Creative Brief returns only a Draft without context attachments", async () => {
@@ -581,7 +636,7 @@ test("a prompt-only Creative Brief returns only a Draft without context attachme
   const result = await runAgent({
     workflow: "writing",
     workflowVariant: "creative",
-    creativeStyle: "vivid",
+    creativeStyle: "cinematic",
     task: "write a rain-soaked convenience store scene",
     contextFiles: [],
     workspaceRoot,
@@ -615,6 +670,12 @@ test("a prompt-only Creative Brief returns only a Draft without context attachme
   const systemMessage = modelClient.turnInputs[0]?.messages.find(
     (message) => message.role === "system",
   )?.content ?? "";
+  expect(systemMessage).toMatch(/Style Preset: cinematic/);
+  expect(systemMessage).toMatch(/Aim:/);
+  expect(systemMessage).toMatch(/Instructions:/);
+  expect(systemMessage).toMatch(/Avoid:/);
+  expect(systemMessage).toMatch(/Revision focus:/);
+  expect(systemMessage).not.toMatch(/Style: cinematic/);
   expect(systemMessage).toMatch(/Return only a Draft/);
   expect(systemMessage).not.toMatch(/Return a Revision Pack/);
   expect(systemMessage).not.toMatch(/Variants/);
@@ -669,6 +730,14 @@ test("a creative Writing Artifact Continuation labels the source separately in t
   expect(firstUserMessage).not.toMatch(/Context attachments:/);
   expect(firstUserMessage).not.toMatch(/Additional context attachments:/);
   expect(result.summary).toMatch(/She stepped into a room full of rain/);
+  const systemMessage = modelClient.turnInputs[0]?.messages.find(
+    (message) => message.role === "system",
+  )?.content ?? "";
+  expect(systemMessage).toMatch(/Style Preset: vivid/);
+  expect(systemMessage).toMatch(/Instructions:/);
+  expect(systemMessage).toMatch(/Avoid:/);
+  expect(systemMessage).toMatch(/Revision focus:/);
+  expect(systemMessage).not.toMatch(/Style: vivid/);
 
   const events = (await readFile(result.tracePath ?? "", "utf8"))
     .trim()

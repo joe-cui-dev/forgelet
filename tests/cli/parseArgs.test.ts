@@ -365,6 +365,41 @@ test("parses a creative Writing Artifact Continuation", () => {
   });
 });
 
+test("parses all built-in creative Style Presets", () => {
+  const styles = [
+    "plain",
+    "vivid",
+    "tight",
+    "literary",
+    "cinematic",
+    "minimal",
+    "lyrical",
+    "noir",
+    "warm",
+    "sharp",
+    "sensual",
+    "ardent",
+  ];
+
+  for (const style of styles) {
+    expect(
+      parseArgs([
+        "write",
+        "--creative",
+        "--style",
+        style,
+        "write a rain-soaked convenience store scene",
+      ]),
+    ).toMatchObject({
+      kind: "run",
+      workflow: "writing",
+      workflowVariant: "creative",
+      creativeStyle: style,
+      creativeInputKind: "draft",
+    });
+  }
+});
+
 test("parses Writing Artifact Catalog commands", () => {
   expect(parseArgs(["write", "artifacts", "list"])).toEqual({
     kind: "writing-artifacts-list",
@@ -455,7 +490,9 @@ test("rejects malformed Writing Artifact Continuation options", () => {
 test("rejects creative writing without a style", () => {
   expect(() =>
     parseArgs(["write", "--creative", "--context", "draft.md", "revise this"]),
-  ).toThrow(/--creative requires --style/);
+  ).toThrow(
+    /--creative requires --style <plain, vivid, tight, literary, cinematic, minimal, lyrical, noir, warm, sharp, sensual, ardent>/,
+  );
 });
 
 test("rejects style without creative writing", () => {
@@ -470,12 +507,14 @@ test("rejects unknown creative writing styles", () => {
       "write",
       "--creative",
       "--style",
-      "noir",
+      "gothic",
       "--context",
       "draft.md",
       "revise this",
     ]),
-  ).toThrow(/--style must be one of: vivid, tight, literary, plain/);
+  ).toThrow(
+    /--style must be one of: plain, vivid, tight, literary, cinematic, minimal, lyrical, noir, warm, sharp, sensual, ardent/,
+  );
 });
 
 test("parses non-model config set", () => {

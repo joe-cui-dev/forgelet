@@ -28,6 +28,7 @@ import {
   browserSnapshotToContextAttachment,
   type LoadedBrowserSnapshot,
 } from "../browser/index.js";
+import { formatCreativeStylePresetForWorkspacePrompt } from "../creativeStylePresets/index.js";
 import { loadConfig, routeModel } from "../config/index.js";
 import { loadContextAttachments } from "../context/index.js";
 import { compactConversationInPlace } from "../conversation/compaction.js";
@@ -715,6 +716,13 @@ const runReadOnlyLoop = async (
     changedFiles: new Set(),
     commands: [],
   };
+  const creativeStylePresetBlock =
+    input.session.workflowVariant === "creative"
+      ? await formatCreativeStylePresetForWorkspacePrompt(
+          input.session.creativeStyle ?? "plain",
+          input.workspaceRoot,
+        )
+      : undefined;
   let finalContent = "";
 
   for (let turnIndex = 0; ; turnIndex += 1) {
@@ -762,6 +770,7 @@ const runReadOnlyLoop = async (
       input.limits,
       conversation,
       input.act,
+      creativeStylePresetBlock,
       compaction.compactedCount > 0
         ? `Active observations compacted: ${compaction.afterObservationBytes}/${compaction.targetObservationBytes} bytes.`
         : undefined,
@@ -1204,6 +1213,7 @@ const buildMessages = (
   limits: BudgetLimits,
   conversation: ModelMessage[],
   act: boolean,
+  creativeStylePresetBlock?: string,
   compactionStatus?: string,
   finalOnly = false,
   finalToolTurn = false,
@@ -1232,6 +1242,7 @@ const buildMessages = (
       content: systemPromptFor(
         session,
         act,
+        creativeStylePresetBlock,
         finalOnly,
       ),
     },
@@ -1488,6 +1499,7 @@ const hasMarkdownHeading = (content: string, heading: string): boolean => {
 const systemPromptFor = (
   session: AgentSession,
   act: boolean,
+  creativeStylePresetBlock?: string,
   finalOnly = false,
 ): string => {
   const common = [
@@ -1538,7 +1550,7 @@ const systemPromptFor = (
     return [
       ...common,
       "This is a Creative Writing Workflow variant.",
-      `Style: ${session.creativeStyle ?? "plain"}.`,
+      creativeStylePresetBlock,
       "Use the Creative Brief and Durable Memory for original drafting, but do not request workspace, git, shell, patch, or command tools.",
       "Return only a Draft heading followed by the drafted prose.",
     ].join("\n");
@@ -1549,7 +1561,7 @@ const systemPromptFor = (
     return [
       ...common,
       "This is a Creative Writing Workflow variant.",
-      `Style: ${session.creativeStyle ?? "plain"}.`,
+      creativeStylePresetBlock,
       "Use the Creative Brief, Continuation source, Additional context attachments, and Durable Memory to continue the source prose, but do not request workspace, git, shell, patch, or command tools.",
       "Return only a Draft heading followed by the continued prose.",
     ].join("\n");
@@ -1557,7 +1569,7 @@ const systemPromptFor = (
     return [
       ...common,
       "This is a Creative Writing Workflow variant.",
-      `Style: ${session.creativeStyle ?? "plain"}.`,
+      creativeStylePresetBlock,
       "Use the Creative Brief, any provided Context Attachments, and Durable Memory, but do not request workspace, git, shell, patch, or command tools.",
       "If the brief asks for revision but no source text is attached or included, state that limitation and produce the best original draft or useful next step from the brief.",
       "Return a Revision Pack with these headings: Critique, Revision, Alternatives, Notes.",

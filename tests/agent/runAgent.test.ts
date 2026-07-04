@@ -111,4 +111,7 @@ test("records creative writing variant metadata in the Session trace", async () 
     workflowVariant: "creative",
     creativeStyle: "vivid"
   });
+  expect(started.payload).not.toHaveProperty("stylePreset");
+  expect(started.payload).not.toHaveProperty("stylePresetDefinition");
+  expect(started.payload).not.toHaveProperty("creativeStylePreset");
 });

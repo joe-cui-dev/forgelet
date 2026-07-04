@@ -4,6 +4,10 @@ import type {
   WorkflowKind,
   WorkflowVariant,
 } from "../types.js";
+import {
+  CREATIVE_STYLE_PRESET_LIST,
+  isCreativeStyle,
+} from "../creativeStylePresets/index.js";
 
 export type ForgeCommand =
   | {
@@ -396,7 +400,7 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
       if (!value) throw new Error("Missing value for --style");
       if (!isCreativeStyle(value))
         throw new Error(
-          "--style must be one of: vivid, tight, literary, plain",
+          `--style must be one of: ${CREATIVE_STYLE_PRESET_LIST}`,
         );
       creativeStyle = value;
       continue;
@@ -436,7 +440,7 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
     throw new Error("--continue is only available with --creative.");
   if (workflowVariant === "creative" && !creativeStyle)
     throw new Error(
-      "--creative requires --style <vivid|tight|literary|plain>.",
+      `--creative requires --style <${CREATIVE_STYLE_PRESET_LIST}>.`,
     );
   const creativeInputKind: CreativeInputKind | undefined =
     workflowVariant === "creative"
@@ -467,13 +471,4 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
 function rejectOptionAfterTask(taskParts: string[], option: string): void {
   if (taskParts.length > 0)
     throw new Error(`Unknown option after task: ${option}`);
-}
-
-function isCreativeStyle(value: string): value is CreativeStyle {
-  return (
-    value === "vivid" ||
-    value === "tight" ||
-    value === "literary" ||
-    value === "plain"
-  );
 }

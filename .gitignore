@@ -4,6 +4,8 @@ dist-test/
 .forgelet/sessions/
 .forgelet/writing/
 .forgelet/knowledge/
+.forgelet/style-presets.local.json
+.forgelet/style-presets.local.*
 .forgelet/tmp/
 .env
 .env.*
