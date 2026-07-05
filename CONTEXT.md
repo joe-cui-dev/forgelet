@@ -40,6 +40,10 @@ _Avoid_: Reopened session, appended trace, chat resume
 The chronological record of events that actually occurred during a Session. A Trace is evidence for review, explanation, and memory provenance.
 _Avoid_: Transcript, log dump, demo script
 
+**Debug Transcript**:
+An explicit opt-in local record of the full agent-model exchange for a Session, including model-facing messages, available tools, model responses, tool calls, and tool observations. A Debug Transcript is for diagnosis and replay, while the Trace remains the audit evidence boundary.
+_Avoid_: Trace, live view, permanent memory, hidden log
+
 **Context Attachment**:
 User-provided or user-approved material attached to a Session so a Workflow can use it as task context. Trace records attachment provenance, size, hash, and preview metadata.
 _Avoid_: Prompt paste, hidden source, trace content

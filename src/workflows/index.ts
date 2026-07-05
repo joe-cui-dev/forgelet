@@ -36,6 +36,11 @@ import {
   loadDurableMemory,
   type LoadedDurableMemory,
 } from "../memory/index.js";
+import {
+  createDebugTranscriptWriter,
+  summarizeDebugTranscriptFile,
+  type DebugTranscriptWriter,
+} from "../debugTranscript/index.js";
 import { normalizeSessionReadScope } from "../readScope/index.js";
 import type {
   SessionLiveEvent,
@@ -72,6 +77,7 @@ export interface RunWorkflowInput {
   workspaceRoot: string;
   modelClient?: ModelClient;
   act?: boolean;
+  debug?: boolean;
   continuationSourceSessionId?: string;
   approvalHandler?: ApprovalHandler;
   onLiveEvent?: SessionLiveEventSink;
@@ -113,6 +119,7 @@ interface RunReadOnlyLoopInput {
   continuationContext?: ContinuationContext;
   approvalHandler?: ApprovalHandler;
   onLiveEvent?: SessionLiveEventSink;
+  debugTranscript?: DebugTranscriptWriter;
   appendTrace(type: string, payload: Record<string, unknown>): Promise<void>;
 }
 
@@ -312,6 +319,15 @@ export const runWorkflowSession = async (
   await traceWriter.append(
     createTraceEvent(sessionId, "plan_update", now, { plan }),
   );
+  const debugTranscript = input.debug
+    ? await createDebugTranscriptWriter(input.workspaceRoot, sessionId)
+    : undefined;
+  if (debugTranscript)
+    await traceWriter.append(
+      createTraceEvent(sessionId, "debug_transcript_started", now, {
+        path: relative(input.workspaceRoot, debugTranscript.path),
+      }),
+    );
 
   // Deterministic low-level tests may omit a model client. Public CLI runs pass
   // a model client and do not use this branch.
@@ -345,6 +361,7 @@ export const runWorkflowSession = async (
         continuationContext,
         approvalHandler: input.approvalHandler,
         onLiveEvent: input.onLiveEvent,
+        debugTranscript,
         appendTrace: (type, payload) =>
           traceWriter.append(
             createTraceEvent(
@@ -360,6 +377,22 @@ export const runWorkflowSession = async (
         error,
         traceWriter.tracePath,
       );
+      if (debugTranscript)
+        await finishDebugTranscript({
+          writer: debugTranscript,
+          sessionId,
+          workspaceRoot: input.workspaceRoot,
+          status: "failed",
+          appendTrace: (payload) =>
+            traceWriter.append(
+              createTraceEvent(
+                sessionId,
+                "debug_transcript_finished",
+                new Date().toISOString(),
+                payload,
+              ),
+            ),
+        });
       await traceWriter.append(
         createTraceEvent(sessionId, "final_summary", new Date().toISOString(), {
           summary: failure.summary,
@@ -412,6 +445,24 @@ export const runWorkflowSession = async (
           writingArtifact as unknown as Record<string, unknown>,
         ),
       );
+
+    if (debugTranscript)
+      await finishDebugTranscript({
+        writer: debugTranscript,
+        sessionId,
+        workspaceRoot: input.workspaceRoot,
+        status: execution.status,
+        ...(execution.reason ? { reason: execution.reason } : {}),
+        appendTrace: (payload) =>
+          traceWriter.append(
+            createTraceEvent(
+              sessionId,
+              "debug_transcript_finished",
+              new Date().toISOString(),
+              payload,
+            ),
+          ),
+      });
 
     await traceWriter.append(
       createTraceEvent(sessionId, "final_summary", new Date().toISOString(), {
@@ -639,6 +690,32 @@ const emitLiveEvent = async (
   if (sink) await sink(event);
 };
 
+const finishDebugTranscript = async (input: {
+  writer: DebugTranscriptWriter;
+  sessionId: string;
+  workspaceRoot: string;
+  status: SessionFinishStatus;
+  reason?: string;
+  appendTrace(payload: Record<string, unknown>): Promise<void>;
+}): Promise<void> => {
+  await input.writer.append({
+    type: "session_debug_finished",
+    ts: new Date().toISOString(),
+    sessionId: input.sessionId,
+    payload: {
+      status: input.status,
+      ...(input.reason ? { reason: input.reason } : {}),
+    },
+  });
+  const summary = await summarizeDebugTranscriptFile(input.writer.path);
+  await input.appendTrace({
+    path: relative(input.workspaceRoot, input.writer.path),
+    status: input.status,
+    ...(input.reason ? { reason: input.reason } : {}),
+    ...summary,
+  });
+};
+
 const liveToolTarget = (toolCall: ModelToolCall): string | undefined => {
   if (!isRecord(toolCall.input)) return undefined;
   if (typeof toolCall.input.path === "string") return toolCall.input.path;
@@ -799,6 +876,19 @@ const runReadOnlyLoop = async (
         turnIndex,
         model: input.route.model,
       });
+      await input.debugTranscript?.append({
+        type: "model_request",
+        ts: new Date().toISOString(),
+        sessionId: input.session.id,
+        payload: {
+          turnIndex,
+          model: input.route.model,
+          task: input.session.task,
+          messages,
+          tools: finalOnly ? [] : tools,
+          finalOnly,
+        },
+      });
       output = await input.modelClient.createTurn({
         task: input.session.task,
         messages,
@@ -814,7 +904,31 @@ const runReadOnlyLoop = async (
             }
           : undefined,
       });
+      await input.debugTranscript?.append({
+        type: "model_response",
+        ts: new Date().toISOString(),
+        sessionId: input.session.id,
+        payload: {
+          turnIndex,
+          model: input.route.model,
+          content: output.content,
+          toolCalls: output.toolCalls,
+          finishReason: output.finishReason,
+          usage: output.usage,
+        },
+      });
     } catch (error) {
+      await input.debugTranscript?.append({
+        type: "model_error",
+        ts: new Date().toISOString(),
+        sessionId: input.session.id,
+        payload: {
+          turnIndex,
+          model: input.route.model,
+          finalOnly,
+          error: modelErrorTracePayload(error),
+        },
+      });
       await input.appendTrace("model_turn_error", {
         turnIndex,
         model: input.route.model,
@@ -961,6 +1075,8 @@ const runReadOnlyLoop = async (
         grantedCapabilities,
         readScope: input.readScope,
         onLiveEvent: input.onLiveEvent,
+        turnIndex,
+        debugTranscript: input.debugTranscript,
         appendTrace: input.appendTrace,
       });
       recordAuditObservation(audit, observation);
@@ -1089,6 +1205,8 @@ const executeToolCall = async (input: {
   grantedCapabilities: Capability[];
   readScope?: string[];
   onLiveEvent?: SessionLiveEventSink;
+  turnIndex: number;
+  debugTranscript?: DebugTranscriptWriter;
   appendTrace(type: string, payload: Record<string, unknown>): Promise<void>;
 }): Promise<ToolObservation> => {
   const target = liveToolTarget(input.toolCall);
@@ -1102,6 +1220,15 @@ const executeToolCall = async (input: {
     id: input.toolCall.id,
     name: input.toolCall.name,
     input: input.toolCall.input,
+  });
+  await input.debugTranscript?.append({
+    type: "tool_request",
+    ts: new Date().toISOString(),
+    sessionId: input.session.id,
+    payload: {
+      turnIndex: input.turnIndex,
+      toolCall: input.toolCall,
+    },
   });
   const execution = await input.toolRegistry.execute(input.toolCall, {
     workspaceRoot: input.workspaceRoot,
@@ -1130,6 +1257,17 @@ const executeToolCall = async (input: {
     "tool_result",
     traceToolObservation(execution.observation),
   );
+  await input.debugTranscript?.append({
+    type: "tool_result",
+    ts: new Date().toISOString(),
+    sessionId: input.session.id,
+    payload: {
+      turnIndex: input.turnIndex,
+      toolCallId: execution.observation.toolCallId,
+      toolName: execution.observation.toolName,
+      observation: execution.observation,
+    },
+  });
   if (command)
     await emitLiveEvent(input.onLiveEvent, {
       type: "command_finished",

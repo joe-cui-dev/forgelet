@@ -700,6 +700,114 @@ test("CLI runs a source-backed learning workflow and does not write Knowledge Li
   await expect(readdir(join(workspaceRoot, ".forgelet", "knowledge"))).rejects.toThrow();
 });
 
+test("CLI debug mode writes a Debug Transcript for a model-backed Session", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-debug-"));
+
+  const result = await runCli(["code", "--debug", "inspect this repo"], {
+    workspaceRoot,
+    createLiveModelClient: async () =>
+      new FakeModelClient([
+        { content: "The repo is ready.", toolCalls: [], finishReason: "stop" },
+      ]),
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toMatch(/Trace: /);
+  const traceFiles = await readdir(join(workspaceRoot, ".forgelet", "sessions"));
+  const sessionId = (traceFiles[0] ?? "").replace(/\.jsonl$/, "");
+  const transcript = await readFile(
+    join(workspaceRoot, ".forgelet", "debug", `${sessionId}.jsonl`),
+    "utf8",
+  );
+  expect(transcript).toContain('"type":"model_request"');
+  expect(transcript).toContain('"type":"model_response"');
+  expect(transcript).toContain("inspect this repo");
+
+  const trace = await readFile(
+    join(workspaceRoot, ".forgelet", "sessions", traceFiles[0] ?? ""),
+    "utf8",
+  );
+  expect(trace).toContain('"type":"debug_transcript_finished"');
+});
+
+test("CLI shows Debug Transcript previews and full content", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-debug-show-"));
+  await mkdir(join(workspaceRoot, ".forgelet", "debug"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "debug", "sess_debug.jsonl"),
+    [
+      JSON.stringify({
+        type: "model_request",
+        ts: "2026-07-05T00:00:00.000Z",
+        sessionId: "sess_debug",
+        payload: {
+          turnIndex: 0,
+          model: "deepseek-v4-flash",
+          messages: [
+            { role: "system", content: `${"system ".repeat(120)}END` },
+            { role: "user", content: "User task with secret detail." },
+          ],
+          tools: [{ name: "read_file" }, { name: "search_text" }],
+          finalOnly: false,
+        },
+      }),
+      JSON.stringify({
+        type: "model_response",
+        ts: "2026-07-05T00:00:01.000Z",
+        sessionId: "sess_debug",
+        payload: {
+          turnIndex: 0,
+          finishReason: "tool_calls",
+          content: "I will inspect the file.",
+          toolCalls: [{ id: "call_1", name: "read_file", input: { path: "README.md" } }],
+        },
+      }),
+      JSON.stringify({
+        type: "tool_result",
+        ts: "2026-07-05T00:00:02.000Z",
+        sessionId: "sess_debug",
+        payload: {
+          turnIndex: 0,
+          toolCallId: "call_1",
+          toolName: "read_file",
+          observation: {
+            ok: true,
+            summary: "Read README.md.",
+            content: "Full README observation content.",
+          },
+        },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+
+  const preview = await runCli(["debug", "show", "sess_debug"], { workspaceRoot });
+  const full = await runCli(["debug", "show", "sess_debug", "--full"], {
+    workspaceRoot,
+  });
+  const missing = await runCli(["debug", "show", "sess_missing"], {
+    workspaceRoot,
+  });
+
+  expect(preview.exitCode).toBe(0);
+  expect(preview.stdout).toMatch(/Debug Transcript/);
+  expect(preview.stdout).toMatch(/Session: sess_debug/);
+  expect(preview.stdout).toMatch(/Path: \.forgelet\/debug\/sess_debug\.jsonl/);
+  expect(preview.stdout).toMatch(/Events: 3/);
+  expect(preview.stdout).toMatch(/Model request: 2 messages, 2 tools/);
+  expect(preview.stdout).toMatch(/Tools: read_file, search_text/);
+  expect(preview.stdout).toMatch(/Tool result: read_file ok/);
+  expect(preview.stdout).toMatch(/Full README observation content/);
+  expect(preview.stdout).not.toContain("END");
+  expect(full.exitCode).toBe(0);
+  expect(full.stdout).toContain("END");
+  expect(full.stdout).toContain("User task with secret detail.");
+  expect(missing.exitCode).toBe(1);
+  expect(missing.stderr).toMatch(/Debug Transcript not found for Session: sess_missing/);
+  expect(missing.stderr).toMatch(/Expected: \.forgelet\/debug\/sess_missing\.jsonl/);
+});
+
 test("CLI prints the current browser snapshot metadata", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-browser-"));
   const homeDir = await mkdtemp(join(tmpdir(), "forgelet-cli-browser-home-"));

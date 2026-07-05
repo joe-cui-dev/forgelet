@@ -28,6 +28,7 @@ export interface RunAgentInput {
   workspaceRoot: string;
   modelClient?: ModelClient;
   act?: boolean;
+  debug?: boolean;
   continuationSourceSessionId?: string;
   approvalHandler?: ApprovalHandler;
   onLiveEvent?: SessionLiveEventSink;
@@ -57,6 +58,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     workspaceRoot: input.workspaceRoot,
     modelClient: input.modelClient,
     act: input.act,
+    debug: input.debug,
     continuationSourceSessionId: input.continuationSourceSessionId,
     approvalHandler: input.approvalHandler,
     onLiveEvent: input.onLiveEvent,

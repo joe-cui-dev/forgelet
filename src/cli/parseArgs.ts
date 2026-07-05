@@ -25,8 +25,15 @@ export type ForgeCommand =
       budgetUsd?: number;
       preview: boolean;
       act: boolean;
+      debug?: boolean;
     }
-  | { kind: "resume"; sessionId: string; instruction: string; act: boolean }
+  | {
+      kind: "resume";
+      sessionId: string;
+      instruction: string;
+      act: boolean;
+      debug?: boolean;
+    }
   | { kind: "config-get" }
   | { kind: "config-set"; key: string; value: string }
   | { kind: "sessions-list" }
@@ -49,6 +56,7 @@ export type ForgeCommand =
   | { kind: "writing-artifacts-search"; query: string; limit: number }
   | { kind: "memory-suggest"; sessionId: string }
   | { kind: "memory-accept"; suggestionId: string }
+  | { kind: "debug-show"; sessionId: string; full: boolean }
   | { kind: "browser-read-current" }
   | { kind: "browser-install-host"; extensionId: string }
   | { kind: "help" }
@@ -81,6 +89,10 @@ export function parseArgs(argv: string[]): ForgeCommand {
 
   if (first === "browser") {
     return parseBrowser(args.slice(1));
+  }
+
+  if (first === "debug") {
+    return parseDebug(args.slice(1));
   }
 
   if (first === "notes") {
@@ -183,6 +195,20 @@ function parseBrowser(args: string[]): ForgeCommand {
   throw new Error(
     "Usage: forge browser read-current | forge browser install-host --extension-id <chrome-extension-id>",
   );
+}
+
+function parseDebug(args: string[]): ForgeCommand {
+  if (args[0] !== "show") {
+    throw new Error("Usage: forge debug show <sessionId> [--full]");
+  }
+  const sessionId = args[1];
+  if (!sessionId) throw new Error("Usage: forge debug show <sessionId> [--full]");
+  const remaining = args.slice(2);
+  const full = remaining.includes("--full");
+  const unsupported = remaining.find((arg) => arg !== "--full");
+  if (unsupported)
+    throw new Error(`Unsupported Debug Transcript option: ${unsupported}`);
+  return { kind: "debug-show", sessionId, full };
 }
 
 function parseNotes(args: string[]): ForgeCommand {
@@ -306,8 +332,24 @@ function parseResume(args: string[]): ForgeCommand {
     throw new Error(
       "Context reload for Session Continuation is not available yet.",
     );
-  const act = args[1] === "--act";
-  const instructionArgs = args.slice(act ? 2 : 1);
+  let act = false;
+  let debug = false;
+  let optionIndex = 1;
+  while (args[optionIndex]?.startsWith("--")) {
+    const option = args[optionIndex];
+    if (option === "--act") {
+      act = true;
+      optionIndex += 1;
+      continue;
+    }
+    if (option === "--debug") {
+      debug = true;
+      optionIndex += 1;
+      continue;
+    }
+    break;
+  }
+  const instructionArgs = args.slice(optionIndex);
   const unsupportedOption = instructionArgs.find((arg) => arg.startsWith("--"));
   if (unsupportedOption)
     throw new Error(
@@ -316,7 +358,7 @@ function parseResume(args: string[]): ForgeCommand {
   const instruction = instructionArgs.join(" ").trim();
   if (!sessionId || !instruction)
     throw new Error('Usage: forge resume <sessionId> [--act] "<instruction>"');
-  return { kind: "resume", sessionId, instruction, act };
+  return { kind: "resume", sessionId, instruction, act, ...(debug ? { debug } : {}) };
 }
 
 function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
@@ -329,6 +371,7 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
   let continuationFile: string | undefined;
   let preview = false;
   let act = false;
+  let debug = false;
   let withBrowser = false;
   const taskParts: string[] = [];
 
@@ -410,6 +453,11 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
       preview = true;
       continue;
     }
+    if (arg === "--debug") {
+      rejectOptionAfterTask(taskParts, arg);
+      debug = true;
+      continue;
+    }
     if (arg === "--act") {
       rejectOptionAfterTask(taskParts, arg);
       if (workflow !== "coding")
@@ -438,6 +486,10 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
     throw new Error("--continue is only available for the writing workflow.");
   if (continuationFile && workflowVariant !== "creative")
     throw new Error("--continue is only available with --creative.");
+  if (debug && preview)
+    throw new Error(
+      "--debug is available only for model-backed Session runs, not --preview.",
+    );
   if (workflowVariant === "creative" && !creativeStyle)
     throw new Error(
       `--creative requires --style <${CREATIVE_STYLE_PRESET_LIST}>.`,
@@ -465,6 +517,7 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
     budgetUsd,
     preview,
     act,
+    ...(debug ? { debug } : {}),
   };
 }
 

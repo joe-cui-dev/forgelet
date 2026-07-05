@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from "fs/promis
 import { join } from "path";
 import { tmpdir } from "os";
 import { runAgent } from "../../src/agent/runAgent.js";
+import { readDebugTranscript } from "../../src/debugTranscript/index.js";
 import { FakeModelClient } from "../../src/models/testing/index.js";
 import type { SessionLiveEvent } from "../../src/sessionLiveView/index.js";
 
@@ -172,6 +173,98 @@ test("a model-backed coding Session emits Session Live View events without writi
     .split("\n")
     .map((line) => JSON.parse(line).type);
   expect(eventTypes).not.toContain("session_live_event");
+});
+
+test("a debug-enabled coding Session writes the full agent-model exchange outside the trace", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-debug-loop-"));
+  await writeFile(
+    join(workspaceRoot, "example.ts"),
+    "export const answer = 'needle';\n",
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        { id: "call_read", name: "read_file", input: { path: "example.ts" } },
+      ],
+    },
+    {
+      content: "The answer is defined in example.ts.",
+      toolCalls: [],
+      finishReason: "stop",
+    },
+  ]);
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "find the answer",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+    debug: true,
+  });
+
+  const debugEvents = await readDebugTranscript(workspaceRoot, result.session.id);
+  expect(debugEvents.map((event) => event.type)).toEqual([
+    "model_request",
+    "model_response",
+    "tool_request",
+    "tool_result",
+    "model_request",
+    "model_response",
+    "session_debug_finished",
+  ]);
+  expect(debugEvents[0]?.payload).toMatchObject({
+    turnIndex: 0,
+    model: "deepseek-v4-flash",
+    task: "find the answer",
+    finalOnly: false,
+  });
+  expect(debugEvents[0]?.payload.messages).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ role: "user", content: expect.stringContaining("find the answer") }),
+    ]),
+  );
+  expect(debugEvents[0]?.payload.tools).toEqual(
+    expect.arrayContaining([expect.objectContaining({ name: "read_file" })]),
+  );
+  expect(debugEvents[3]?.payload).toMatchObject({
+    turnIndex: 0,
+    toolCallId: "call_read",
+    toolName: "read_file",
+    observation: {
+      ok: true,
+      content: expect.stringContaining("needle"),
+    },
+  });
+
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(events.map((event) => event.type)).toEqual(
+    expect.arrayContaining([
+      "debug_transcript_started",
+      "debug_transcript_finished",
+    ]),
+  );
+  const debugFinished = events.find(
+    (event) => event.type === "debug_transcript_finished",
+  );
+  expect(debugFinished?.payload).toMatchObject({
+    path: `.forgelet/debug/${result.session.id}.jsonl`,
+    status: "completed",
+    contentBytes: expect.any(Number),
+    contentHash: expect.any(String),
+  });
+  const tracedReadResult = events.find(
+    (event) =>
+      event.type === "tool_result" && event.payload.toolName === "read_file",
+  );
+  expect(tracedReadResult?.payload.preview).toMatch(/needle/);
+  expect("content" in tracedReadResult.payload).toBe(false);
+  expect(trace).not.toContain("full prompt text");
 });
 
 test("workspace_summary returns Markdown observations and compact trace metadata", async () => {
@@ -386,6 +479,80 @@ test("a model execution failure records the failed model turn before rethrowing"
     type: "session_finished",
     status: "failed",
     reason: "model_execution_error",
+  });
+});
+
+test("a debug-enabled model execution failure records model error and finalizes the transcript", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-debug-failure-"));
+  const modelClient = {
+    async createTurn() {
+      throw Object.assign(
+        new Error("DeepSeek API response aborted before completion."),
+        {
+          statusCode: 200,
+          causeCategory: "response_aborted",
+          phase: "response",
+        },
+      );
+    },
+  };
+
+  await expect(
+    runAgent({
+      workflow: "coding",
+      task: "inspect this repo",
+      contextFiles: [],
+      workspaceRoot,
+      modelClient,
+      debug: true,
+    }),
+  ).rejects.toThrow("DeepSeek API response aborted before completion.");
+
+  const sessionFiles = await readdir(join(workspaceRoot, ".forgelet", "sessions"));
+  expect(sessionFiles).toHaveLength(1);
+  const sessionId = (sessionFiles[0] ?? "").replace(/\.jsonl$/, "");
+  const debugEvents = await readDebugTranscript(workspaceRoot, sessionId);
+  expect(debugEvents.map((event) => event.type)).toEqual([
+    "model_request",
+    "model_error",
+    "session_debug_finished",
+  ]);
+  expect(debugEvents[1]?.payload).toMatchObject({
+    turnIndex: 0,
+    model: "deepseek-v4-flash",
+    finalOnly: false,
+    error: {
+      message: "DeepSeek API response aborted before completion.",
+      statusCode: 200,
+      causeCategory: "response_aborted",
+      phase: "response",
+    },
+  });
+  expect(debugEvents[2]?.payload).toMatchObject({ status: "failed" });
+
+  const trace = await readFile(
+    join(workspaceRoot, ".forgelet", "sessions", sessionFiles[0] ?? ""),
+    "utf8",
+  );
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(events.find((event) => event.type === "model_turn_error")).toBeTruthy();
+  expect(
+    events.find((event) => event.type === "session_finished")?.payload,
+  ).toMatchObject({
+    status: "failed",
+    reason: "model_execution_error",
+  });
+  expect(
+    events.find((event) => event.type === "debug_transcript_finished")
+      ?.payload,
+  ).toMatchObject({
+    path: `.forgelet/debug/${sessionId}.jsonl`,
+    status: "failed",
+    contentBytes: expect.any(Number),
+    contentHash: expect.any(String),
   });
 });
 

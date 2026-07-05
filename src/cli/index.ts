@@ -11,6 +11,7 @@ import { loadConfig, routeModel, setGlobalConfigValue } from "../config/index.js
 import { loadDotEnv } from "../config/env.js";
 import { DeepSeekModelClient } from "../models/providers/deepseek.js";
 import { explainSession, type SessionExplanation } from "../explain/index.js";
+import { formatDebugTranscriptShow } from "../debugTranscript/index.js";
 import { acceptMemorySuggestion, suggestMemoryFromSession } from "../memory/index.js";
 import {
   loadCurrentBrowserSnapshot,
@@ -131,6 +132,7 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
           workspaceRoot,
           modelClient,
           act: command.act,
+          debug: command.debug === true,
           approvalHandler: command.act
             ? options.approvalHandler ?? createTerminalApprovalHandler()
             : undefined,
@@ -169,6 +171,7 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
           workspaceRoot,
           modelClient,
           act: command.act,
+          debug: command.debug === true,
           continuationSourceSessionId: command.sessionId,
           approvalHandler: command.act
             ? options.approvalHandler ?? createTerminalApprovalHandler()
@@ -198,6 +201,14 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
         return ok(formatSessionDetail(await showSession(workspaceRoot, command.sessionId)));
       case "explain":
         return ok(formatSessionExplanation(await explainSession(workspaceRoot, command.sessionId)));
+      case "debug-show":
+        return ok(
+          await formatDebugTranscriptShow({
+            workspaceRoot,
+            sessionId: command.sessionId,
+            full: command.full,
+          }),
+        );
       case "notes-create":
         return ok(
           formatCreatedKnowledgeNote(

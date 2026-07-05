@@ -116,9 +116,14 @@ forge sessions show <sessionId>
 forge explain <sessionId>
 forge resume <sessionId> "continue the task"
 forge resume <sessionId> --act "continue the fix"
+forge code --debug "inspect this repo"
+forge debug show <sessionId>
+forge debug show <sessionId> --full
 ```
 
 `forge resume` creates a child Session Continuation. Prior evidence can shape the new Active Context, but approvals and writes do not inherit.
+
+`--debug` is available for model-backed Session commands: `forge code`, `forge write`, `forge learn`, and `forge resume`. It writes an explicit local Debug Transcript under `.forgelet/debug/<sessionId>.jsonl`; this directory is ignored by Git. Debug Transcripts are for diagnosis and may contain full prompts, context, model output, tool inputs, and tool observations. Trace records only the Debug Transcript path, hash, byte count, and completion status.
 
 ## Configuration
 

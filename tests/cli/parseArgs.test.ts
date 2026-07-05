@@ -28,6 +28,50 @@ test("parses run options", () => {
   });
 });
 
+test("parses Debug Transcript flags for model-backed Session commands", () => {
+  expect(parseArgs(["code", "--debug", "inspect"])).toMatchObject({
+    kind: "run",
+    workflow: "coding",
+    debug: true,
+  });
+  expect(parseArgs(["write", "--debug", "revise this"])).toMatchObject({
+    kind: "run",
+    workflow: "writing",
+    debug: true,
+  });
+  expect(parseArgs(["learn", "--debug", "--context", "paper.md", "teach me"])).toMatchObject({
+    kind: "run",
+    workflow: "learning",
+    debug: true,
+  });
+  expect(parseArgs(["resume", "sess_abc", "--debug", "continue the task"])).toEqual({
+    kind: "resume",
+    sessionId: "sess_abc",
+    instruction: "continue the task",
+    act: false,
+    debug: true,
+  });
+});
+
+test("rejects Debug Transcript flags for previews", () => {
+  expect(() => parseArgs(["code", "--preview", "--debug", "inspect"])).toThrow(
+    /--debug is available only for model-backed Session runs, not --preview/,
+  );
+});
+
+test("parses Debug Transcript viewer commands", () => {
+  expect(parseArgs(["debug", "show", "sess_1"])).toEqual({
+    kind: "debug-show",
+    sessionId: "sess_1",
+    full: false,
+  });
+  expect(parseArgs(["debug", "show", "sess_1", "--full"])).toEqual({
+    kind: "debug-show",
+    sessionId: "sess_1",
+    full: true,
+  });
+});
+
 test("parses browser context commands", () => {
   expect(parseArgs(["browser", "read-current"])).toEqual({
     kind: "browser-read-current",

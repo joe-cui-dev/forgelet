@@ -2,10 +2,10 @@ node_modules/
 dist/
 dist-test/
 .forgelet/sessions/
+.forgelet/debug/
 .forgelet/writing/
 .forgelet/knowledge/
-.forgelet/style-presets.local.json
-.forgelet/style-presets.local.*
+.forgelet/*.local.json
 .forgelet/tmp/
 .env
 .env.*
