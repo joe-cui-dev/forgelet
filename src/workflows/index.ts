@@ -32,9 +32,15 @@ import { formatCreativeStylePresetForWorkspacePrompt } from "../creativeStylePre
 import { loadConfig, routeModel } from "../config/index.js";
 import { loadContextAttachments } from "../context/index.js";
 import { compactConversationInPlace } from "../conversation/compaction.js";
-import { loadDurableMemory, type LoadedDurableMemory } from "../memory/index.js";
+import {
+  loadDurableMemory,
+  type LoadedDurableMemory,
+} from "../memory/index.js";
 import { normalizeSessionReadScope } from "../readScope/index.js";
-import type { SessionLiveEvent, SessionLiveEventSink } from "../sessionLiveView/index.js";
+import type {
+  SessionLiveEvent,
+  SessionLiveEventSink,
+} from "../sessionLiveView/index.js";
 import {
   buildContinuationContext,
   continuationContextTracePayload,
@@ -151,12 +157,12 @@ export const runWorkflowSession = async (
     : undefined;
   const creativeInputKind =
     input.workflowVariant === "creative"
-      ? input.creativeInputKind ??
+      ? (input.creativeInputKind ??
         (input.continuationFile
           ? "continuation"
           : input.contextFiles.length > 0
             ? "revision"
-            : "draft")
+            : "draft"))
       : undefined;
   const readScope = await normalizeSessionReadScope(
     input.workspaceRoot,
@@ -213,7 +219,9 @@ export const runWorkflowSession = async (
   const session: AgentSession = {
     id: sessionId,
     workflow: input.workflow,
-    ...(input.workflowVariant ? { workflowVariant: input.workflowVariant } : {}),
+    ...(input.workflowVariant
+      ? { workflowVariant: input.workflowVariant }
+      : {}),
     ...(input.creativeStyle ? { creativeStyle: input.creativeStyle } : {}),
     ...(creativeInputKind ? { creativeInputKind } : {}),
     task: input.task,
@@ -227,7 +235,9 @@ export const runWorkflowSession = async (
   await traceWriter.append(
     createTraceEvent(sessionId, "session_started", now, {
       workflow: input.workflow,
-      ...(input.workflowVariant ? { workflowVariant: input.workflowVariant } : {}),
+      ...(input.workflowVariant
+        ? { workflowVariant: input.workflowVariant }
+        : {}),
       ...(input.creativeStyle ? { creativeStyle: input.creativeStyle } : {}),
       ...(creativeInputKind ? { creativeInputKind } : {}),
       startedAt: now,
@@ -337,11 +347,19 @@ export const runWorkflowSession = async (
         onLiveEvent: input.onLiveEvent,
         appendTrace: (type, payload) =>
           traceWriter.append(
-            createTraceEvent(sessionId, type, new Date().toISOString(), payload),
+            createTraceEvent(
+              sessionId,
+              type,
+              new Date().toISOString(),
+              payload,
+            ),
           ),
       });
     } catch (error) {
-      const failure = modelExecutionFailurePayload(error, traceWriter.tracePath);
+      const failure = modelExecutionFailurePayload(
+        error,
+        traceWriter.tracePath,
+      );
       await traceWriter.append(
         createTraceEvent(sessionId, "final_summary", new Date().toISOString(), {
           summary: failure.summary,
@@ -433,7 +451,8 @@ export const runWorkflowSession = async (
 
   await traceWriter.append(
     createTraceEvent(sessionId, "final_summary", now, {
-      summary: "Execution used deterministic test seam; model client was omitted.",
+      summary:
+        "Execution used deterministic test seam; model client was omitted.",
     }),
   );
   await emitLiveEvent(input.onLiveEvent, {
@@ -479,9 +498,10 @@ const loadWritingContextAttachments = async (
 
   let continuationAttachments: LoadedContextAttachment[];
   try {
-    continuationAttachments = await loadContextAttachments(input.workspaceRoot, [
-      input.continuationFile,
-    ]);
+    continuationAttachments = await loadContextAttachments(
+      input.workspaceRoot,
+      [input.continuationFile],
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(
@@ -535,18 +555,14 @@ const modelErrorTracePayload = (
       : {};
   const code = typeof record.code === "string" ? record.code : undefined;
   const causeCategory =
-    typeof record.causeCategory === "string"
-      ? record.causeCategory
-      : undefined;
+    typeof record.causeCategory === "string" ? record.causeCategory : undefined;
   const phase = typeof record.phase === "string" ? record.phase : undefined;
   const elapsedMs =
     typeof record.elapsedMs === "number" ? record.elapsedMs : undefined;
   const statusCode =
     typeof record.statusCode === "number" ? record.statusCode : undefined;
   const responseBytes =
-    typeof record.responseBytes === "number"
-      ? record.responseBytes
-      : undefined;
+    typeof record.responseBytes === "number" ? record.responseBytes : undefined;
   const responsePreview =
     typeof record.responsePreview === "string"
       ? record.responsePreview
@@ -739,8 +755,7 @@ const runReadOnlyLoop = async (
       return { status: "stopped", reason: stopReason, summary };
     }
 
-    const remainingModelTurns =
-      input.limits.maxModelTurns - usage.modelTurns;
+    const remainingModelTurns = input.limits.maxModelTurns - usage.modelTurns;
     const finalOnly = remainingModelTurns === 1;
     const finalToolTurn = remainingModelTurns === 2;
     const compaction = compactConversationInPlace(conversation, {
@@ -983,8 +998,9 @@ const buildSessionAudit = async (
   const forgeletChanged = [...audit.changedFiles].sort();
   const inheritedForgeletChanged = [
     ...new Set(
-      input.continuationContext?.priorChangedFiles.flatMap((item) => item.paths) ??
-        [],
+      input.continuationContext?.priorChangedFiles.flatMap(
+        (item) => item.paths,
+      ) ?? [],
     ),
   ].sort();
   const continuationOwnedDirtyPaths = new Set(inheritedForgeletChanged);
@@ -1224,13 +1240,12 @@ const buildMessages = (
         "Continuation source",
       )
     : [];
-  const contextAttachmentLines =
-    formatContextAttachmentsForPrompt(
-      contextAttachments,
-      continuationAttachment
-        ? "Additional context attachments"
-        : "Context attachments",
-    );
+  const contextAttachmentLines = formatContextAttachmentsForPrompt(
+    contextAttachments,
+    continuationAttachment
+      ? "Additional context attachments"
+      : "Context attachments",
+  );
   const durableMemoryLines = formatDurableMemoryForPrompt(durableMemory);
   const continuationContextLines =
     formatContinuationContextForPrompt(continuationContext);
@@ -1288,9 +1303,7 @@ const buildMessages = (
   ];
 
   messages.push(
-    ...(finalOnly
-      ? conversationForFinalAnswer(conversation)
-      : conversation),
+    ...(finalOnly ? conversationForFinalAnswer(conversation) : conversation),
   );
   return messages;
 };
@@ -1330,17 +1343,10 @@ const normalizeFinalContentForWorkflow = (
   if (session.workflow !== "writing") return content;
   if (session.workflowVariant === "creative") {
     const creativeInputKind =
-      session.creativeInputKind ??
-      ("revision" as CreativeInputKind);
-    if (
-      creativeInputKind === "draft" ||
-      creativeInputKind === "continuation"
-    ) {
+      session.creativeInputKind ?? ("revision" as CreativeInputKind);
+    if (creativeInputKind === "draft" || creativeInputKind === "continuation") {
       if (hasMarkdownHeading(content, "Draft")) return content;
-      return [
-        "Draft",
-        content.trim() || "(empty)",
-      ].join("\n");
+      return ["Draft", content.trim() || "(empty)"].join("\n");
     }
     if (
       hasMarkdownHeading(content, "Critique") &&
@@ -1401,7 +1407,7 @@ const normalizeLearningPack = (
   const summary =
     (unstructured
       ? content.trim()
-      : parsed.sections.get("Summary") ?? parsed.preamble.trim()) ||
+      : (parsed.sections.get("Summary") ?? parsed.preamble.trim())) ||
     "(empty)";
 
   const bodies: Record<LearningPackHeading, string> = {
@@ -1546,7 +1552,10 @@ const systemPromptFor = (
       "If sources conflict, name the conflict in Open Questions or the relevant section.",
       "Do not request workspace, git, shell, patch, command, note-writing, or browser automation tools.",
     ].join("\n");
-  if (session.workflowVariant === "creative" && session.creativeInputKind === "draft")
+  if (
+    session.workflowVariant === "creative" &&
+    session.creativeInputKind === "draft"
+  )
     return [
       ...common,
       "This is a Creative Writing Workflow variant.",
@@ -1645,7 +1654,8 @@ const formatContextAttachmentsForPrompt = (
       ),
       "  ```",
     ];
-    if (attachment.uri) attachmentLines.splice(3, 0, `  uri: ${attachment.uri}`);
+    if (attachment.uri)
+      attachmentLines.splice(3, 0, `  uri: ${attachment.uri}`);
     lines.push(...attachmentLines);
   });
 
@@ -1722,7 +1732,9 @@ const formatCompletedSummary = (
     ...(session.workflowVariant
       ? [`Workflow variant: ${session.workflowVariant}`]
       : []),
-    ...(session.creativeStyle ? [`Creative style: ${session.creativeStyle}`] : []),
+    ...(session.creativeStyle
+      ? [`Creative style: ${session.creativeStyle}`]
+      : []),
     `Task: ${session.task}`,
     `Task hash: ${session.taskHash}`,
     `Route: ${route.model} (${route.reason})`,

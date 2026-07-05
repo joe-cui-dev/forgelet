@@ -31,239 +31,38 @@ export const LOCAL_CREATIVE_STYLE_PRESETS_PATH =
 
 export const CREATIVE_STYLE_PRESET_LIST = CREATIVE_STYLE_PRESET_KEYS.join(", ");
 
-export const CREATIVE_STYLE_PRESETS: Record<
+export const PUBLIC_CREATIVE_STYLE_PRESET_FALLBACKS: Record<
   CreativeStyle,
   CreativeStylePreset
-> = {
-  plain: {
-    key: "plain",
-    label: "Clear, natural prose with low ornament.",
-    aim: "Make the prose easy to follow, direct, and human without sounding flat or mechanical.",
+> = Object.fromEntries(
+  CREATIVE_STYLE_PRESET_KEYS.map((key) => [
+    key,
+    createPublicFallbackCreativeStylePreset(key),
+  ]),
+) as Record<CreativeStyle, CreativeStylePreset>;
+
+function createPublicFallbackCreativeStylePreset(
+  key: CreativeStyle,
+): CreativeStylePreset {
+  return {
+    key,
+    label: `${key} local Style Preset fallback.`,
+    aim: `Use the locally configured "${key}" Style Preset when available; otherwise keep the prose clear, coherent, and aligned with the creative brief.`,
     instructions: [
-      "Prefer familiar words and clean sentence shapes.",
-      "Keep imagery light unless the brief asks for atmosphere.",
-      "Use transitions that make the scene or argument easy to follow.",
+      "Follow the creative brief and any user-provided context closely.",
+      "Preserve continuity, point of view, and character agency.",
+      "Keep private Style Preset wording in the local ignored preset file, not in source-controlled code.",
     ],
     avoid: [
-      "Generic assistant phrasing.",
-      "Decorative metaphors that do not clarify the moment.",
-      "Overexplaining emotion or intent.",
+      "Embedding private local preset text in source-controlled files.",
+      "Inventing hidden style rules when the local preset file is missing.",
     ],
     revisionFocus: [
-      "Remove clutter while preserving the writer's meaning and voice.",
-      "Clarify confusing sentences before adding style.",
+      "Improve clarity, continuity, and specificity.",
+      "Keep revisions aligned with the selected Style Preset key and the user's brief.",
     ],
-  },
-  vivid: {
-    key: "vivid",
-    label: "Concrete sensory prose with visible action.",
-    aim: "Make the scene feel present through specific sensory detail, physical movement, and grounded images.",
-    instructions: [
-      "Anchor abstractions in concrete sights, sounds, textures, and actions.",
-      "Use active verbs and precise nouns before adding adjectives.",
-      "Let emotion appear through behavior, setting, and sensory pressure.",
-    ],
-    avoid: [
-      "Stacked adjectives.",
-      "Generic mood words without physical evidence.",
-      "Sensory detail that slows the scene without changing it.",
-    ],
-    revisionFocus: [
-      "Replace vague summary with observable moments.",
-      "Add sensory specificity where the prose feels thin.",
-    ],
-  },
-  tight: {
-    key: "tight",
-    label: "Tense prose with pressure and suspense.",
-    aim: "Create a taut atmosphere where desire, danger, silence, or uncertainty keeps the scene under pressure.",
-    instructions: [
-      "Let small delays, withheld information, and charged pauses build tension.",
-      "Use sentence rhythm to tighten attention around what might happen next.",
-      "Keep physical details and dialogue loaded with pressure, risk, or anticipation.",
-    ],
-    avoid: [
-      "Resolving the tension too early.",
-      "Confusing tension with generic speed or short sentences.",
-      "Melodrama that announces stakes instead of letting the scene carry them.",
-    ],
-    revisionFocus: [
-      "Increase pressure between beats without losing clarity.",
-      "Replace flat exposition with charged action, silence, or implication.",
-    ],
-  },
-  literary: {
-    key: "literary",
-    label: "Layered prose with rhythm and implication.",
-    aim: "Give the writing musical rhythm, subtext, and precise imagery without losing clarity.",
-    instructions: [
-      "Vary sentence length for rhythm and emphasis.",
-      "Use images that reveal character, theme, or pressure beneath the surface.",
-      "Let some meaning remain implied rather than explained.",
-    ],
-    avoid: [
-      "Purple prose.",
-      "Abstract symbolism that floats away from the scene.",
-      "Self-conscious language that draws attention to itself.",
-    ],
-    revisionFocus: [
-      "Strengthen rhythm, implication, and image choice.",
-      "Cut ornate lines that do not deepen the piece.",
-    ],
-  },
-  cinematic: {
-    key: "cinematic",
-    label: "Scene-forward prose with camera-ready movement.",
-    aim: "Make the writing feel staged, visible, and spatially coherent, as if the reader can watch the scene unfold.",
-    instructions: [
-      "Track where bodies, objects, and attention move in space.",
-      "Use concrete visual beats and controlled cuts between moments.",
-      "Prefer action, gesture, and framing before interior explanation.",
-    ],
-    avoid: [
-      "Abstract summary of what the scene means.",
-      "Unclear blocking or sudden location jumps.",
-      "Explaining feelings before showing visible behavior.",
-    ],
-    revisionFocus: [
-      "Clarify spatial continuity and scene beats.",
-      "Turn summary into visible action where useful.",
-    ],
-  },
-  minimal: {
-    key: "minimal",
-    label: "Restrained prose with silence and white space.",
-    aim: "Create force through omission, restraint, and carefully chosen concrete details.",
-    instructions: [
-      "Use simple sentences and leave room for inference.",
-      "Choose one telling detail instead of several decorative ones.",
-      "Let silence, gaps, and restraint carry emotional weight.",
-    ],
-    avoid: [
-      "Explaining subtext.",
-      "Excessive modifiers.",
-      "Sparse prose that becomes vague or empty.",
-    ],
-    revisionFocus: [
-      "Cut explanation and keep the most revealing details.",
-      "Preserve ambiguity when it creates useful tension.",
-    ],
-  },
-  lyrical: {
-    key: "lyrical",
-    label: "Musical prose with heightened rhythm.",
-    aim: "Use cadence, image patterns, and sound to make the prose feel fluid and emotionally resonant.",
-    instructions: [
-      "Shape sentences for cadence and flow.",
-      "Use recurring images or sounds when they deepen the mood.",
-      "Let rhythm support emotion without obscuring sense.",
-    ],
-    avoid: [
-      "Sing-song phrasing.",
-      "Overloaded imagery.",
-      "Beautiful lines that blur what is happening.",
-    ],
-    revisionFocus: [
-      "Improve cadence and image continuity.",
-      "Cut lyrical excess where clarity drops.",
-    ],
-  },
-  noir: {
-    key: "noir",
-    label: "Hard-edged prose with shadow and suspicion.",
-    aim: "Create a tense, unsentimental atmosphere with sharp observation and moral unease.",
-    instructions: [
-      "Use concrete urban, nocturnal, or pressure-filled details when they fit the brief.",
-      "Keep the voice controlled, skeptical, and observant.",
-      "Let tension come from implication, contrast, and withheld trust.",
-    ],
-    avoid: [
-      "Parody detective cliches.",
-      "Overusing darkness as decoration.",
-      "Melodrama that weakens the threat.",
-    ],
-    revisionFocus: [
-      "Sharpen atmosphere and suspicion.",
-      "Remove cliches while keeping the pressure.",
-    ],
-  },
-  warm: {
-    key: "warm",
-    label: "Generous prose with closeness and care.",
-    aim: "Make the writing feel humane, intimate, and emotionally available without becoming sentimental.",
-    instructions: [
-      "Favor concrete acts of care, attention, and recognition.",
-      "Use soft transitions and approachable language.",
-      "Let tenderness appear through specific gestures rather than declarations.",
-    ],
-    avoid: [
-      "Sentimentality.",
-      "Generic comfort language.",
-      "Flattening conflict to keep the tone pleasant.",
-    ],
-    revisionFocus: [
-      "Humanize stiff or distant passages.",
-      "Keep emotional clarity while preserving tension.",
-    ],
-  },
-  sharp: {
-    key: "sharp",
-    label: "Pointed prose with clean edges and judgment.",
-    aim: "Make the writing crisp, exact, and memorable through strong choices and controlled bite.",
-    instructions: [
-      "Use precise verbs, clean syntax, and decisive phrasing.",
-      "Let contrast and compression create force.",
-      "Keep claims, images, and turns specific enough to land.",
-    ],
-    avoid: [
-      "Bluntness that becomes simplistic.",
-      "Snark that distracts from the point.",
-      "Over-polished lines that sound brittle.",
-    ],
-    revisionFocus: [
-      "Sharpen weak phrasing and dull transitions.",
-      "Cut hedging while preserving nuance.",
-    ],
-  },
-  sensual: {
-    key: "sensual",
-    label: "Sensory adult prose with desire and restraint.",
-    aim: "Create intimate, desire-forward prose through touch, breath, proximity, consent, and sensory escalation without becoming crude or mechanical.",
-    instructions: [
-      "Ground attraction in specific sensory perception, body language, and mutual attention.",
-      "Escalate intimacy through pacing, hesitation, and response rather than explicit inventory.",
-      "Keep consent, agency, and emotional context legible in the scene.",
-    ],
-    avoid: [
-      "Clinical body-part listing.",
-      "Crude shock value.",
-      "Ambiguous consent or coercive framing presented as romance.",
-    ],
-    revisionFocus: [
-      "Make desire feel embodied and reciprocal.",
-      "Replace generic heat with precise sensory and emotional beats.",
-    ],
-  },
-  ardent: {
-    key: "ardent",
-    label: "Passionate adult romance with emotional heat.",
-    aim: "Make longing, urgency, and romantic intensity feel consuming while preserving character agency and emotional specificity.",
-    instructions: [
-      "Tie physical attraction to emotional stakes, memory, conflict, or vulnerability.",
-      "Use heightened language for longing and release without losing the scene's concrete action.",
-      "Let dialogue, interruption, and hesitation show how badly the characters want what is happening.",
-    ],
-    avoid: [
-      "Soap-opera exaggeration.",
-      "Generic lust language.",
-      "Passion that erases character boundaries.",
-    ],
-    revisionFocus: [
-      "Raise emotional temperature while keeping motivations clear.",
-      "Strengthen the connection between desire, conflict, and choice.",
-    ],
-  },
-};
+  };
+}
 
 export function isCreativeStyle(value: string): value is CreativeStyle {
   return CREATIVE_STYLE_PRESET_KEYS.includes(value as CreativeStyle);
@@ -271,7 +70,8 @@ export function isCreativeStyle(value: string): value is CreativeStyle {
 
 export function getCreativeStylePreset(
   style: CreativeStyle,
-  presets: Record<CreativeStyle, CreativeStylePreset> = CREATIVE_STYLE_PRESETS,
+  presets: Record<CreativeStyle, CreativeStylePreset> =
+    PUBLIC_CREATIVE_STYLE_PRESET_FALLBACKS,
 ): CreativeStylePreset {
   return presets[style];
 }
@@ -281,7 +81,7 @@ export async function loadCreativeStylePresets(
 ): Promise<Record<CreativeStyle, CreativeStylePreset>> {
   const localPresets = await readLocalCreativeStylePresets(workspaceRoot);
   return {
-    ...CREATIVE_STYLE_PRESETS,
+    ...PUBLIC_CREATIVE_STYLE_PRESET_FALLBACKS,
     ...localPresets,
   };
 }
@@ -296,7 +96,8 @@ export async function formatCreativeStylePresetForWorkspacePrompt(
 
 export function formatCreativeStylePresetForPrompt(
   style: CreativeStyle,
-  presets: Record<CreativeStyle, CreativeStylePreset> = CREATIVE_STYLE_PRESETS,
+  presets: Record<CreativeStyle, CreativeStylePreset> =
+    PUBLIC_CREATIVE_STYLE_PRESET_FALLBACKS,
 ): string {
   const preset = getCreativeStylePreset(style, presets);
   return [

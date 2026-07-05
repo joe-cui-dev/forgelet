@@ -43,7 +43,7 @@ forge write artifacts show <sessionId> --full
 forge write artifacts search --limit 5 "chapter"
 ```
 
-Writing Sessions use model text generation without workspace, Git, patch, or command tools. Model-backed writing saves drafted or revised prose under `.forgelet/writing/`. Built-in creative Style Presets are `plain`, `vivid`, `tight`, `literary`, `cinematic`, `minimal`, `lyrical`, `noir`, `warm`, `sharp`, `sensual`, and `ardent`. Project-local preset definitions can override built-ins from `.forgelet/style-presets.local.json`; this file is ignored by Git, and Sessions/Traces record only the selected preset key.
+Writing Sessions use model text generation without workspace, Git, patch, or command tools. Model-backed writing saves drafted or revised prose under `.forgelet/writing/`. Creative Style Preset keys are `plain`, `vivid`, `tight`, `literary`, `cinematic`, `minimal`, `lyrical`, `noir`, `warm`, `sharp`, `sensual`, and `ardent`. Project-local preset definitions live in `.forgelet/style-presets.local.json`; this file is ignored by Git, and Sessions/Traces record only the selected preset key. If the local file is missing, Forgelet uses a public fallback prompt that does not contain private preset prose.
 
 ```json
 {

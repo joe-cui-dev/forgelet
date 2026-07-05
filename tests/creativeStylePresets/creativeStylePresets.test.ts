@@ -4,14 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   CREATIVE_STYLE_PRESET_KEYS,
-  CREATIVE_STYLE_PRESETS,
   LOCAL_CREATIVE_STYLE_PRESETS_PATH,
+  PUBLIC_CREATIVE_STYLE_PRESET_FALLBACKS,
   formatCreativeStylePresetForPrompt,
   formatCreativeStylePresetForWorkspacePrompt,
   loadCreativeStylePresets,
 } from "../../src/creativeStylePresets/index.js";
 
-test("defines all built-in creative Style Presets with prompt-ready guidance", () => {
+test("defines all creative Style Preset keys with public fallback guidance", () => {
   expect(CREATIVE_STYLE_PRESET_KEYS).toEqual([
     "plain",
     "vivid",
@@ -28,7 +28,7 @@ test("defines all built-in creative Style Presets with prompt-ready guidance", (
   ]);
 
   for (const key of CREATIVE_STYLE_PRESET_KEYS) {
-    const preset = CREATIVE_STYLE_PRESETS[key];
+    const preset = PUBLIC_CREATIVE_STYLE_PRESET_FALLBACKS[key];
     expect(preset.key).toBe(key);
     expect(preset.label).toEqual(expect.any(String));
     expect(preset.label.length).toBeGreaterThan(0);
@@ -40,37 +40,37 @@ test("defines all built-in creative Style Presets with prompt-ready guidance", (
   }
 });
 
-test("treats tight as tense atmosphere rather than compressed prose", () => {
+test("keeps source-controlled fallbacks free of private preset prose", () => {
   const prompt = formatCreativeStylePresetForPrompt("tight");
 
   expect(prompt).toMatch(/Style Preset: tight/);
-  expect(prompt).toMatch(/Tense prose with pressure and suspense/);
-  expect(prompt).toMatch(/charged pauses build tension/);
-  expect(prompt).not.toMatch(/Compressed prose/);
-  expect(prompt).not.toMatch(/Cut slack/);
+  expect(prompt).toMatch(/local Style Preset fallback/);
+  expect(prompt).toMatch(/local ignored preset file/);
+  expect(prompt).not.toMatch(/private prose marker/);
 });
 
 test("formats a creative Style Preset as a distinct prompt block", () => {
   expect(formatCreativeStylePresetForPrompt("noir")).toMatchInlineSnapshot(`
 "Style Preset: noir
-Label: Hard-edged prose with shadow and suspicion.
-Aim: Create a tense, unsentimental atmosphere with sharp observation and moral unease.
+Label: noir local Style Preset fallback.
+Aim: Use the locally configured "noir" Style Preset when available; otherwise keep the prose clear, coherent, and aligned with the creative brief.
 Instructions:
-- Use concrete urban, nocturnal, or pressure-filled details when they fit the brief.
-- Keep the voice controlled, skeptical, and observant.
-- Let tension come from implication, contrast, and withheld trust.
+- Follow the creative brief and any user-provided context closely.
+- Preserve continuity, point of view, and character agency.
+- Keep private Style Preset wording in the local ignored preset file, not in source-controlled code.
 Avoid:
-- Parody detective cliches.
-- Overusing darkness as decoration.
-- Melodrama that weakens the threat.
+- Embedding private local preset text in source-controlled files.
+- Inventing hidden style rules when the local preset file is missing.
 Revision focus:
-- Sharpen atmosphere and suspicion.
-- Remove cliches while keeping the pressure."
+- Improve clarity, continuity, and specificity.
+- Keep revisions aligned with the selected Style Preset key and the user's brief."
 `);
 });
 
 test("loads local creative Style Preset overrides from the ignored project file", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-style-presets-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-style-presets-"),
+  );
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
   await writeFile(
     join(workspaceRoot, LOCAL_CREATIVE_STYLE_PRESETS_PATH),
@@ -99,7 +99,9 @@ test("loads local creative Style Preset overrides from the ignored project file"
 
   const presets = await loadCreativeStylePresets(workspaceRoot);
   expect(presets.vivid.label).toBe("Private vivid label.");
-  expect(presets.plain.label).toBe(CREATIVE_STYLE_PRESETS.plain.label);
+  expect(presets.plain.label).toBe(
+    PUBLIC_CREATIVE_STYLE_PRESET_FALLBACKS.plain.label,
+  );
 
   const prompt = await formatCreativeStylePresetForWorkspacePrompt(
     "vivid",
@@ -111,7 +113,9 @@ test("loads local creative Style Preset overrides from the ignored project file"
 });
 
 test("rejects unknown local creative Style Preset keys", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-style-presets-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-style-presets-"),
+  );
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
   await writeFile(
     join(workspaceRoot, LOCAL_CREATIVE_STYLE_PRESETS_PATH),
