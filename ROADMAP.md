@@ -9,7 +9,7 @@ Forgelet should remain a workbench for code, writing, learning, browser context,
 Current implemented surfaces:
 
 - `forge code` for read-only and actionable Coding Sessions.
-- `forge write` for prose revision, creative drafting, browser-backed writing, saved Writing Artifacts, artifact continuation, and artifact catalog search.
+- `forge write` for prose revision, creative drafting, browser-backed writing, saved Writing Artifacts, artifact continuation, Writing Project continuity, and artifact catalog search.
 - `forge learn` for source-backed Learning Packs from files or browser context.
 - `forge notes create/search` for project-scope Knowledge Notes promoted from completed Learning Sessions.
 - `forge browser read-current` and `forge browser install-host` for read-only browser snapshots.
@@ -22,22 +22,19 @@ Current implemented surfaces:
    Keep the public `--style` CLI option while replacing the current one-word creative style labels with 12 effect-focused Style Preset keys: `plain`, `vivid`, `tight`, `literary`, `cinematic`, `minimal`, `lyrical`, `noir`, `warm`, `sharp`, `sensual`, and `ardent`. Load full preset definitions from ignored project-local `.forgelet/style-presets.local.json`, using a source-controlled public fallback only when the local file is missing. Local definitions use labels, aims, instructions, avoid rules, and revision focus so prompts become stable and testable. `tight` means tense atmosphere, not compact prose. Creative workflow prompts should consume the selected definition as a distinct Style Preset block. Sessions and Traces should continue recording only the selected preset key, not the full preset definition. Do not add `forge write styles list/show` in this slice; document discovery through README, help text, and validation errors.
    Accept the slice when parser tests cover all 12 presets and unknown-style errors, registry tests prove local definitions validate correctly, workflow tests prove draft, continuation, and revision prompts include the Style Preset block, Session/Trace assertions still record only the preset key, and README/help text list the available presets. Do not add automated prose quality scoring.
 
-2. Minimal Writing Project continuity:
-   Add a small project manifest that groups Writing Artifacts and lets `forge write --project <slug>` continue a long-form work without introducing a full document editor.
-
-3. Project memory review workflow:
+2. Project memory review workflow:
    Turn memory suggestions into a clearer review surface while keeping writes user-approved and traceable.
 
-4. Diagnose workflow:
+3. Diagnose workflow:
    Add a debugging workflow that follows reproduce, minimize, hypothesize, instrument, fix, and regression-test stages.
 
-5. Test discovery improvements:
+4. Test discovery improvements:
    Help Coding Sessions find the right verification command before editing.
 
-6. Model pricing and diagnostics:
+5. Model pricing and diagnostics:
    Make provider/model availability, routing, and estimated cost easier to inspect.
 
-7. Local review UI:
+6. Local review UI:
    Add an inspect-and-review web surface after the CLI workflows remain stable.
 
 ## Non-Goals

@@ -474,6 +474,86 @@ test("parses Writing Artifact Catalog commands", () => {
   });
 });
 
+test("parses Writing Project create commands", () => {
+  expect(parseArgs(["write", "projects", "create", "my-novel"])).toEqual({
+    kind: "writing-projects-create",
+    slug: "my-novel",
+  });
+});
+
+test("parses Writing Project runs", () => {
+  expect(parseArgs(["write", "--project", "my-novel", "write chapter eleven"])).toEqual({
+    kind: "run",
+    workflow: "writing",
+    projectSlug: "my-novel",
+    task: "write chapter eleven",
+    contextFiles: [],
+    model: undefined,
+    budgetUsd: undefined,
+    preview: false,
+    act: false,
+  });
+});
+
+test("parses Writing Project runs with an explicit member continuation source", () => {
+  expect(
+    parseArgs([
+      "write",
+      "--project",
+      "my-novel",
+      "--creative",
+      "--style",
+      "vivid",
+      "--continue",
+      ".forgelet/writing/chapter-1.md",
+      "revise chapter one",
+    ]),
+  ).toMatchObject({
+    kind: "run",
+    workflow: "writing",
+    projectSlug: "my-novel",
+    continuationFile: ".forgelet/writing/chapter-1.md",
+    creativeInputKind: "continuation",
+  });
+});
+
+test("rejects malformed Writing Project run options", () => {
+  expect(() => parseArgs(["write", "--project"])).toThrow(
+    /Missing value for --project/,
+  );
+  expect(() =>
+    parseArgs([
+      "write",
+      "--project",
+      "my-novel",
+      "--project",
+      "other-novel",
+      "write",
+    ]),
+  ).toThrow(/Exactly one --project slug can be provided/);
+  expect(() => parseArgs(["code", "--project", "my-novel", "inspect"])).toThrow(
+    /--project is only available for the writing workflow/,
+  );
+  expect(() =>
+    parseArgs(["learn", "--project", "my-novel", "--context", "paper.md", "study"]),
+  ).toThrow(/--project is only available for the writing workflow/);
+  expect(() => parseArgs(["write", "write", "--project", "my-novel"])).toThrow(
+    /Unknown option after task: --project/,
+  );
+});
+
+test("rejects malformed Writing Project commands", () => {
+  expect(() => parseArgs(["write", "projects", "create"])).toThrow(
+    /forge write projects create <slug>/,
+  );
+  expect(() =>
+    parseArgs(["write", "projects", "create", "my-novel", "extra"]),
+  ).toThrow(/forge write projects create <slug>/);
+  expect(() => parseArgs(["write", "projects", "list"])).toThrow(
+    /forge write projects create <slug>/,
+  );
+});
+
 test("rejects malformed Writing Artifact Catalog search commands", () => {
   expect(() => parseArgs(["write", "artifacts", "search"])).toThrow(
     /forge write artifacts search \[--limit <n>\] "<query>"/,

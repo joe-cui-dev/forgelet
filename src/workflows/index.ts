@@ -29,6 +29,11 @@ import {
   type LoadedBrowserSnapshot,
 } from "../browser/index.js";
 import { formatCreativeStylePresetForWorkspacePrompt } from "../creativeStylePresets/index.js";
+import {
+  applyArtifactToProject,
+  saveWritingProject,
+  type WritingProjectManifest,
+} from "../writingProjects/index.js";
 import { loadConfig, routeModel } from "../config/index.js";
 import { loadContextAttachments } from "../context/index.js";
 import { compactConversationInPlace } from "../conversation/compaction.js";
@@ -76,6 +81,8 @@ export interface RunWorkflowInput {
   contextFiles: string[];
   browserSnapshot?: LoadedBrowserSnapshot;
   continuationFile?: string;
+  project?: WritingProjectManifest;
+  projectReadScopeMembers?: string[];
   allowedReadPaths?: string[];
   model?: string;
   budgetUsd?: number;
@@ -124,6 +131,7 @@ interface RunReadOnlyLoopInput {
   baselineDirtyPaths: Set<string>;
   tracePath: string;
   continuationContext?: ContinuationContext;
+  project?: WritingProjectManifest;
   approvalHandler?: ApprovalHandler;
   onLiveEvent?: SessionLiveEventSink;
   debugTranscript?: DebugTranscriptWriter;
@@ -181,7 +189,10 @@ export const runWorkflowSession = async (
       : undefined;
   const readScope = await normalizeSessionReadScope(
     input.workspaceRoot,
-    input.allowedReadPaths ?? continuationContext?.inheritedReadScope,
+    input.projectReadScopeMembers ??
+      input.project?.members ??
+      input.allowedReadPaths ??
+      continuationContext?.inheritedReadScope,
   );
   const traceWriter = await createTraceWriter(input.workspaceRoot, sessionId, {
     createdAt: startedAt,
@@ -257,6 +268,7 @@ export const runWorkflowSession = async (
         : {}),
       ...(input.creativeStyle ? { creativeStyle: input.creativeStyle } : {}),
       ...(creativeInputKind ? { creativeInputKind } : {}),
+      ...(input.project ? { projectSlug: input.project.slug } : {}),
       startedAt: now,
       taskHash,
       ...(readScope ? { readScope } : {}),
@@ -370,6 +382,7 @@ export const runWorkflowSession = async (
         baselineDirtyPaths,
         tracePath: traceWriter.tracePath,
         continuationContext,
+        project: input.project,
         approvalHandler: input.approvalHandler,
         onLiveEvent: input.onLiveEvent,
         debugTranscript,
@@ -456,6 +469,27 @@ export const runWorkflowSession = async (
           writingArtifact as unknown as Record<string, unknown>,
         ),
       );
+
+    if (writingArtifact && input.project) {
+      const update = applyArtifactToProject(input.project, {
+        artifactPath: writingArtifact.path,
+        continuationSource: input.continuationFile ?? null,
+      });
+      await saveWritingProject(input.workspaceRoot, update.manifest);
+      await traceWriter.append(
+        createTraceEvent(
+          sessionId,
+          "writing_project_updated",
+          new Date().toISOString(),
+          {
+            slug: input.project.slug,
+            memberAdded: update.memberAdded,
+            headBefore: update.headBefore,
+            headAfter: update.headAfter,
+          },
+        ),
+      );
+    }
 
     if (debugTranscript)
       await finishDebugTranscript({
@@ -764,6 +798,7 @@ const runReadOnlyLoop = async (
   const grantedCapabilities = workflowCapabilities(
     input.session.workflow,
     input.act,
+    input.project !== undefined,
   );
   const actionableTools =
     input.act && input.session.workflow === "coding"
@@ -807,6 +842,7 @@ const runReadOnlyLoop = async (
   );
   const creativeDraftLike =
     input.session.workflowVariant === "creative" &&
+    !input.project &&
     (input.session.creativeInputKind === "draft" ||
       input.session.creativeInputKind === "continuation" ||
       (!input.session.creativeInputKind &&
@@ -945,6 +981,7 @@ const runReadOnlyLoop = async (
       input.contextAttachments,
       input.durableMemory,
       input.continuationContext,
+      input.project,
       usage,
       input.limits,
       conversation,
@@ -1381,6 +1418,7 @@ const executeToolCall = async (input: {
 const workflowCapabilities = (
   workflow: WorkflowKind,
   act: boolean,
+  hasWritingProject = false,
 ): Capability[] => {
   if (workflow === "coding")
     return [
@@ -1391,7 +1429,14 @@ const workflowCapabilities = (
       "model_generate_text",
       ...(act ? (["write_workspace", "run_safe_command"] as const) : []),
     ];
-  return ["read_context", "update_plan", "model_generate_text"];
+  return [
+    "read_context",
+    ...(hasWritingProject && workflow === "writing"
+      ? (["read_workspace"] as const)
+      : []),
+    "update_plan",
+    "model_generate_text",
+  ];
 };
 
 const gitStatusPaths = (workspaceRoot: string): Promise<Set<string>> => {
@@ -1451,6 +1496,7 @@ const buildMessages = (
   contextAttachments: LoadedContextAttachment[],
   durableMemory: LoadedDurableMemory | undefined,
   continuationContext: ContinuationContext | undefined,
+  project: { slug: string; members: string[]; head: string | null } | undefined,
   usage: BudgetUsage,
   limits: BudgetLimits,
   conversation: ModelMessage[],
@@ -1476,6 +1522,7 @@ const buildMessages = (
   const durableMemoryLines = formatDurableMemoryForPrompt(durableMemory);
   const continuationContextLines =
     formatContinuationContextForPrompt(continuationContext);
+  const writingProjectLines = formatWritingProjectForPrompt(project);
   const taskLabel =
     session.workflowVariant === "creative" ? "Creative brief" : "Task";
   const messages: ModelMessage[] = [
@@ -1503,6 +1550,8 @@ const buildMessages = (
         "",
         ...continuationContextLines,
         ...(continuationContextLines.length > 0 ? [""] : []),
+        ...writingProjectLines,
+        ...(writingProjectLines.length > 0 ? [""] : []),
         ...continuationSourceLines,
         ...(continuationSourceLines.length > 0 ? [""] : []),
         ...contextAttachmentLines,
@@ -1535,6 +1584,19 @@ const buildMessages = (
   );
   return messages;
 };
+
+function formatWritingProjectForPrompt(
+  project: { slug: string; members: string[]; head: string | null } | undefined,
+): string[] {
+  if (!project) return [];
+  return [
+    `Writing Project: ${project.slug}`,
+    "Members:",
+    ...project.members.map(
+      (member) => `- ${member}${member === project.head ? " (head)" : ""}`,
+    ),
+  ];
+}
 
 const conversationForFinalAnswer = (
   conversation: ModelMessage[],

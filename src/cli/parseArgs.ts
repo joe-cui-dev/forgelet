@@ -20,6 +20,7 @@ export type ForgeCommand =
       contextFiles: string[];
       withBrowser?: boolean;
       continuationFile?: string;
+      projectSlug?: string;
       allowedReadPaths?: string[];
       model?: string;
       budgetUsd?: number;
@@ -54,6 +55,7 @@ export type ForgeCommand =
   | { kind: "writing-artifacts-list" }
   | { kind: "writing-artifacts-show"; artifact: string; full: boolean }
   | { kind: "writing-artifacts-search"; query: string; limit: number }
+  | { kind: "writing-projects-create"; slug: string }
   | { kind: "memory-suggest"; sessionId: string }
   | { kind: "memory-accept"; suggestionId: string }
   | { kind: "debug-show"; sessionId: string; full: boolean }
@@ -116,6 +118,7 @@ export function parseArgs(argv: string[]): ForgeCommand {
   if (first === "write") {
     if (args[1] === "resume")
       throw new Error("Writing Workflow resume is not available yet.");
+    if (args[1] === "projects") return parseWritingProjects(args.slice(2));
     if (args[1] === "artifacts") return parseWritingArtifacts(args.slice(2));
     return parseRun(args.slice(1), "writing");
   }
@@ -179,6 +182,12 @@ function parseWritingArtifactsSearch(args: string[]): ForgeCommand {
       'Usage: forge write artifacts search [--limit <n>] "<query>"',
     );
   return { kind: "writing-artifacts-search", query, limit };
+}
+
+function parseWritingProjects(args: string[]): ForgeCommand {
+  if (args[0] === "create" && args.length === 2)
+    return { kind: "writing-projects-create", slug: args[1] ?? "" };
+  throw new Error("Usage: forge write projects create <slug>");
 }
 
 function parseBrowser(args: string[]): ForgeCommand {
@@ -369,6 +378,7 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
   let workflowVariant: WorkflowVariant | undefined;
   let creativeStyle: CreativeStyle | undefined;
   let continuationFile: string | undefined;
+  let projectSlug: string | undefined;
   let preview = false;
   let act = false;
   let debug = false;
@@ -400,6 +410,17 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
           "--continue supports Markdown files only; pass a path such as .forgelet/writing/<artifact>.md.",
         );
       continuationFile = value;
+      continue;
+    }
+    if (arg === "--project") {
+      rejectOptionAfterTask(taskParts, arg);
+      if (workflow !== "writing")
+        throw new Error("--project is only available for the writing workflow.");
+      const value = args[++i];
+      if (!value) throw new Error("Missing value for --project");
+      if (projectSlug)
+        throw new Error("Exactly one --project slug can be provided.");
+      projectSlug = value;
       continue;
     }
     if (arg === "--allow-read") {
@@ -512,6 +533,7 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
     contextFiles,
     ...(withBrowser ? { withBrowser } : {}),
     ...(continuationFile ? { continuationFile } : {}),
+    ...(projectSlug ? { projectSlug } : {}),
     ...(allowedReadPaths.length > 0 ? { allowedReadPaths } : {}),
     model,
     budgetUsd,

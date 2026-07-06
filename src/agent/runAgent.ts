@@ -11,6 +11,7 @@ import type { ApprovalHandler } from "../tools/toolRegistry.js";
 import { runWorkflowSession } from "../workflows/index.js";
 import type { SessionLiveEventSink } from "../sessionLiveView/index.js";
 import type { LoadedBrowserSnapshot } from "../browser/index.js";
+import type { WritingProjectManifest } from "../writingProjects/index.js";
 
 export interface RunAgentInput {
   workflow?: WorkflowKind;
@@ -21,6 +22,8 @@ export interface RunAgentInput {
   contextFiles: string[];
   browserSnapshot?: LoadedBrowserSnapshot;
   continuationFile?: string;
+  project?: WritingProjectManifest;
+  projectReadScopeMembers?: string[];
   allowedReadPaths?: string[];
   model?: string;
   budgetUsd?: number;
@@ -51,6 +54,8 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     contextFiles: input.contextFiles,
     browserSnapshot: input.browserSnapshot,
     continuationFile: input.continuationFile,
+    project: input.project,
+    projectReadScopeMembers: input.projectReadScopeMembers,
     allowedReadPaths: input.allowedReadPaths,
     model: input.model,
     budgetUsd: input.budgetUsd,

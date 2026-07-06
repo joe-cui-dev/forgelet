@@ -997,6 +997,134 @@ test("CLI preview reports creative writing variants without persistence", async 
   await expect(readdir(join(workspaceRoot, ".forgelet", "sessions"))).rejects.toThrow();
 });
 
+test("CLI creates a Writing Project manifest", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-projects-"));
+
+  const result = await runCli(["write", "projects", "create", "my-novel"], {
+    workspaceRoot,
+  });
+  const manifestPath = join(
+    workspaceRoot,
+    ".forgelet",
+    "writing",
+    "projects",
+    "my-novel.json",
+  );
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toMatch(/Writing Project created/);
+  expect(result.stdout).toMatch(/Slug: my-novel/);
+  expect(result.stdout).toMatch(
+    /Manifest: \.forgelet\/writing\/projects\/my-novel\.json/,
+  );
+  expect(manifest).toEqual({
+    slug: "my-novel",
+    createdAt: expect.any(String),
+    head: null,
+    members: [],
+  });
+});
+
+test("CLI rejects duplicate Writing Project creation", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-projects-"));
+  await runCli(["write", "projects", "create", "my-novel"], { workspaceRoot });
+
+  const result = await runCli(["write", "projects", "create", "my-novel"], {
+    workspaceRoot,
+  });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toMatch(/Writing Project already exists: my-novel/);
+});
+
+test("CLI rejects Writing Project runs for unknown slugs and lists existing projects", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-projects-"));
+  await runCli(["write", "projects", "create", "other-novel"], { workspaceRoot });
+
+  const result = await runCli(
+    ["write", "--project", "missing-novel", "write chapter one"],
+    { workspaceRoot },
+  );
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toMatch(/Unknown Writing Project: missing-novel/);
+  expect(result.stderr).toMatch(/Existing projects: other-novel/);
+});
+
+test("CLI rejects Writing Project continuation from a non-member artifact", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-projects-"));
+  await mkdir(join(workspaceRoot, ".forgelet", "writing", "projects"), {
+    recursive: true,
+  });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"),
+    "Chapter one.\n",
+    "utf8",
+  );
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "writing", "projects", "my-novel.json"),
+    JSON.stringify(
+      {
+        slug: "my-novel",
+        createdAt: "2026-07-06T00:00:00.000Z",
+        head: ".forgelet/writing/chapter-1.md",
+        members: [".forgelet/writing/chapter-1.md"],
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+
+  const result = await runCli(
+    [
+      "write",
+      "--project",
+      "my-novel",
+      "--creative",
+      "--style",
+      "vivid",
+      "--continue",
+      ".forgelet/writing/not-a-member.md",
+      "revise",
+    ],
+    { workspaceRoot },
+  );
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toMatch(
+    /--continue artifact is not a member of Writing Project my-novel/,
+  );
+  expect(result.stderr).toMatch(/Remove --project to continue it directly/);
+  expect(result.stderr).toMatch(/edit \.forgelet\/writing\/projects\/my-novel\.json/);
+});
+
+test("CLI rejects combining Writing Project runs with explicit read scope", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-projects-"));
+  await runCli(["write", "projects", "create", "my-novel"], { workspaceRoot });
+
+  const result = await runCli(
+    [
+      "write",
+      "--project",
+      "my-novel",
+      "--allow-read",
+      "src",
+      "write chapter one",
+    ],
+    { workspaceRoot },
+  );
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toMatch(
+    /--project cannot be combined with --allow-read/,
+  );
+});
+
 test("CLI lists Writing Artifact Catalog entries without starting a Session", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-artifacts-list-"));
   const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
@@ -1018,6 +1146,7 @@ test("CLI lists Writing Artifact Catalog entries without starting a Session", as
           workflow: "writing",
           workflowVariant: "creative",
           creativeStyle: "vivid",
+          projectSlug: "my-novel",
         },
       }),
       JSON.stringify({
@@ -1057,6 +1186,7 @@ test("CLI lists Writing Artifact Catalog entries without starting a Session", as
   expect(result.stdout).toMatch(/rain-sess_artifact\.md/);
   expect(result.stdout).toMatch(/Status: available/);
   expect(result.stdout).toMatch(/Kind: draft/);
+  expect(result.stdout).toMatch(/Project: my-novel/);
   expect(result.stdout).toMatch(/Session: sess_artifact/);
   expect(result.stdout).toMatch(/Task: write rain/);
   expect(result.stdout).toMatch(
@@ -1408,6 +1538,108 @@ test("CLI default writing run creates a model-backed Writing Session", async () 
     events.find((event) => event.type === "session_started")?.payload.workflow,
   ).toBe("writing");
   expect(events.some((event) => event.type === "model_turn")).toBe(true);
+});
+
+test("CLI Writing Project run can start from an empty project", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-project-run-"));
+  await runCli(["write", "projects", "create", "my-novel"], { workspaceRoot });
+  const modelClient = new FakeModelClient([
+    { content: "Draft\n\nChapter one begins.", toolCalls: [] },
+  ]);
+
+  const result = await runCli(
+    [
+      "write",
+      "--project",
+      "my-novel",
+      "--creative",
+      "--style",
+      "vivid",
+      "write chapter one",
+    ],
+    {
+      workspaceRoot,
+      env: {},
+      createLiveModelClient: async () => modelClient,
+    },
+  );
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toMatch(/Chapter one begins/);
+  expect(modelClient.turnInputs).toHaveLength(1);
+  const manifest = JSON.parse(
+    await readFile(
+      join(
+        workspaceRoot,
+        ".forgelet",
+        "writing",
+        "projects",
+        "my-novel.json",
+      ),
+      "utf8",
+    ),
+  );
+  const artifactPath = result.stdout.match(
+    /Writing artifact: (\.forgelet\/writing\/[^ ]+)/,
+  )?.[1];
+  expect(manifest.members).toEqual([artifactPath]);
+  expect(manifest.head).toBe(artifactPath);
+});
+
+test("CLI Writing Project run ignores missing non-head members with a warning", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-project-run-"));
+  await mkdir(join(workspaceRoot, ".forgelet", "writing", "projects"), {
+    recursive: true,
+  });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "writing", "chapter-2.md"),
+    "Chapter two.\n",
+    "utf8",
+  );
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "writing", "projects", "my-novel.json"),
+    JSON.stringify(
+      {
+        slug: "my-novel",
+        createdAt: "2026-07-06T00:00:00.000Z",
+        head: ".forgelet/writing/chapter-2.md",
+        members: [
+          ".forgelet/writing/chapter-1.md",
+          ".forgelet/writing/chapter-2.md",
+        ],
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([
+    { content: "Draft\n\nChapter three.", toolCalls: [] },
+  ]);
+
+  const result = await runCli(
+    [
+      "write",
+      "--project",
+      "my-novel",
+      "--creative",
+      "--style",
+      "vivid",
+      "write chapter three",
+    ],
+    {
+      workspaceRoot,
+      env: {},
+      createLiveModelClient: async () => modelClient,
+    },
+  );
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toMatch(
+    /Warning: Writing Project member is missing and was excluded from this Session Read Scope: \.forgelet\/writing\/chapter-1\.md/,
+  );
+  expect(result.stdout).toMatch(/Chapter three/);
 });
 
 test("CLI writing run with browser context falls back to main page text", async () => {

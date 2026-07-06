@@ -27,6 +27,7 @@ export interface WritingArtifactCatalogEntry {
   task?: string;
   workflowVariant?: WorkflowVariant;
   creativeStyle?: CreativeStyle;
+  projectSlug?: string;
   tracePath?: string;
 }
 
@@ -134,6 +135,10 @@ async function readTraceBackedEntries(
         task: typeof task?.payload.task === "string" ? task.payload.task : undefined,
         workflowVariant: asWorkflowVariant(started?.payload.workflowVariant),
         creativeStyle: asCreativeStyle(started?.payload.creativeStyle),
+        projectSlug:
+          typeof started?.payload.projectSlug === "string"
+            ? started.payload.projectSlug
+            : undefined,
         tracePath: workspaceRelative(workspaceRoot, tracePath),
       });
     }

@@ -3,6 +3,12 @@ import { mkdir, mkdtemp, readFile, readdir, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { runAgent } from "../../src/agent/runAgent.js";
+import { FakeModelClient } from "../../src/models/testing/index.js";
+import {
+  createWritingProject,
+  loadWritingProject,
+  saveWritingProject,
+} from "../../src/writingProjects/index.js";
 
 test("creates a project session trace for a coding workflow", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-run-"));
@@ -114,4 +120,245 @@ test("records creative writing variant metadata in the Session trace", async () 
   expect(started.payload).not.toHaveProperty("stylePreset");
   expect(started.payload).not.toHaveProperty("stylePresetDefinition");
   expect(started.payload).not.toHaveProperty("creativeStylePreset");
+});
+
+test("keeps scoped read tools available for creative Writing Project continuation", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-project-tools-"));
+  await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"),
+    "Chapter one body.\n",
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([
+    { content: "Draft\n\nChapter two body.", toolCalls: [] },
+  ]);
+
+  await runAgent({
+    workflow: "writing",
+    workflowVariant: "creative",
+    creativeStyle: "vivid",
+    creativeInputKind: "continuation",
+    task: "write chapter two",
+    contextFiles: [],
+    continuationFile: ".forgelet/writing/chapter-1.md",
+    project: {
+      slug: "my-novel",
+      createdAt: "2026-07-06T00:00:00.000Z",
+      members: [".forgelet/writing/chapter-1.md"],
+      head: ".forgelet/writing/chapter-1.md",
+    },
+    workspaceRoot,
+    modelClient,
+  });
+
+  const toolNames = modelClient.turnInputs[0]?.tools.map((tool) => tool.name);
+  expect(toolNames).toEqual(
+    expect.arrayContaining(["read_file", "list_files", "update_plan"]),
+  );
+  expect(toolNames).not.toEqual(
+    expect.arrayContaining(["apply_patch", "run_command"]),
+  );
+});
+
+test("keeps prompt-only creative writing runs tool-free outside Writing Projects", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-creative-tools-"));
+  const modelClient = new FakeModelClient([
+    { content: "Draft\n\nA quiet opening.", toolCalls: [] },
+  ]);
+
+  await runAgent({
+    workflow: "writing",
+    workflowVariant: "creative",
+    creativeStyle: "vivid",
+    creativeInputKind: "draft",
+    task: "write an opening",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  expect(modelClient.turnInputs[0]?.tools).toEqual([]);
+});
+
+test("narrows Writing Project read scope to project members", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-project-scope-"));
+  await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"),
+    "Chapter one.\n",
+    "utf8",
+  );
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "writing", "chapter-2.md"),
+    "Chapter two.\n",
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([
+    { content: "Draft\n\nChapter three.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "writing",
+    workflowVariant: "creative",
+    creativeStyle: "vivid",
+    creativeInputKind: "continuation",
+    task: "write chapter three",
+    contextFiles: [],
+    continuationFile: ".forgelet/writing/chapter-2.md",
+    project: {
+      slug: "my-novel",
+      createdAt: "2026-07-06T00:00:00.000Z",
+      members: [
+        ".forgelet/writing/chapter-1.md",
+        ".forgelet/writing/chapter-2.md",
+      ],
+      head: ".forgelet/writing/chapter-2.md",
+    },
+    workspaceRoot,
+    modelClient,
+  });
+
+  expect(result.session.readScope).toEqual([
+    ".forgelet/writing/chapter-1.md",
+    ".forgelet/writing/chapter-2.md",
+  ]);
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const events = trace.trim().split("\n").map((line) => JSON.parse(line));
+  expect(events[0].payload.readScope).toEqual(result.session.readScope);
+});
+
+test("includes a Writing Project member list in the model prompt", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-project-prompt-"));
+  await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"),
+    "Chapter one.\n",
+    "utf8",
+  );
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "writing", "chapter-2.md"),
+    "Chapter two.\n",
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([
+    { content: "Draft\n\nChapter three.", toolCalls: [] },
+  ]);
+
+  await runAgent({
+    workflow: "writing",
+    workflowVariant: "creative",
+    creativeStyle: "vivid",
+    creativeInputKind: "continuation",
+    task: "write chapter three",
+    contextFiles: [],
+    continuationFile: ".forgelet/writing/chapter-2.md",
+    project: {
+      slug: "my-novel",
+      createdAt: "2026-07-06T00:00:00.000Z",
+      members: [
+        ".forgelet/writing/chapter-1.md",
+        ".forgelet/writing/chapter-2.md",
+      ],
+      head: ".forgelet/writing/chapter-2.md",
+    },
+    workspaceRoot,
+    modelClient,
+  });
+
+  const prompt = modelClient.turnInputs[0]?.messages
+    .map((message) => message.content)
+    .join("\n");
+  expect(prompt).toMatch(/Writing Project: my-novel/);
+  expect(prompt).toMatch(/\.forgelet\/writing\/chapter-1\.md/);
+  expect(prompt).toMatch(/\.forgelet\/writing\/chapter-2\.md \(head\)/);
+});
+
+test("records Writing Project slug in session_started trace metadata", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-project-trace-"));
+  await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"),
+    "Chapter one.\n",
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([
+    { content: "Draft\n\nChapter two.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "writing",
+    workflowVariant: "creative",
+    creativeStyle: "vivid",
+    creativeInputKind: "continuation",
+    task: "write chapter two",
+    contextFiles: [],
+    continuationFile: ".forgelet/writing/chapter-1.md",
+    project: {
+      slug: "my-novel",
+      createdAt: "2026-07-06T00:00:00.000Z",
+      members: [".forgelet/writing/chapter-1.md"],
+      head: ".forgelet/writing/chapter-1.md",
+    },
+    workspaceRoot,
+    modelClient,
+  });
+
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const events = trace.trim().split("\n").map((line) => JSON.parse(line));
+  const started = events.find((event) => event.type === "session_started");
+  expect(started.payload.projectSlug).toBe("my-novel");
+  expect(started.payload).not.toHaveProperty("project");
+  expect(started.payload).not.toHaveProperty("members");
+});
+
+test("updates Writing Project manifest and trace when project writing creates an artifact", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-project-update-"));
+  await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"),
+    "Chapter one.\n",
+    "utf8",
+  );
+  const project = await createWritingProject(workspaceRoot, "my-novel");
+  await saveWritingProject(workspaceRoot, {
+    ...project,
+    head: ".forgelet/writing/chapter-1.md",
+    members: [".forgelet/writing/chapter-1.md"],
+  });
+  const modelClient = new FakeModelClient([
+    { content: "Draft\n\nChapter two.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "writing",
+    workflowVariant: "creative",
+    creativeStyle: "vivid",
+    creativeInputKind: "continuation",
+    task: "write chapter two",
+    contextFiles: [],
+    continuationFile: ".forgelet/writing/chapter-1.md",
+    project: await loadWritingProject(workspaceRoot, "my-novel"),
+    workspaceRoot,
+    modelClient,
+  });
+
+  const updated = await loadWritingProject(workspaceRoot, "my-novel");
+  expect(updated.members).toEqual([
+    ".forgelet/writing/chapter-1.md",
+    result.writingArtifact?.path,
+  ]);
+  expect(updated.head).toBe(result.writingArtifact?.path);
+
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const events = trace.trim().split("\n").map((line) => JSON.parse(line));
+  const projectUpdated = events.find(
+    (event) => event.type === "writing_project_updated",
+  );
+  expect(projectUpdated.payload).toEqual({
+    slug: "my-novel",
+    memberAdded: result.writingArtifact?.path,
+    headBefore: ".forgelet/writing/chapter-1.md",
+    headAfter: result.writingArtifact?.path,
+  });
 });

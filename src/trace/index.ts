@@ -74,7 +74,7 @@ export async function listSessionTraceFiles(workspaceRoot: string): Promise<stri
     const entries = await readdir(sessionDir);
     return entries.filter((entry) => entry.endsWith(".jsonl")).map((entry) => join(sessionDir, entry));
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return [];
+    if (isNodeError(error) && error.code === "ENOENT") return [];
     throw error;
   }
 }

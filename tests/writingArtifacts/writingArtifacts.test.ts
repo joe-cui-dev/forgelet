@@ -30,6 +30,7 @@ test("reads a Writing Artifact Catalog from traces and local artifacts", async (
       workflow: "writing",
       workflowVariant: "creative",
       creativeStyle: "vivid",
+      projectSlug: "my-novel",
       startedAt: "2026-07-04T10:00:00.000Z",
     }),
     event("user_task", "sess_available", {
@@ -76,6 +77,7 @@ test("reads a Writing Artifact Catalog from traces and local artifacts", async (
       task: "write a rain-soaked convenience store scene",
       workflowVariant: "creative",
       creativeStyle: "vivid",
+      projectSlug: "my-novel",
       tracePath: ".forgelet/sessions/sess_available.jsonl",
     }),
   );
@@ -207,6 +209,27 @@ test("searches Catalog metadata and applies newest-first limits across statuses"
     limit: 10,
   });
   expect(noResults.entries).toEqual([]);
+});
+
+test("ignores Writing Project manifests when scanning local Writing Artifacts", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-writing-artifacts-"));
+  await mkdir(join(workspaceRoot, ".forgelet", "writing", "projects"), {
+    recursive: true,
+  });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "writing", "projects", "my-novel.json"),
+    JSON.stringify({
+      slug: "my-novel",
+      createdAt: "2026-07-06T00:00:00.000Z",
+      head: null,
+      members: [],
+    }),
+    "utf8",
+  );
+
+  const catalog = await readWritingArtifactCatalog(workspaceRoot);
+
+  expect(catalog.entries).toEqual([]);
 });
 
 async function writeTrace(

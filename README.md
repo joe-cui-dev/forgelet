@@ -38,12 +38,18 @@ forge write --with-browser "turn this article into an outline"
 forge write --creative --style vivid "write a rain-soaked convenience store scene"
 forge write --creative --style vivid --context scene.md "revise this scene"
 forge write --creative --style vivid --continue .forgelet/writing/chapter-1.md "continue the next chapter"
+forge write projects create my-novel
+forge write --project my-novel --creative --style vivid "write chapter one"
+forge write --project my-novel --creative --style vivid "continue from the project head"
+forge write --project my-novel --creative --style vivid --continue .forgelet/writing/chapter-1.md "revise chapter one"
 forge write artifacts list
 forge write artifacts show <sessionId> --full
 forge write artifacts search --limit 5 "chapter"
 ```
 
 Writing Sessions use model text generation without workspace, Git, patch, or command tools. Model-backed writing saves drafted or revised prose under `.forgelet/writing/` with local timestamp-prefixed filenames. Creative Style Preset keys are `plain`, `vivid`, `tight`, `literary`, `cinematic`, `minimal`, `lyrical`, `noir`, `warm`, `sharp`, `sensual`, and `ardent`. Project-local preset definitions live in `.forgelet/style-presets.local.json`; this file is ignored by Git, and Sessions/Traces record only the selected preset key. If the local file is missing, Forgelet uses a public fallback prompt that does not contain private preset prose.
+
+Writing Projects group long-form Writing Artifacts in `.forgelet/writing/projects/<slug>.json`. `forge write --project <slug>` continues from the manifest head by default, appends the new artifact to the manifest, and advances the head only when the Session continued from the current head. Use `--project` with `--continue <member.md>` to revise an older member without moving the head. To enroll older artifacts, edit the manifest by hand; unknown projects and non-member `--continue` paths are errors.
 
 ```json
 {
