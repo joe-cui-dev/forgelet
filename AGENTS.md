@@ -12,6 +12,14 @@ This repo keeps documentation intentionally small so agents do not spend context
 
 Do not default to reading deleted or historical planning docs from git history. Completed execution plans are not kept in `docs/`.
 
+## Commands
+
+- Build: `npm run build` (tsc plus browser extension bundling)
+- Typecheck: `npm run typecheck` (uses `tsconfig.test.json`)
+- Test: `npm test` — do not run `npx jest` directly; the script sets `--experimental-vm-modules` for ESM and forces `--runInBand`
+- Smoke: `npm run smoke:writing`, `smoke:learning`, `smoke:knowledge-notes`, `smoke:writing-artifacts`, `smoke:deepseek` (each runs a build first)
+- Requires Node >= 24
+
 ## Source Map
 
 - CLI parsing and output: `src/cli/`
@@ -19,29 +27,27 @@ Do not default to reading deleted or historical planning docs from git history. 
 - Tool registry and tools: `src/tools/`
 - Permissions and read scope: `src/permissions/`, `src/readScope/`
 - Model adapters and test clients: `src/models/`
+- Model routing and user config: `src/config/`
 - Trace, Sessions, and explain: `src/trace/`, `src/sessions/`, `src/explain/`
+- Debug transcripts (separate from traces): `src/debugTranscript/`
 - Browser context bridge: `src/browser/`, `src/native-host/`
 - Writing artifacts: `src/writingArtifacts/`
+- Writing project manifests and continuation heads: `src/writingProjects/`
+- Creative style presets: `src/creativeStylePresets/`
 - Knowledge notes: `src/knowledge/`
-- Active context compaction: `src/conversation/`
+- User-approved memory persistence: `src/memory/`
+- Context attachments loaded into a session: `src/context/`
+- Active context compaction (rolling summary, fact ledger, fold): `src/conversation/`
 - Live terminal presentation: `src/sessionLiveView/`
 - Smoke commands: `src/smoke/`
+- Shared types and small helpers: `src/types.ts`, `src/budget/`, `src/fileNames/`, `src/workspace/`
 - Tests: `tests/`
 
-## ADR Pointers
+Note: `src/context/` handles per-session file attachments; `src/conversation/` handles compacting the active conversation. They are not the same thing.
 
-- CLI-first product boundary: `docs/adr/0001-local-cli-first.md`
-- Tool providers and capabilities: `docs/adr/0002-tool-providers-and-capabilities.md`
-- Workflow graph model: `docs/adr/0003-workflow-graphs-with-react-nodes.md`
-- Capability grants: `docs/adr/0006-workflow-capability-grants.md`
-- Knowledge Library storage: `docs/adr/0008-markdown-knowledge-library.md`
-- Browser context bridge: `docs/adr/0010-browser-context-extension-bridge-first.md`
-- Trace evidence contract: `docs/adr/0012-traces-record-real-session-events.md`
-- Active Context compaction: `docs/adr/0013-active-context-uses-observation-digests.md`
-- Session Continuation: `docs/adr/0014-session-resume-creates-immutable-continuations.md`
-- Live View presentation: `docs/adr/0015-cli-session-live-view-is-presentation.md`
-- Model-backed defaults: `docs/adr/0016-model-backed-sessions-are-the-default.md`
-- Explicit workflow commands: `docs/adr/0017-explicit-workflow-commands.md`
+## ADR Index
+
+ADR filenames are self-describing (for example `0019-conversation-folds-into-rolling-summary-with-fact-ledger.md`). When a task touches an architectural boundary, list `docs/adr/` and read only the ADRs whose filenames match the area you are changing. Do not read the whole directory.
 
 ## Working Rules
 
@@ -50,4 +56,5 @@ Do not default to reading deleted or historical planning docs from git history. 
 - Put current and future sequencing in `ROADMAP.md`.
 - Keep ADRs short and decision-focused.
 - Delete completed execution plans instead of archiving them.
+- When adding a top-level `src/` directory, add it to the Source Map above in the same change.
 - Prefer source, tests, and `.forgelet/sessions/*.jsonl` traces over stale prose when behavior is in doubt.
