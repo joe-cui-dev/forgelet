@@ -92,6 +92,18 @@ _Avoid_: Read-file allowlist, prompt-only scope, write scope
 A human-facing prose result produced by a Writing Workflow, such as a draft or revision, that can be read, reused, cataloged, or selected as source material for later writing work.
 _Avoid_: Trace event, hidden memory, context file
 
+**Writing Project**:
+A named long-form writing effort, identified by a slug, that groups Writing Artifacts so later Writing Sessions can continue the work. Membership is declared in the Project Manifest, not inferred from Traces; Traces record the project slug as evidence only.
+_Avoid_: Folder, tag, document, session group
+
+**Project Manifest**:
+The user-readable file that is the source of truth for a Writing Project: its identity, its ordered member Writing Artifacts, and its Continuation Head. A manifest groups existing artifacts; it does not store prose content.
+_Avoid_: Document editor state, trace index, cache
+
+**Continuation Head**:
+The member Writing Artifact a Writing Project continues from by default. New members always join the member list, but the head advances deterministically only when a Session's continuation source was the current head; revising an earlier member never moves it. Users may edit the head in the Project Manifest.
+_Avoid_: Latest file, newest artifact, cursor
+
 **Knowledge Library**:
 User-approved Markdown notes stored in a Knowledge Scope. The Knowledge Library stores source-linked articles, outlines, summaries, and learning notes for humans to read and reuse.
 _Avoid_: Memory file, vector database, terminal-only output
