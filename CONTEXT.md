@@ -52,6 +52,18 @@ _Avoid_: Prompt paste, hidden source, trace content
 The current model-facing working set assembled for a Session turn, including task context, attachments, recent interaction, and tool observations. Active Context may be compacted without changing the Trace.
 _Avoid_: Trace, durable memory, full session history
 
+**Observation Digest**:
+The deterministic compacted form of a tool observation in Active Context. A digest preserves source identity, range, content hash, truncation state, and a bounded excerpt of what was actually returned, without passing through a model.
+_Avoid_: Model summary, truncated log, preview
+
+**Rolling Summary**:
+The single folded message at the head of a Session's conversation that replaces its oldest turns when Observation Digests alone cannot keep the conversation within budget. It pairs a model-generated narrative of the folded work with a Fact Ledger, and is rewritten in place each time more turns are folded.
+_Avoid_: Chat summary, checkpoint chain, durable memory, transcript
+
+**Fact Ledger**:
+The deterministic, machine-assembled part of a Rolling Summary that carries facts forward from folded Observation Digests, such as files read with their ranges and hashes, files changed, and commands run with their outcomes. A Fact Ledger never passes through a model.
+_Avoid_: Model summary, durable memory, trace event
+
 **Workspace Summary**:
 A deterministic, on-demand overview of the current project workspace exposed through read Capabilities. It helps the model understand project shape without becoming Durable Memory or bypassing Session Read Scope.
 _Avoid_: Repository cache, project memory, hidden index
