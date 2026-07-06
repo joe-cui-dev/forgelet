@@ -688,14 +688,14 @@ test("CLI runs a source-backed learning workflow and does not write Knowledge Li
   expect(finalSummary?.payload.finalContent).toMatch(/## Summary\nThese are the core ideas\./);
   expect(finalSummary?.payload.finalContent).not.toMatch(/Forgelet session completed/);
   expect(finalSummary?.payload.finalContent).not.toMatch(/Trace: /);
-  const sessionId = (traceFiles[0] ?? "").replace(/\.jsonl$/, "");
+  const sessionId = events[0]?.sessionId;
   const show = await runCli(["sessions", "show", sessionId], { workspaceRoot });
   expect(show.exitCode).toBe(0);
   expect(show.stdout).toMatch(/Workflow: learning/);
   expect(show.stdout).toMatch(/Context attachments: paper\.md/);
   const explain = await runCli(["explain", sessionId], { workspaceRoot });
   expect(explain.exitCode).toBe(0);
-  expect(explain.stdout).toMatch(/Session explanation: sess_/);
+  expect(explain.stdout).toMatch(new RegExp(`Session explanation: ${sessionId}`));
   expect(explain.stdout).toMatch(/Workflow: learning/);
   await expect(readdir(join(workspaceRoot, ".forgelet", "knowledge"))).rejects.toThrow();
 });
@@ -715,7 +715,11 @@ test("CLI debug mode writes a Debug Transcript for a model-backed Session", asyn
   expect(result.stderr).toBe("");
   expect(result.stdout).toMatch(/Trace: /);
   const traceFiles = await readdir(join(workspaceRoot, ".forgelet", "sessions"));
-  const sessionId = (traceFiles[0] ?? "").replace(/\.jsonl$/, "");
+  const debugTrace = await readFile(
+    join(workspaceRoot, ".forgelet", "sessions", traceFiles[0] ?? ""),
+    "utf8",
+  );
+  const sessionId = JSON.parse(debugTrace.split("\n")[0] ?? "{}").sessionId;
   const transcript = await readFile(
     join(workspaceRoot, ".forgelet", "debug", `${sessionId}.jsonl`),
     "utf8",
@@ -723,12 +727,7 @@ test("CLI debug mode writes a Debug Transcript for a model-backed Session", asyn
   expect(transcript).toContain('"type":"model_request"');
   expect(transcript).toContain('"type":"model_response"');
   expect(transcript).toContain("inspect this repo");
-
-  const trace = await readFile(
-    join(workspaceRoot, ".forgelet", "sessions", traceFiles[0] ?? ""),
-    "utf8",
-  );
-  expect(trace).toContain('"type":"debug_transcript_finished"');
+  expect(debugTrace).toContain('"type":"debug_transcript_finished"');
 });
 
 test("CLI shows Debug Transcript previews and full content", async () => {
@@ -1784,7 +1783,9 @@ test("CLI resume runs a live read-only Session Continuation by default", async (
   expect(result.stdout).toMatch(/Lineage depth: 1/);
   expect(result.stdout).toMatch(/Context: complete/);
   expect(result.stdout).toMatch(/Continuing with cobalt/);
-  expect(result.stdout).toMatch(/Trace: .*\.forgelet\/sessions\/sess_/);
+  expect(result.stdout).toMatch(
+    /Trace: .*\.forgelet\/sessions\/\d{8}_\d{6}_sess_/,
+  );
   expect(modelClient.turnInputs[0]?.messages.map((message) => message.content).join("\n")).toMatch(
     /Continuation Context:/,
   );

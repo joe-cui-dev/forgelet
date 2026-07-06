@@ -43,7 +43,7 @@ forge write artifacts show <sessionId> --full
 forge write artifacts search --limit 5 "chapter"
 ```
 
-Writing Sessions use model text generation without workspace, Git, patch, or command tools. Model-backed writing saves drafted or revised prose under `.forgelet/writing/`. Creative Style Preset keys are `plain`, `vivid`, `tight`, `literary`, `cinematic`, `minimal`, `lyrical`, `noir`, `warm`, `sharp`, `sensual`, and `ardent`. Project-local preset definitions live in `.forgelet/style-presets.local.json`; this file is ignored by Git, and Sessions/Traces record only the selected preset key. If the local file is missing, Forgelet uses a public fallback prompt that does not contain private preset prose.
+Writing Sessions use model text generation without workspace, Git, patch, or command tools. Model-backed writing saves drafted or revised prose under `.forgelet/writing/` with local timestamp-prefixed filenames. Creative Style Preset keys are `plain`, `vivid`, `tight`, `literary`, `cinematic`, `minimal`, `lyrical`, `noir`, `warm`, `sharp`, `sensual`, and `ardent`. Project-local preset definitions live in `.forgelet/style-presets.local.json`; this file is ignored by Git, and Sessions/Traces record only the selected preset key. If the local file is missing, Forgelet uses a public fallback prompt that does not contain private preset prose.
 
 ```json
 {
@@ -108,7 +108,7 @@ Browser context is read-only and user-approved. The Chrome extension plus Native
 
 ## Sessions
 
-Every model-backed run writes a Trace under `.forgelet/sessions/`.
+Every model-backed run writes a Trace under `.forgelet/sessions/`. New Trace files use a local timestamp prefix such as `YYYYMMDD_HHMMSS_<sessionId>.jsonl`; the Session id remains the stable CLI handle.
 
 ```bash
 forge sessions list

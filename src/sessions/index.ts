@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import type { ContextAttachment, SessionAudit, WorkflowKind } from "../types.js";
-import { listSessionTraceFiles, readTraceFile, sessionTracePath } from "../trace/index.js";
+import { findSessionTracePath, listSessionTraceFiles, readTraceFile } from "../trace/index.js";
 
 export type SessionStatus =
   | "completed"
@@ -80,7 +80,7 @@ function asSessionStatus(value: unknown): SessionStatus {
 }
 
 export async function showSession(workspaceRoot: string, sessionId: string): Promise<SessionDetail> {
-  const tracePath = sessionTracePath(workspaceRoot, sessionId);
+  const tracePath = await findSessionTracePath(workspaceRoot, sessionId);
   const events = await readTraceFile(tracePath);
   const started = events.find((event) => event.type === "session_started");
   if (!started) throw new Error(`Session trace does not contain session_started: ${sessionId}`);

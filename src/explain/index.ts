@@ -1,5 +1,5 @@
 import type { SessionAudit, TraceEvent, WorkflowKind } from "../types.js";
-import { readTraceFile, sessionTracePath } from "../trace/index.js";
+import { findSessionTracePath, readTraceFile } from "../trace/index.js";
 
 export interface SessionExplanation {
   sessionId: string;
@@ -50,7 +50,7 @@ export async function explainSession(
   workspaceRoot: string,
   sessionId: string,
 ): Promise<SessionExplanation> {
-  const tracePath = sessionTracePath(workspaceRoot, sessionId);
+  const tracePath = await findSessionTracePath(workspaceRoot, sessionId);
   const events = await readTraceFile(tracePath);
   const started = events.find((event) => event.type === "session_started");
   if (!started)

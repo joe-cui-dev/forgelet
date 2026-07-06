@@ -1,6 +1,6 @@
 import { expect, test } from "@jest/globals";
 import { mkdir, mkdtemp, writeFile } from "fs/promises";
-import { join } from "path";
+import { basename, join } from "path";
 import { tmpdir } from "os";
 import { listSessions } from "../../src/sessions/index.js";
 import { showSession } from "../../src/sessions/index.js";
@@ -57,6 +57,9 @@ test("shows a session summary from its trace events", async () => {
   const session = await showSession(workspaceRoot, result.session.id);
 
   expect(session.id).toBe(result.session.id);
+  expect(basename(session.tracePath)).toMatch(
+    /^\d{8}_\d{6}_sess_[a-z0-9]+\.jsonl$/,
+  );
   expect(session.workflow).toBe("writing");
   expect(session.status).toBe("completed");
   expect(session.task).toBe("revise this");
@@ -64,6 +67,41 @@ test("shows a session summary from its trace events", async () => {
   expect(session.contextAttachments[0]?.title).toBe("draft.md");
   expect(session.route?.model).toBe("deepseek-v4-flash");
   expect(session.finalSummary).toMatch(/deterministic test seam/);
+});
+
+test("shows a timestamp-prefixed session trace by Session id", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-prefixed-show-"));
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(sessionDir, "20260706_123945_sess_prefixed.jsonl"),
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-07-06T02:39:45.000Z",
+        sessionId: "sess_prefixed",
+        payload: {
+          workflow: "coding",
+          startedAt: "2026-07-06T02:39:45.000Z",
+        },
+      }),
+      JSON.stringify({
+        type: "user_task",
+        ts: "2026-07-06T02:39:45.000Z",
+        sessionId: "sess_prefixed",
+        payload: { task: "inspect repo" },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+
+  const session = await showSession(workspaceRoot, "sess_prefixed");
+
+  expect(session.id).toBe("sess_prefixed");
+  expect(session.task).toBe("inspect repo");
+  expect(basename(session.tracePath)).toBe(
+    "20260706_123945_sess_prefixed.jsonl",
+  );
 });
 
 test("shows structured final audit facts from an actionable session trace", async () => {

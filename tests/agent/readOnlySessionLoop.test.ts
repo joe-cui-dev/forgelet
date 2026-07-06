@@ -1,7 +1,7 @@
 import { expect, test } from "@jest/globals";
 import { execFile } from "child_process";
 import { mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from "fs/promises";
-import { join } from "path";
+import { basename, join } from "path";
 import { tmpdir } from "os";
 import { runAgent } from "../../src/agent/runAgent.js";
 import { readDebugTranscript } from "../../src/debugTranscript/index.js";
@@ -510,7 +510,11 @@ test("a debug-enabled model execution failure records model error and finalizes 
 
   const sessionFiles = await readdir(join(workspaceRoot, ".forgelet", "sessions"));
   expect(sessionFiles).toHaveLength(1);
-  const sessionId = (sessionFiles[0] ?? "").replace(/\.jsonl$/, "");
+  const debugTrace = await readFile(
+    join(workspaceRoot, ".forgelet", "sessions", sessionFiles[0] ?? ""),
+    "utf8",
+  );
+  const sessionId = JSON.parse(debugTrace.split("\n")[0] ?? "{}").sessionId;
   const debugEvents = await readDebugTranscript(workspaceRoot, sessionId);
   expect(debugEvents.map((event) => event.type)).toEqual([
     "model_request",
@@ -726,6 +730,9 @@ test("a creative writing Session returns a Revision Pack", async () => {
   expect(result.writingArtifact).toMatchObject({
     contentKind: "revision",
   });
+  expect(result.writingArtifact?.path).toMatch(
+    /^\.forgelet\/writing\/\d{8}_\d{6}_revision_revise-this-scene\.md$/,
+  );
   const artifact = await readFile(
     join(workspaceRoot, result.writingArtifact?.path ?? ""),
     "utf8",
@@ -821,6 +828,9 @@ test("a prompt-only Creative Brief returns only a Draft without context attachme
   expect(result.writingArtifact).toMatchObject({
     contentKind: "draft",
   });
+  expect(result.writingArtifact?.path).toMatch(
+    /^\.forgelet\/writing\/\d{8}_\d{6}_draft_write-a-rain-soaked-convenience-store-scene\.md$/,
+  );
   const artifact = await readFile(
     join(workspaceRoot, result.writingArtifact?.path ?? ""),
     "utf8",
@@ -970,6 +980,9 @@ test("a creative Writing Artifact Continuation separates additional context atta
   expect(result.writingArtifact).toMatchObject({
     contentKind: "draft",
   });
+  expect(basename(result.writingArtifact?.path ?? "")).toMatch(
+    /^\d{8}_\d{6}_draft_continue-the-next-chapter\.md$/,
+  );
   const artifact = await readFile(
     join(workspaceRoot, result.writingArtifact?.path ?? ""),
     "utf8",

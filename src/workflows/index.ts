@@ -22,7 +22,7 @@ import type {
 } from "../types.js";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import {
   browserSnapshotToContextAttachment,
@@ -32,6 +32,7 @@ import { formatCreativeStylePresetForWorkspacePrompt } from "../creativeStylePre
 import { loadConfig, routeModel } from "../config/index.js";
 import { loadContextAttachments } from "../context/index.js";
 import { compactConversationInPlace } from "../conversation/compaction.js";
+import { formatLocalTimestampForFilename } from "../fileNames/index.js";
 import {
   loadDurableMemory,
   type LoadedDurableMemory,
@@ -153,8 +154,9 @@ const CONTEXT_ATTACHMENTS_PROMPT_LIMIT_BYTES = 60 * 1024;
 export const runWorkflowSession = async (
   input: RunWorkflowInput,
 ): Promise<RunWorkflowResult> => {
-  const now = new Date().toISOString();
-  const sessionId = `sess_${Date.now().toString(36)}`;
+  const startedAt = new Date();
+  const now = startedAt.toISOString();
+  const sessionId = `sess_${startedAt.getTime().toString(36)}`;
   const taskHash = hashTask(input.task);
   const continuationContext = input.continuationSourceSessionId
     ? await buildContinuationContext(
@@ -175,7 +177,9 @@ export const runWorkflowSession = async (
     input.workspaceRoot,
     input.allowedReadPaths ?? continuationContext?.inheritedReadScope,
   );
-  const traceWriter = await createTraceWriter(input.workspaceRoot, sessionId);
+  const traceWriter = await createTraceWriter(input.workspaceRoot, sessionId, {
+    createdAt: startedAt,
+  });
   await emitLiveEvent(input.onLiveEvent, {
     type: "session_started",
     workflow: input.workflow,
@@ -1928,7 +1932,14 @@ const writeWritingArtifact = async (input: {
   await mkdir(artifactDir, { recursive: true });
   const artifactPath = join(
     artifactDir,
-    `${slugTaskForFilename(input.session.task)}-${input.session.id}.md`,
+    await uniqueMarkdownFileName(
+      artifactDir,
+      [
+        formatLocalTimestampForFilename(new Date(input.session.createdAt)),
+        contentKind,
+        slugTaskForFilename(input.session.task),
+      ].join("_"),
+    ),
   );
   await writeFile(artifactPath, content, "utf8");
   return {
@@ -1995,8 +2006,34 @@ const slugTaskForFilename = (task: string): string => {
     .replace(/^-+|-+$/g, "")
     .slice(0, 48)
     .replace(/-+$/g, "");
-  return slug || "writing";
+  return /[a-z]/.test(slug) ? slug : "writing";
 };
+
+const uniqueMarkdownFileName = async (
+  dir: string,
+  baseName: string,
+): Promise<string> => {
+  for (let index = 0; index < 100; index += 1) {
+    const suffix = index === 0 ? "" : `_${String(index).padStart(2, "0")}`;
+    const fileName = `${baseName}${suffix}.md`;
+    if (!(await pathExists(join(dir, fileName)))) return fileName;
+  }
+  return `${baseName}_${Date.now().toString(36)}.md`;
+};
+
+const pathExists = async (path: string): Promise<boolean> => {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") return false;
+    throw error;
+  }
+};
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return typeof error === "object" && error !== null && "code" in error;
+}
 
 const ensureTrailingNewline = (content: string): string =>
   content.endsWith("\n") ? content : `${content}\n`;
