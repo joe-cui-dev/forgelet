@@ -326,8 +326,8 @@ test("CLI explain shows conversation compaction evidence", async () => {
         sessionId: "sess_compaction",
         payload: {
           compactedCount: 3,
-          beforeObservationBytes: 30_000,
-          afterObservationBytes: 10_000,
+          beforeConversationBytes: 30_000,
+          afterConversationBytes: 10_000,
           residualOverageBytes: 1_000,
         },
       }),
@@ -1633,13 +1633,13 @@ test("CLI sets the global active observation working-set target", async () => {
   );
 
   const set = await runCli(
-    ["config", "set", "activeContext.maxObservationBytes", "65536"],
+    ["config", "set", "activeContext.maxConversationBytes", "65536"],
     { homeDir, workspaceRoot },
   );
   const get = await runCli(["config", "get"], { homeDir, workspaceRoot });
 
   expect(set.exitCode).toBe(0);
-  expect(JSON.parse(get.stdout).activeContext.maxObservationBytes).toBe(65_536);
+  expect(JSON.parse(get.stdout).activeContext.maxConversationBytes).toBe(65_536);
 });
 
 test("CLI sets the global observation digest preview cap", async () => {
@@ -1666,7 +1666,7 @@ test("CLI help documents the active observation config key", async () => {
   const result = await runCli(["--help"]);
 
   expect(result.stdout).toMatch(
-    /forge config set activeContext\.maxObservationBytes 16384/,
+    /forge config set activeContext\.maxConversationBytes 16384/,
   );
   expect(result.stdout).toMatch(
     /forge config set activeContext\.observationDigestPreviewBytes 2048/,
@@ -1694,13 +1694,13 @@ test("CLI rejects an invalid active observation working-set target", async () =>
   );
 
   const result = await runCli(
-    ["config", "set", "activeContext.maxObservationBytes", "4095"],
+    ["config", "set", "activeContext.maxConversationBytes", "4095"],
     { homeDir, workspaceRoot },
   );
 
   expect(result.exitCode).toBe(1);
   expect(result.stderr).toMatch(
-    /activeContext\.maxObservationBytes.*at least 4096/,
+    /activeContext\.maxConversationBytes.*at least 4096/,
   );
 });
 

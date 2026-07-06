@@ -113,8 +113,8 @@ const explainConversationCompaction = (
         total +
         Math.max(
           0,
-          asNumber(event.payload.beforeObservationBytes) -
-            asNumber(event.payload.afterObservationBytes),
+          asNumber(event.payload.beforeConversationBytes) -
+            asNumber(event.payload.afterConversationBytes),
         ),
       0,
     ),

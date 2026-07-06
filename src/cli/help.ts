@@ -36,8 +36,9 @@ Usage:
   forge code --budget 0.25 "<task>"
   forge config get
   forge config set <key> <value>
-  forge config set activeContext.maxObservationBytes 16384
+  forge config set activeContext.maxConversationBytes 16384
   forge config set activeContext.observationDigestPreviewBytes 2048
+  forge config set activeContext.protectedRecentTurns 3
   forge sessions list
   forge sessions show <sessionId>
   forge resume <sessionId> "<instruction>"

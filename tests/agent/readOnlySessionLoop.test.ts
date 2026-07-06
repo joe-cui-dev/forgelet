@@ -1281,7 +1281,7 @@ test("a Session compacts old tool observations before a later model turn", async
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
   await writeFile(
     join(workspaceRoot, ".forgelet", "config.json"),
-    JSON.stringify({ activeContext: { maxObservationBytes: 4_096 } }),
+    JSON.stringify({ activeContext: { maxConversationBytes: 4_096 } }),
     "utf8",
   );
   await writeFile(join(workspaceRoot, "first.txt"), "a".repeat(8_000), "utf8");
@@ -1333,16 +1333,137 @@ test("a Session compacts old tool observations before a later model turn", async
   );
   expect(attempted.payload).toMatchObject({
     compactedCount: 0,
-    targetObservationBytes: 4_096,
+    targetConversationBytes: 4_096,
   });
   expect(compacted.payload).toMatchObject({
     compactedCount: 1,
-    targetObservationBytes: 4_096,
+    targetConversationBytes: 4_096,
     toolNames: ["read_file"],
   });
   expect("content" in compacted.payload).toBe(false);
   expect("path" in compacted.payload).toBe(false);
   expect("preview" in compacted.payload).toBe(false);
+});
+
+test("a Session folds an old turn into a Rolling Summary when digests alone cannot fit the budget", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-fold-"));
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "config.json"),
+    JSON.stringify({
+      activeContext: {
+        maxConversationBytes: 4_096,
+        protectedRecentTurns: 1,
+        observationDigestPreviewBytes: 3_000,
+      },
+    }),
+    "utf8",
+  );
+  await writeFile(join(workspaceRoot, "old.txt"), "a".repeat(10_000), "utf8");
+  await writeFile(join(workspaceRoot, "new.txt"), "b".repeat(2_000), "utf8");
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        { id: "call_old", name: "read_file", input: { path: "old.txt" } },
+      ],
+    },
+    {
+      toolCalls: [
+        { id: "call_new", name: "read_file", input: { path: "new.txt" } },
+      ],
+    },
+    {
+      content: "Read old.txt and new.txt.",
+      usage: { inputTokens: 40, outputTokens: 10, estimatedCostUsd: 0.002 },
+      toolCalls: [],
+    },
+    { content: "Both files were inspected.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "inspect both files",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  expect(result.summary).toMatch(/Both files were inspected/);
+  expect(result.summary).toMatch(/Model turns: 3/);
+  expect(modelClient.turnInputs[2]?.tools).toEqual([]);
+
+  const finalTurnMessages = modelClient.turnInputs[3]?.messages ?? [];
+  const rollingSummary = finalTurnMessages.find((message) =>
+    message.content.startsWith("Rolling Summary"),
+  );
+  expect(rollingSummary?.content).toMatch(/Read old\.txt and new\.txt\./);
+  expect(rollingSummary?.content).toMatch(/old\.txt/);
+  expect(
+    finalTurnMessages.filter((message) => message.role === "tool").length,
+  ).toBeLessThan(2);
+
+  const events = (await readFile(result.tracePath ?? "", "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const folded = events.find((event) => event.type === "conversation_folded");
+  expect(folded.payload.text).toMatch(/Read old\.txt and new\.txt\./);
+  expect(folded.payload.text).toMatch(/old\.txt/);
+
+  const budgetUpdates = events.filter(
+    (event) => event.type === "budget_update",
+  );
+  expect(budgetUpdates.at(-1)?.payload.usage.inputTokens).toBeGreaterThanOrEqual(
+    40,
+  );
+});
+
+test("a Session stops when the fold summarization call itself breaches the token budget", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-fold-budget-"));
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "config.json"),
+    JSON.stringify({
+      activeContext: {
+        maxConversationBytes: 4_096,
+        protectedRecentTurns: 1,
+        observationDigestPreviewBytes: 3_000,
+      },
+      budgets: { maxInputTokens: 30 },
+    }),
+    "utf8",
+  );
+  await writeFile(join(workspaceRoot, "old.txt"), "a".repeat(10_000), "utf8");
+  await writeFile(join(workspaceRoot, "new.txt"), "b".repeat(2_000), "utf8");
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        { id: "call_old", name: "read_file", input: { path: "old.txt" } },
+      ],
+    },
+    {
+      toolCalls: [
+        { id: "call_new", name: "read_file", input: { path: "new.txt" } },
+      ],
+    },
+    {
+      content: "Read old.txt and new.txt.",
+      usage: { inputTokens: 40, outputTokens: 10, estimatedCostUsd: 0.002 },
+      toolCalls: [],
+    },
+    { content: "Both files were inspected.", toolCalls: [] },
+  ]);
+
+  const result = await runAgent({
+    workflow: "coding",
+    task: "inspect both files",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  expect(result.summary).toMatch(/Reason: input_token_limit_exceeded/);
+  expect(modelClient.turnInputs).toHaveLength(3);
 });
 
 test("context attachments are rendered for the model without storing full content in the trace", async () => {
@@ -1433,6 +1554,12 @@ test("a Context Attachment does not grant tool access outside the Session Read S
 
 test("a coding Session can inspect a truncated git diff without storing the full diff in the trace", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-git-diff-"));
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "config.json"),
+    JSON.stringify({ activeContext: { maxConversationBytes: 200_000 } }),
+    "utf8",
+  );
   await execGit(workspaceRoot, ["init"]);
   await writeFile(join(workspaceRoot, "review.txt"), "original\n", "utf8");
   await execGit(workspaceRoot, ["add", "review.txt"]);
@@ -2687,6 +2814,12 @@ test("an over-budget actionable turn records budget-blocked tool calls without a
 
 test("large read_file observations are truncated for the model and not stored fully in trace", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-truncate-"));
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "config.json"),
+    JSON.stringify({ activeContext: { maxConversationBytes: 200_000 } }),
+    "utf8",
+  );
   const largeContent = `start\n${"x".repeat(25 * 1024)}\nneedle-at-end\n`;
   await writeFile(join(workspaceRoot, "large.txt"), largeContent, "utf8");
   const modelClient = new FakeModelClient([
@@ -2736,7 +2869,7 @@ test("a fresh observation batch is visible in full once before compaction", asyn
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
   await writeFile(
     join(workspaceRoot, ".forgelet", "config.json"),
-    JSON.stringify({ activeContext: { maxObservationBytes: 4_096 } }),
+    JSON.stringify({ activeContext: { maxConversationBytes: 4_096 } }),
     "utf8",
   );
   await writeFile(join(workspaceRoot, "first.txt"), "a".repeat(6_000), "utf8");

@@ -35,8 +35,9 @@ export interface ForgeletConfig {
     maxEstimatedCostUsd: number;
   };
   activeContext: {
-    maxObservationBytes: number;
+    maxConversationBytes: number;
     observationDigestPreviewBytes: number;
+    protectedRecentTurns: number;
   };
   safeCommands: string[];
   testCommands: string[];
@@ -86,8 +87,9 @@ export const defaultConfig: ForgeletConfig = {
     maxEstimatedCostUsd: 1.0,
   },
   activeContext: {
-    maxObservationBytes: 16 * 1024,
+    maxConversationBytes: 16 * 1024,
     observationDigestPreviewBytes: 2_048,
+    protectedRecentTurns: 3,
   },
   safeCommands: ["npm test", "npm run build", "npm run typecheck", "npx jest"],
   testCommands: ["npm test", "npm run build", "npm run typecheck"],
@@ -151,21 +153,18 @@ function applySupportedConfigValue(
   value: string,
 ): WritableConfig {
   if (key === "memoryFile") return { ...config, memoryFile: value };
-  if (key === "activeContext.maxObservationBytes") {
-    const maxObservationBytes = Number(value);
-    if (
-      !Number.isFinite(maxObservationBytes) ||
-      !Number.isInteger(maxObservationBytes) ||
-      maxObservationBytes < 4_096
-    )
-      throw new Error(
-        "activeContext.maxObservationBytes must be a finite integer of at least 4096.",
-      );
+  if (key === "activeContext.maxObservationBytes")
+    throw new Error(
+      "activeContext.maxObservationBytes was renamed to activeContext.maxConversationBytes.",
+    );
+  if (key === "activeContext.maxConversationBytes") {
+    const maxConversationBytes = Number(value);
+    validateMaxConversationBytes(maxConversationBytes);
     return {
       ...config,
       activeContext: {
         ...config.activeContext,
-        maxObservationBytes,
+        maxConversationBytes,
       },
     };
   }
@@ -177,6 +176,17 @@ function applySupportedConfigValue(
       activeContext: {
         ...config.activeContext,
         observationDigestPreviewBytes,
+      },
+    };
+  }
+  if (key === "activeContext.protectedRecentTurns") {
+    const protectedRecentTurns = Number(value);
+    validateProtectedRecentTurns(protectedRecentTurns);
+    return {
+      ...config,
+      activeContext: {
+        ...config.activeContext,
+        protectedRecentTurns,
       },
     };
   }
@@ -207,7 +217,7 @@ function applySupportedConfigValue(
   throw new Error(
     [
       `Unsupported config key for V1: ${key}`,
-      "Supported keys: memoryFile, activeContext.maxObservationBytes, activeContext.observationDigestPreviewBytes, providers.deepseek.apiKeyEnv, providers.openai.apiKeyEnv, providers.anthropic.apiKeyEnv",
+      "Supported keys: memoryFile, activeContext.maxConversationBytes, activeContext.observationDigestPreviewBytes, activeContext.protectedRecentTurns, providers.deepseek.apiKeyEnv, providers.openai.apiKeyEnv, providers.anthropic.apiKeyEnv",
     ].join("\n"),
   );
 }
@@ -249,24 +259,31 @@ function mergeConfig(
 }
 
 function validateConfig(config: ForgeletConfig): void {
-  const maxObservationBytes = config.activeContext.maxObservationBytes;
-  if (
-    !Number.isFinite(maxObservationBytes) ||
-    !Number.isInteger(maxObservationBytes) ||
-    maxObservationBytes < 4_096
-  )
-    throw new Error(
-      "activeContext.maxObservationBytes must be a finite integer of at least 4096.",
-    );
+  validateMaxConversationBytes(config.activeContext.maxConversationBytes);
   validateObservationDigestPreviewBytes(
     config.activeContext.observationDigestPreviewBytes,
   );
+  validateProtectedRecentTurns(config.activeContext.protectedRecentTurns);
+}
+
+function validateMaxConversationBytes(value: number): void {
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value < 4_096)
+    throw new Error(
+      "activeContext.maxConversationBytes must be a finite integer of at least 4096.",
+    );
 }
 
 function validateObservationDigestPreviewBytes(value: number): void {
   if (!Number.isFinite(value) || !Number.isInteger(value) || value < 128)
     throw new Error(
       "activeContext.observationDigestPreviewBytes must be a finite integer of at least 128.",
+    );
+}
+
+function validateProtectedRecentTurns(value: number): void {
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value < 1)
+    throw new Error(
+      "activeContext.protectedRecentTurns must be a finite integer of at least 1.",
     );
 }
 

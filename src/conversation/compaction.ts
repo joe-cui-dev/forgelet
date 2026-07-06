@@ -1,21 +1,21 @@
 import type { ModelMessage } from "../types.js";
 
 export interface CompactionOptions {
-  maxObservationBytes: number;
+  maxConversationBytes: number;
   observationDigestPreviewBytes?: number;
 }
 
 export interface CompactionResult {
   compactedCount: number;
   uncompactableCount: number;
-  beforeObservationBytes: number;
-  afterObservationBytes: number;
-  targetObservationBytes: number;
+  beforeConversationBytes: number;
+  afterConversationBytes: number;
+  targetConversationBytes: number;
   toolNames: string[];
   residualOverageBytes: number;
 }
 
-interface ParsedObservation {
+export interface ParsedObservation {
   ok: boolean;
   toolCallId: string;
   toolName: string;
@@ -36,20 +36,20 @@ export function compactConversationInPlace(
   conversation: ModelMessage[],
   options: CompactionOptions,
 ): CompactionResult {
-  const beforeObservationBytes = observationBytes(conversation);
+  const beforeConversationBytes = conversationBytes(conversation);
   const result: CompactionResult = {
     compactedCount: 0,
     uncompactableCount: 0,
-    beforeObservationBytes,
-    afterObservationBytes: beforeObservationBytes,
-    targetObservationBytes: options.maxObservationBytes,
+    beforeConversationBytes,
+    afterConversationBytes: beforeConversationBytes,
+    targetConversationBytes: options.maxConversationBytes,
     toolNames: [],
     residualOverageBytes: Math.max(
       0,
-      beforeObservationBytes - options.maxObservationBytes,
+      beforeConversationBytes - options.maxConversationBytes,
     ),
   };
-  if (beforeObservationBytes <= options.maxObservationBytes) return result;
+  if (beforeConversationBytes <= options.maxConversationBytes) return result;
 
   const toolMessages = conversation
     .map((message, index) => ({ message, index }))
@@ -65,7 +65,7 @@ export function compactConversationInPlace(
   const compactedTools = new Set<string>();
 
   for (const candidate of candidates) {
-    if (observationBytes(conversation) <= options.maxObservationBytes) break;
+    if (conversationBytes(conversation) <= options.maxConversationBytes) break;
     const parsed = parseObservation(candidate.message.content);
     if (!parsed) {
       result.uncompactableCount += 1;
@@ -79,11 +79,11 @@ export function compactConversationInPlace(
     compactedTools.add(parsed.toolName);
   }
 
-  result.afterObservationBytes = observationBytes(conversation);
+  result.afterConversationBytes = conversationBytes(conversation);
   result.toolNames = [...compactedTools];
   result.residualOverageBytes = Math.max(
     0,
-    result.afterObservationBytes - options.maxObservationBytes,
+    result.afterConversationBytes - options.maxConversationBytes,
   );
   return result;
 }
@@ -102,7 +102,9 @@ function hasPriorityToolName(message: ModelMessage): boolean {
   return parsed ? PRIORITY_TOOL_NAMES.has(parsed.toolName) : false;
 }
 
-function parseObservation(content: string): ParsedObservation | undefined {
+export function parseObservation(
+  content: string,
+): ParsedObservation | undefined {
   try {
     const value = JSON.parse(content) as unknown;
     if (!isRecord(value)) return undefined;
@@ -236,11 +238,11 @@ const COMPACT_METADATA_KEYS = [
   "scopeConstrained",
 ] as const;
 
-function observationBytes(conversation: ModelMessage[]): number {
+function conversationBytes(conversation: ModelMessage[]): number {
   return conversation.reduce(
     (total, message) =>
       total +
-      (message.role === "tool"
+      (message.role === "assistant" || message.role === "tool"
         ? Buffer.byteLength(message.content, "utf8")
         : 0),
     0,

@@ -32,6 +32,11 @@ import { formatCreativeStylePresetForWorkspacePrompt } from "../creativeStylePre
 import { loadConfig, routeModel } from "../config/index.js";
 import { loadContextAttachments } from "../context/index.js";
 import { compactConversationInPlace } from "../conversation/compaction.js";
+import {
+  attemptConversationFold,
+  rollingSummaryMessage,
+  type RollingSummaryState,
+} from "../conversation/fold.js";
 import { formatLocalTimestampForFilename } from "../fileNames/index.js";
 import {
   loadDurableMemory,
@@ -111,8 +116,9 @@ interface RunReadOnlyLoopInput {
   safeCommands: string[];
   commandTimeoutMs: number;
   maxPatchBytes: number;
-  maxObservationBytes: number;
+  maxConversationBytes: number;
   observationDigestPreviewBytes: number;
+  protectedRecentTurns: number;
   readScope?: string[];
   act: boolean;
   baselineDirtyPaths: Set<string>;
@@ -355,9 +361,10 @@ export const runWorkflowSession = async (
         safeCommands: config.safeCommands,
         commandTimeoutMs: config.commandTimeoutMs,
         maxPatchBytes: config.maxPatchBytes,
-        maxObservationBytes: config.activeContext.maxObservationBytes,
+        maxConversationBytes: config.activeContext.maxConversationBytes,
         observationDigestPreviewBytes:
           config.activeContext.observationDigestPreviewBytes,
+        protectedRecentTurns: config.activeContext.protectedRecentTurns,
         readScope,
         act: input.act === true && input.workflow === "coding",
         baselineDirtyPaths,
@@ -821,6 +828,7 @@ const runReadOnlyLoop = async (
         )
       : undefined;
   let finalContent = "";
+  let rollingSummary: RollingSummaryState | undefined;
 
   for (let turnIndex = 0; ; turnIndex += 1) {
     const stopReason = budgetStopReason(usage, input.limits);
@@ -840,12 +848,12 @@ const runReadOnlyLoop = async (
     const finalOnly = remainingModelTurns === 1;
     const finalToolTurn = remainingModelTurns === 2;
     const compaction = compactConversationInPlace(conversation, {
-      maxObservationBytes: input.maxObservationBytes,
+      maxConversationBytes: input.maxConversationBytes,
       observationDigestPreviewBytes: input.observationDigestPreviewBytes,
     });
     if (
       compaction.compactedCount > 0 ||
-      compaction.beforeObservationBytes > compaction.targetObservationBytes
+      compaction.beforeConversationBytes > compaction.targetConversationBytes
     )
       await input.appendTrace(
         compaction.compactedCount > 0
@@ -853,6 +861,81 @@ const runReadOnlyLoop = async (
           : "conversation_compaction_attempted",
         { ...compaction },
       );
+
+    const foldResult = await attemptConversationFold({
+      conversation,
+      rollingSummary,
+      maxConversationBytes: input.maxConversationBytes,
+      protectedRecentTurns: input.protectedRecentTurns,
+      task: input.session.task,
+      modelClient: input.modelClient,
+      onModelRequest: (foldMessages) =>
+        input.debugTranscript?.append({
+          type: "model_request",
+          ts: new Date().toISOString(),
+          sessionId: input.session.id,
+          payload: {
+            turnIndex,
+            model: input.route.model,
+            purpose: "conversation_fold",
+            messages: foldMessages,
+            tools: [],
+          },
+        }),
+      onModelResponse: (content) =>
+        input.debugTranscript?.append({
+          type: "model_response",
+          ts: new Date().toISOString(),
+          sessionId: input.session.id,
+          payload: {
+            turnIndex,
+            model: input.route.model,
+            purpose: "conversation_fold",
+            content,
+          },
+        }),
+    });
+    if (foldResult.outcome === "stop") {
+      await input.appendTrace("conversation_fold_stopped", {
+        protectedRecentTurns: input.protectedRecentTurns,
+        maxConversationBytes: input.maxConversationBytes,
+      });
+      const summary = formatStoppedSummary(
+        input.session,
+        input.route,
+        usage,
+        "active_context_exhausted",
+        input.limits,
+      );
+      input.session.stage = "final";
+      return { status: "stopped", reason: "active_context_exhausted", summary };
+    }
+    if (foldResult.outcome === "failed")
+      await input.appendTrace("conversation_fold_failed", {
+        reason: foldResult.reason,
+      });
+    if (foldResult.outcome === "folded") {
+      rollingSummary = foldResult.rollingSummary;
+      usage.inputTokens += foldResult.usage.inputTokens;
+      usage.outputTokens += foldResult.usage.outputTokens;
+      usage.estimatedCostUsd += foldResult.usage.estimatedCostUsd;
+      await input.appendTrace("conversation_folded", { ...foldResult.trace });
+      const foldBudgetStopReason = tokenOrCostBudgetStopReason(
+        usage,
+        input.limits,
+      );
+      if (foldBudgetStopReason) {
+        const summary = formatStoppedSummary(
+          input.session,
+          input.route,
+          usage,
+          foldBudgetStopReason,
+          input.limits,
+        );
+        input.session.stage = "final";
+        return { status: "stopped", reason: foldBudgetStopReason, summary };
+      }
+    }
 
     const messages = buildMessages(
       input.session,
@@ -868,8 +951,9 @@ const runReadOnlyLoop = async (
       input.act,
       creativeStylePresetBlock,
       compaction.compactedCount > 0
-        ? `Active observations compacted: ${compaction.afterObservationBytes}/${compaction.targetObservationBytes} bytes.`
+        ? `Active observations compacted: ${compaction.afterConversationBytes}/${compaction.targetConversationBytes} bytes.`
         : undefined,
+      rollingSummaryMessage(rollingSummary),
       finalOnly,
       finalToolTurn,
     );
@@ -1373,6 +1457,7 @@ const buildMessages = (
   act: boolean,
   creativeStylePresetBlock?: string,
   compactionStatus?: string,
+  rollingSummary?: ModelMessage,
   finalOnly = false,
   finalToolTurn = false,
 ): ModelMessage[] => {
@@ -1444,6 +1529,7 @@ const buildMessages = (
     },
   ];
 
+  if (rollingSummary) messages.push(rollingSummary);
   messages.push(
     ...(finalOnly ? conversationForFinalAnswer(conversation) : conversation),
   );
@@ -1655,6 +1741,8 @@ const systemPromptFor = (
     "Use only the tools provided in this turn.",
     "If a tool call is denied or fails, use the observation to self-correct.",
     "When you can answer the task, return final content with no tool calls.",
+    "Tool observations may be compacted into Observation Digests, and older turns may fold into a Rolling Summary paired with a Fact Ledger to keep the active context within budget.",
+    "The Fact Ledger records files read with their ranges and hashes, files changed, and commands run with their outcomes; hash-unchanged ranges it already lists need not be re-read unless their content is required.",
     ...(finalOnly
       ? [
           "FINAL ANSWER ONLY: synthesize the best answer from existing evidence.",

@@ -68,7 +68,8 @@ export type SessionFinishStatus = "completed" | "stopped" | "failed";
 export type SessionStopReason =
   | "input_token_limit_exceeded"
   | "estimated_cost_budget_exceeded"
-  | "max_model_turns";
+  | "max_model_turns"
+  | "active_context_exhausted";
 
 export interface SessionAudit {
   changeGroups: AuditChangeGroups;

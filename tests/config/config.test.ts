@@ -2,7 +2,7 @@ import { expect, test } from "@jest/globals";
 import { mkdir, mkdtemp, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
-import { loadConfig } from "../../src/config/index.js";
+import { loadConfig, setGlobalConfigValue } from "../../src/config/index.js";
 
 test("default actionable Sessions can run the repository typecheck", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-default-config-"));
@@ -17,8 +17,39 @@ test("defaults the active observation working-set target", async () => {
 
   const config = await loadConfig({ workspaceRoot });
 
-  expect(config.activeContext.maxObservationBytes).toBe(16_384);
+  expect(config.activeContext.maxConversationBytes).toBe(16_384);
   expect(config.activeContext.observationDigestPreviewBytes).toBe(2_048);
+  expect(config.activeContext.protectedRecentTurns).toBe(3);
+});
+
+test("rejects an invalid protected recent turns count", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-protected-turns-invalid-"),
+  );
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "config.json"),
+    JSON.stringify({ activeContext: { protectedRecentTurns: 0 } }),
+    "utf8",
+  );
+
+  await expect(loadConfig({ workspaceRoot })).rejects.toThrow(
+    /activeContext\.protectedRecentTurns.*at least 1/,
+  );
+});
+
+test("hard-errors when setting the renamed observation byte key", async () => {
+  const homeDir = await mkdtemp(
+    join(tmpdir(), "forgelet-rename-error-"),
+  );
+
+  await expect(
+    setGlobalConfigValue({
+      homeDir,
+      key: "activeContext.maxObservationBytes",
+      value: "20000",
+    }),
+  ).rejects.toThrow(/activeContext\.maxConversationBytes/);
 });
 
 test("loads merged default, global, and project config", async () => {
@@ -30,7 +61,7 @@ test("loads merged default, global, and project config", async () => {
     join(homeDir, ".forgelet", "config.json"),
     JSON.stringify({
       defaultModel: "custom-pro",
-      activeContext: { maxObservationBytes: 60_000 },
+      activeContext: { maxConversationBytes: 60_000 },
     }),
     "utf8",
   );
@@ -42,7 +73,7 @@ test("loads merged default, global, and project config", async () => {
       commandTimeoutMs: 12_345,
       maxPatchBytes: 54_321,
       activeContext: {
-        maxObservationBytes: 70_000,
+        maxConversationBytes: 70_000,
         observationDigestPreviewBytes: 3_000,
       },
     }),
@@ -60,7 +91,7 @@ test("loads merged default, global, and project config", async () => {
   expect(config.safeCommands).toEqual(["npm test"]);
   expect(config.commandTimeoutMs).toBe(12_345);
   expect(config.maxPatchBytes).toBe(54_321);
-  expect(config.activeContext.maxObservationBytes).toBe(70_000);
+  expect(config.activeContext.maxConversationBytes).toBe(70_000);
   expect(config.activeContext.observationDigestPreviewBytes).toBe(3_000);
 });
 
@@ -69,12 +100,12 @@ test("rejects an invalid active observation working-set target", async () => {
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
   await writeFile(
     join(workspaceRoot, ".forgelet", "config.json"),
-    JSON.stringify({ activeContext: { maxObservationBytes: 4_095 } }),
+    JSON.stringify({ activeContext: { maxConversationBytes: 4_095 } }),
     "utf8",
   );
 
   await expect(loadConfig({ workspaceRoot })).rejects.toThrow(
-    /activeContext\.maxObservationBytes.*4096/,
+    /activeContext\.maxConversationBytes.*4096/,
   );
 });
 

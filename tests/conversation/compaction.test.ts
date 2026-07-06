@@ -12,7 +12,7 @@ test("compacts an old large file observation while preserving the newest tool tu
   const newestContent = conversation[3]?.content ?? "";
 
   const result = compactConversationInPlace(conversation, {
-    maxObservationBytes: Buffer.byteLength(newestContent, "utf8") + 1_000,
+    maxConversationBytes: Buffer.byteLength(newestContent, "utf8") + 1_000,
   });
 
   expect(result.compactedCount).toBe(1);
@@ -51,7 +51,7 @@ test("compacts old file observations into range-preserving digests", () => {
   ];
 
   compactConversationInPlace(conversation, {
-    maxObservationBytes: 4_096,
+    maxConversationBytes: 4_096,
     observationDigestPreviewBytes: 2_048,
   });
 
@@ -101,7 +101,7 @@ test("an oversized newest tool turn preserves every fresh observation", () => {
   const lastContent = conversation[3]?.content;
 
   const result = compactConversationInPlace(conversation, {
-    maxObservationBytes: 4_096,
+    maxConversationBytes: 4_096,
   });
 
   expect(result.compactedCount).toBe(0);
@@ -128,7 +128,7 @@ test("a fresh observation batch becomes compactable after a later tool turn", ()
   ];
 
   const result = compactConversationInPlace(conversation, {
-    maxObservationBytes: 4_096,
+    maxConversationBytes: 4_096,
   });
 
   expect(result.compactedCount).toBe(2);
@@ -149,7 +149,7 @@ test("prioritizes content-heavy tools before other old observations", () => {
   const listContent = conversation[1]?.content;
 
   compactConversationInPlace(conversation, {
-    maxObservationBytes: 8_500,
+    maxConversationBytes: 8_500,
   });
 
   expect(conversation[1]?.content).toBe(listContent);
@@ -170,7 +170,7 @@ test("keeps unknown tool message payloads and reports residual overage", () => {
   const unknownContent = conversation[1]?.content;
 
   const result = compactConversationInPlace(conversation, {
-    maxObservationBytes: 4_096,
+    maxConversationBytes: 4_096,
   });
 
   expect(conversation[1]?.content).toBe(unknownContent);
@@ -187,14 +187,34 @@ test("does not compact an already compacted observation again", () => {
     toolObservation("call_new", "read_file", "new.ts", "n".repeat(6_000)),
   ];
 
-  compactConversationInPlace(conversation, { maxObservationBytes: 4_096 });
+  compactConversationInPlace(conversation, { maxConversationBytes: 4_096 });
   const compactedContent = conversation[1]?.content;
   const second = compactConversationInPlace(conversation, {
-    maxObservationBytes: 4_096,
+    maxConversationBytes: 4_096,
   });
 
   expect(conversation[1]?.content).toBe(compactedContent);
   expect(second.compactedCount).toBe(0);
+});
+
+test("counts assistant message content toward the conversation-wide budget", () => {
+  const conversation: ModelMessage[] = [
+    {
+      role: "assistant",
+      content: "y".repeat(5_000),
+      toolCalls: [{ id: "call_old", name: "read_file", input: {} }],
+    },
+    toolObservation("call_old", "read_file", "old.txt", "a".repeat(500)),
+    assistantToolCall("call_new", "read_file"),
+    toolObservation("call_new", "read_file", "new.txt", "b".repeat(500)),
+  ];
+
+  const result = compactConversationInPlace(conversation, {
+    maxConversationBytes: 4_096,
+  });
+
+  expect(result.beforeConversationBytes).toBeGreaterThan(5_000);
+  expect(result.compactedCount).toBe(1);
 });
 
 function assistantToolCall(id: string, name: string): ModelMessage {
