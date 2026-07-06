@@ -228,6 +228,43 @@ test("narrows Writing Project read scope to project members", async () => {
   expect(events[0].payload.readScope).toEqual(result.session.readScope);
 });
 
+test("denies workspace reads when a Writing Project has no readable members", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-empty-project-"));
+  await writeFile(join(workspaceRoot, "secret.txt"), "repo secret\n", "utf8");
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        { id: "call_read", name: "read_file", input: { path: "secret.txt" } },
+      ],
+    },
+    { content: "Draft\n\nChapter one.", toolCalls: [] },
+  ]);
+
+  await runAgent({
+    workflow: "writing",
+    workflowVariant: "creative",
+    creativeStyle: "vivid",
+    task: "write chapter one",
+    contextFiles: [],
+    project: {
+      slug: "my-novel",
+      createdAt: "2026-07-06T00:00:00.000Z",
+      members: [],
+      head: null,
+    },
+    projectReadScopeMembers: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const toolNames = modelClient.turnInputs[0]?.tools.map((tool) => tool.name);
+  expect(toolNames).not.toEqual(
+    expect.arrayContaining(["read_file", "list_files", "search_text"]),
+  );
+  const laterTurns = JSON.stringify(modelClient.turnInputs.slice(1));
+  expect(laterTurns).not.toContain("repo secret");
+});
+
 test("includes a Writing Project member list in the model prompt", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-project-prompt-"));
   await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });

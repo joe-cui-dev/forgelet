@@ -798,7 +798,7 @@ const runReadOnlyLoop = async (
   const grantedCapabilities = workflowCapabilities(
     input.session.workflow,
     input.act,
-    input.project !== undefined,
+    input.project !== undefined && input.readScope !== undefined,
   );
   const actionableTools =
     input.act && input.session.workflow === "coding"
@@ -1418,7 +1418,7 @@ const executeToolCall = async (input: {
 const workflowCapabilities = (
   workflow: WorkflowKind,
   act: boolean,
-  hasWritingProject = false,
+  hasScopedWritingProject = false,
 ): Capability[] => {
   if (workflow === "coding")
     return [
@@ -1431,7 +1431,7 @@ const workflowCapabilities = (
     ];
   return [
     "read_context",
-    ...(hasWritingProject && workflow === "writing"
+    ...(hasScopedWritingProject && workflow === "writing"
       ? (["read_workspace"] as const)
       : []),
     "update_plan",
