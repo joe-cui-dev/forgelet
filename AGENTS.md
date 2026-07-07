@@ -23,7 +23,8 @@ Do not default to reading deleted or historical planning docs from git history. 
 ## Source Map
 
 - CLI parsing and output: `src/cli/`
-- Session orchestration: `src/agent/`, `src/workflows/`
+- Agent Kernel session shell and bounded ReAct node: `src/kernel/`
+- Workflow definitions and typed entries: `src/agent/`, `src/workflows/`
 - Tool registry and tools: `src/tools/`
 - Permissions and read scope: `src/permissions/`, `src/readScope/`
 - Model adapters and test clients: `src/models/`

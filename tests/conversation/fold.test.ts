@@ -55,6 +55,29 @@ test("folds the oldest turns and builds a Rolling Summary with a Fact Ledger", a
   expect(modelClient.turnInputs[0]?.tools).toEqual([]);
 });
 
+test("tells the summarizer not to imitate the Fact Ledger", async () => {
+  const conversation: ModelMessage[] = [
+    ...turnWithFileRead("call_old", "old.ts", 5_000),
+    ...turnWithFileRead("call_new", "new.ts", 500),
+  ];
+  const modelClient = scriptedModelClient([{ content: "Read old.ts." }]);
+
+  await attemptConversationFold({
+    conversation,
+    rollingSummary: undefined,
+    maxConversationBytes: 4_000,
+    protectedRecentTurns: 1,
+    task: "task",
+    modelClient,
+  });
+
+  const systemMessage = modelClient.turnInputs[0]?.messages[0];
+  expect(systemMessage?.role).toBe("system");
+  expect(systemMessage?.content).toContain(
+    "Do not copy or imitate the Fact Ledger section in your narrative",
+  );
+});
+
 test("signals stop when protected turns plus an existing Rolling Summary alone exceed budget", async () => {
   const conversation: ModelMessage[] = [
     ...turnWithFileRead("call_only", "big.ts", 8_000),

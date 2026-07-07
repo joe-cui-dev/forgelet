@@ -223,6 +223,7 @@ function buildSummarizationMessages(
         "Write a concise narrative of the work completed in the turns below, preserving task continuity.",
         `Hard limit: the narrative must fit within ${narrativeBudgetBytes} bytes, roughly ${wordBudget} words, which is 25% of the active conversation budget.`,
         "Deterministic facts (file paths, hashes, ranges, exit codes) are tracked separately in a Fact Ledger; do not restate raw file contents or command output verbatim.",
+        "Do not copy or imitate the Fact Ledger section in your narrative; the ledger is appended separately, so never fabricate a 'Fact Ledger' heading, hashes, or entries.",
       ].join("\n"),
     },
     ...(previousSummaryText
