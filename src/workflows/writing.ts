@@ -50,7 +50,10 @@ export type WritingSessionInput = Omit<
   allowedReadPaths?: string[];
 };
 
-export type WritingSessionResult = KernelSessionResult<WritingArtifact> & {
+export type WritingSessionResult = Omit<
+  KernelSessionResult<WritingArtifact>,
+  "completion"
+> & {
   writingArtifact?: WritingArtifact;
 };
 
@@ -67,7 +70,17 @@ export async function runWritingSession(
             : "draft"))
       : undefined;
   const result = await runKernelSession({
-    ...input,
+    task: input.task,
+    contextFiles: input.contextFiles,
+    browserSnapshot: input.browserSnapshot,
+    model: input.model,
+    budgetUsd: input.budgetUsd,
+    homeDir: input.homeDir,
+    workspaceRoot: input.workspaceRoot,
+    modelClient: input.modelClient,
+    debug: input.debug,
+    approvalHandler: input.approvalHandler,
+    onLiveEvent: input.onLiveEvent,
     readScopeRequest:
       input.projectReadScopeMembers ??
       input.project?.members ??
@@ -81,9 +94,10 @@ export async function runWritingSession(
       continuationFile: input.continuationFile,
     }),
   });
+  const { completion, ...sessionResult } = result;
   return {
-    ...result,
-    ...(result.completion ? { writingArtifact: result.completion } : {}),
+    ...sessionResult,
+    ...(completion !== undefined ? { writingArtifact: completion } : {}),
   };
 }
 

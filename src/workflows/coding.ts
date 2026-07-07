@@ -21,7 +21,19 @@ export function runCodingSession(
   input: CodingSessionInput,
 ): Promise<CodingSessionResult> {
   return runKernelSession({
-    ...input,
+    task: input.task,
+    contextFiles: input.contextFiles,
+    browserSnapshot: input.browserSnapshot,
+    model: input.model,
+    budgetUsd: input.budgetUsd,
+    homeDir: input.homeDir,
+    workspaceRoot: input.workspaceRoot,
+    modelClient: input.modelClient,
+    act: input.act,
+    debug: input.debug,
+    continuationSourceSessionId: input.continuationSourceSessionId,
+    approvalHandler: input.approvalHandler,
+    onLiveEvent: input.onLiveEvent,
     readScopeRequest: input.allowedReadPaths,
     definition: createCodingWorkflowDefinition(),
   });

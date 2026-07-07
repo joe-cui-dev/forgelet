@@ -394,7 +394,7 @@ export async function runKernelSession<TCompletion = void>(
       session,
       summary: withTracePath(executionSummary, traceWriter.tracePath),
       tracePath: traceWriter.tracePath,
-      ...(completionEffects?.completion
+      ...(completionEffects?.completion !== undefined
         ? { completion: completionEffects.completion }
         : {}),
     };
