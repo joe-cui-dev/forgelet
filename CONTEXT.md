@@ -33,7 +33,7 @@ The Forgelet workflow for turning source material into structured understanding,
 _Avoid_: Writing variant, notes app, memory extraction
 
 **Session**:
-One auditable run of a Workflow, including the user's task, selected workflow, context, trace, decisions, and final outcome.
+One auditable run of a Workflow, including the user's task, selected workflow, context, trace, decisions, and final outcome. A Session may pause awaiting a user decision and later continue as the same Session; the pause, the decision, and the continuation are Trace events, not new Sessions.
 _Avoid_: Agent conversation, chat session, workflow session
 
 **Session Continuation**:
@@ -92,6 +92,14 @@ _Avoid_: Global tool access, tool allowlist
 The Session-time rule that decides whether a concrete tool call is allowed, requires confirmation, or is denied after Workflow Capability Grants and provider-classified risk are considered.
 _Avoid_: Tool allowlist, global approval
 
+**Effect Envelope**:
+The user-declared boundary of durable effects one Session may apply without per-action confirmation, stated when the Session starts and recorded as Trace evidence. The Permission Policy auto-approves confirmable actions inside the envelope; actions outside it require an explicit user decision, and destructive or secret-touching actions stay denied regardless of the envelope.
+_Avoid_: Auto-approve flag, permission bypass, global trust setting, unattended mode
+
+**Decision Queue**:
+The cross-Workflow surface listing Sessions paused for a user decision, with enough Trace-backed context to decide. Deciding from the queue resumes the paused Session; the decision itself is recorded as a Trace event.
+_Avoid_: Notification feed, inbox, approval log, review UI
+
 **Session Read Scope**:
 The optional per-Session boundary that narrows which workspace content read Capabilities may expose.
 _Avoid_: Read-file allowlist, prompt-only scope, write scope
@@ -119,6 +127,14 @@ _Avoid_: Memory file, vector database, terminal-only output
 **Durable Memory**:
 User-approved project or personal guidance that Forgelet may reuse in later Sessions. Durable Memory must be inspectable, editable, and traceable to its source.
 _Avoid_: Vector cache, session trace
+
+**Memory Scope**:
+The layer a Durable Memory entry belongs to: project scope for guidance about one workspace, personal scope for cross-project preferences and habits. Scope determines where an entry lives and which Sessions may recall it.
+_Avoid_: Folder, config file, global settings
+
+**Memory Recall**:
+The bounded selection of Durable Memory entries into a Session's Active Context, chosen by Memory Scope and task relevance within a budget instead of injecting whole memory files. What was recalled is recorded as Trace evidence.
+_Avoid_: Memory dump, whole-file injection, RAG, hidden context
 
 **Browser Context Bridge**:
 The read-only browser integration where a user-approved extension sends page context into Forgelet as a browser Context Attachment.
