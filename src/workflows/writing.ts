@@ -29,7 +29,6 @@ export interface WritingWorkflowDefinitionInput {
   workflowVariant?: WorkflowVariant;
   creativeStyle?: CreativeStyle;
   creativeInputKind?: CreativeInputKind;
-  creativeStylePresetBlock?: string;
   continuationFile?: string;
   hasScopedProject?: boolean;
   project?: WritingProjectManifest;
@@ -172,7 +171,7 @@ export function createWritingWorkflowDefinition(
         return [
           ...kernelCommonPromptLines(finalOnly),
           "This is a Creative Writing Workflow variant.",
-          input.creativeStylePresetBlock ?? creativeStylePresetBlock,
+          creativeStylePresetBlock,
           "Use the Creative Brief and Durable Memory for original drafting, but do not request workspace, git, shell, patch, or command tools.",
           "Return only a Draft heading followed by the drafted prose.",
         ].join("\n");
@@ -183,7 +182,7 @@ export function createWritingWorkflowDefinition(
         return [
           ...kernelCommonPromptLines(finalOnly),
           "This is a Creative Writing Workflow variant.",
-          input.creativeStylePresetBlock ?? creativeStylePresetBlock,
+          creativeStylePresetBlock,
           "Use the Creative Brief, Continuation source, Additional context attachments, and Durable Memory to continue the source prose, but do not request workspace, git, shell, patch, or command tools.",
           "Return only a Draft heading followed by the continued prose.",
         ].join("\n");
@@ -191,7 +190,7 @@ export function createWritingWorkflowDefinition(
         return [
           ...kernelCommonPromptLines(finalOnly),
           "This is a Creative Writing Workflow variant.",
-          input.creativeStylePresetBlock ?? creativeStylePresetBlock,
+          creativeStylePresetBlock,
           "Use the Creative Brief, any provided Context Attachments, and Durable Memory, but do not request workspace, git, shell, patch, or command tools.",
           "If the brief asks for revision but no source text is attached or included, state that limitation and produce the best original draft or useful next step from the brief.",
           "Return a Revision Pack with these headings: Critique, Revision, Alternatives, Notes.",
