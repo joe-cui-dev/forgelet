@@ -35,16 +35,19 @@ test("typed workflow entries can create deterministic Sessions", async () => {
 });
 
 test("typed workflow entries reject workflow-specific fields at compile time", () => {
-  // @ts-expect-error creativeStyle belongs to Writing Sessions.
-  void runCodingSession({ task: "x", contextFiles: [], workspaceRoot: ".", creativeStyle: "vivid" });
-  // @ts-expect-error act belongs to Coding Sessions.
-  void runLearningSession({ task: "x", contextFiles: [], workspaceRoot: ".", act: true });
+  const _typeChecks = () => {
+    // @ts-expect-error creativeStyle belongs to Writing Sessions.
+    void runCodingSession({ task: "x", contextFiles: [], workspaceRoot: ".", creativeStyle: "vivid" });
+    // @ts-expect-error act belongs to Coding Sessions.
+    void runLearningSession({ task: "x", contextFiles: [], workspaceRoot: ".", act: true });
 
-  const writing = runWritingSession({
-    task: "x",
-    contextFiles: [],
-    workspaceRoot: ".",
-  });
-  writing satisfies Promise<{ writingArtifact?: unknown }>;
-  void writing;
+    const writing = runWritingSession({
+      task: "x",
+      contextFiles: [],
+      workspaceRoot: ".",
+    });
+    writing satisfies Promise<{ writingArtifact?: unknown }>;
+    void writing;
+  };
+  void _typeChecks;
 });
