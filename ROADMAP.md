@@ -22,20 +22,27 @@ Current implemented surfaces:
    Keep the public `--style` CLI option while replacing the current one-word creative style labels with 12 effect-focused Style Preset keys: `plain`, `vivid`, `tight`, `literary`, `cinematic`, `minimal`, `lyrical`, `noir`, `warm`, `sharp`, `sensual`, and `ardent`. Load full preset definitions from ignored project-local `.forgelet/style-presets.local.json`, using a source-controlled public fallback only when the local file is missing. Local definitions use labels, aims, instructions, avoid rules, and revision focus so prompts become stable and testable. `tight` means tense atmosphere, not compact prose. Creative workflow prompts should consume the selected definition as a distinct Style Preset block. Sessions and Traces should continue recording only the selected preset key, not the full preset definition. Do not add `forge write styles list/show` in this slice; document discovery through README, help text, and validation errors.
    Accept the slice when parser tests cover all 12 presets and unknown-style errors, registry tests prove local definitions validate correctly, workflow tests prove draft, continuation, and revision prompts include the Style Preset block, Session/Trace assertions still record only the preset key, and README/help text list the available presets. Do not add automated prose quality scoring.
 
-2. Project memory review workflow:
+2. CLI decomposition by responsibility:
+   Split `src/cli/index.ts` into presentation, wiring, and dispatch across three behavior-preserving slices. First move the formatter functions into `src/cli/present/` grouped by domain and extract the `run` command body into its own module, keeping per-workflow typed session entry points per ADR 0025. Second, extract model-client and approval-handler assembly into `src/cli/wiring.ts`, and sink the provider-for-model mapping and model runnability checks into `src/models/routing.ts` so adding a provider never edits CLI files. Third, sink `prepareWritingProjectRun` and `resolveProjectContinuationFile` into `src/writingProjects` so Project Manifest and Continuation Head rules live with the domain and later surfaces such as the local review UI cannot bypass them.
+   Accept each slice when all existing tests pass unchanged and `runCli` stdout/stderr shapes and error messages stay identical; accept the final slice when `src/cli/index.ts` contains only command dispatch.
+
+3. Project memory review workflow:
    Turn memory suggestions into a clearer review surface while keeping writes user-approved and traceable.
 
-3. Diagnose workflow:
+4. Diagnose workflow:
    Add a debugging workflow that follows reproduce, minimize, hypothesize, instrument, fix, and regression-test stages.
 
-4. Test discovery improvements:
+5. Test discovery improvements:
    Help Coding Sessions find the right verification command before editing.
 
-5. Model pricing and diagnostics:
+6. Model pricing and diagnostics:
    Make provider/model availability, routing, and estimated cost easier to inspect.
 
-6. Local review UI:
+7. Local review UI:
    Add an inspect-and-review web surface after the CLI workflows remain stable.
+
+8. Shared types decomposition:
+   Split `src/types.ts` by owning module: model-client contract types move under `src/models`, session and audit types to their owning modules. Deferred until after the CLI decomposition so its import churn does not pollute those diffs.
 
 ## Non-Goals
 
