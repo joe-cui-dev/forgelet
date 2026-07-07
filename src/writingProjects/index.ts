@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export const WRITING_PROJECTS_DIR = ".forgelet/writing/projects";
@@ -99,6 +99,82 @@ export async function saveWritingProject(
     `${JSON.stringify(manifest, null, 2)}\n`,
     "utf8",
   );
+}
+
+export interface PrepareWritingProjectRunInput {
+  workspaceRoot: string;
+  project?: WritingProjectManifest;
+  continuationFile?: string;
+  allowedReadPaths?: string[];
+}
+
+export interface PrepareWritingProjectRunResult {
+  readScopeMembers: string[];
+  warnings: string[];
+  continuationFile?: string;
+}
+
+export async function prepareWritingProjectRun(
+  input: PrepareWritingProjectRunInput,
+): Promise<PrepareWritingProjectRunResult> {
+  if (input.project && input.allowedReadPaths && input.allowedReadPaths.length > 0)
+    throw new Error(
+      "--project cannot be combined with --allow-read; the Writing Project manifest defines the Session Read Scope.",
+    );
+
+  const readScopeMembers: string[] = [];
+  const warnings: string[] = [];
+  if (input.project) {
+    for (const member of input.project.members) {
+      if (await pathExists(join(input.workspaceRoot, member))) {
+        readScopeMembers.push(member);
+        continue;
+      }
+      if (member === input.project.head)
+        throw new Error(
+          `Writing Project head is missing: ${member}. Edit ${WRITING_PROJECTS_DIR}/${input.project.slug}.json or restore the artifact before continuing.`,
+        );
+      warnings.push(
+        `Warning: Writing Project member is missing and was excluded from this Session Read Scope: ${member}`,
+      );
+    }
+  }
+
+  const continuationFile = resolveProjectContinuationFile({
+    project: input.project,
+    continuationFile: input.continuationFile,
+  });
+
+  return { readScopeMembers, warnings, continuationFile };
+}
+
+function resolveProjectContinuationFile(input: {
+  project?: WritingProjectManifest;
+  continuationFile?: string;
+}): string | undefined {
+  if (!input.project) return input.continuationFile;
+  if (input.continuationFile) {
+    if (!input.project.members.includes(input.continuationFile))
+      throw new Error(
+        [
+          `--continue artifact is not a member of Writing Project ${input.project.slug}: ${input.continuationFile}`,
+          "Remove --project to continue it directly, or edit .forgelet/writing/projects/" +
+            `${input.project.slug}.json to add the member.`,
+        ].join("\n"),
+      );
+    return input.continuationFile;
+  }
+  return input.project.head ?? undefined;
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") return false;
+    throw error;
+  }
 }
 
 async function formatExistingProjects(workspaceRoot: string): Promise<string> {
