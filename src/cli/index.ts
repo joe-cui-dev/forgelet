@@ -8,7 +8,11 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "./parseArgs.js";
 import type { ForgeCommand } from "./parseArgs.js";
 import { helpText } from "./help.js";
-import { runAgent } from "../agent/runAgent.js";
+import {
+  runCodingSession,
+  runLearningSession,
+  runWritingSession,
+} from "../workflows/index.js";
 import { loadConfig, routeModel, setGlobalConfigValue } from "../config/index.js";
 import { loadDotEnv } from "../config/env.js";
 import { DeepSeekModelClient } from "../models/providers/deepseek.js";
@@ -138,32 +142,60 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
           },
           options.createLiveModelClient ?? createDeepSeekLiveModelClient,
         );
-        const result = await runAgent({
-          workflow: command.workflow,
-          workflowVariant: command.workflowVariant,
-          creativeStyle: command.creativeStyle,
-          creativeInputKind: command.creativeInputKind,
-          task: command.task,
-          contextFiles: command.contextFiles,
-          browserSnapshot,
-          continuationFile,
-          ...(project ? { project } : {}),
-          ...(projectRun
-            ? { projectReadScopeMembers: projectRun.readScopeMembers }
-            : {}),
-          allowedReadPaths: command.allowedReadPaths,
-          model: command.model,
-          budgetUsd: command.budgetUsd,
-          homeDir: options.homeDir,
-          workspaceRoot,
-          modelClient,
-          act: command.act,
-          debug: command.debug === true,
-          approvalHandler: command.act
-            ? options.approvalHandler ?? createTerminalApprovalHandler()
-            : undefined,
-          onLiveEvent: options.onLiveEvent,
-        });
+        const result =
+          command.workflow === "writing"
+            ? await runWritingSession({
+                workflowVariant: command.workflowVariant,
+                creativeStyle: command.creativeStyle,
+                creativeInputKind: command.creativeInputKind,
+                task: command.task,
+                contextFiles: command.contextFiles,
+                browserSnapshot,
+                continuationFile,
+                ...(project ? { project } : {}),
+                ...(projectRun
+                  ? { projectReadScopeMembers: projectRun.readScopeMembers }
+                  : {}),
+                allowedReadPaths: command.allowedReadPaths,
+                model: command.model,
+                budgetUsd: command.budgetUsd,
+                homeDir: options.homeDir,
+                workspaceRoot,
+                modelClient,
+                debug: command.debug === true,
+                onLiveEvent: options.onLiveEvent,
+              })
+            : command.workflow === "learning"
+              ? await runLearningSession({
+                  task: command.task,
+                  contextFiles: command.contextFiles,
+                  browserSnapshot,
+                  allowedReadPaths: command.allowedReadPaths,
+                  model: command.model,
+                  budgetUsd: command.budgetUsd,
+                  homeDir: options.homeDir,
+                  workspaceRoot,
+                  modelClient,
+                  debug: command.debug === true,
+                  onLiveEvent: options.onLiveEvent,
+                })
+              : await runCodingSession({
+                  task: command.task,
+                  contextFiles: command.contextFiles,
+                  browserSnapshot,
+                  allowedReadPaths: command.allowedReadPaths,
+                  model: command.model,
+                  budgetUsd: command.budgetUsd,
+                  homeDir: options.homeDir,
+                  workspaceRoot,
+                  modelClient,
+                  act: command.act,
+                  debug: command.debug === true,
+                  approvalHandler: command.act
+                    ? options.approvalHandler ?? createTerminalApprovalHandler()
+                    : undefined,
+                  onLiveEvent: options.onLiveEvent,
+                });
         return ok(
           [
             ...formatPreviewBrowserContext(browserSnapshot),
@@ -191,8 +223,7 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
           workspaceRoot,
           env: options.env ?? process.env,
         });
-        const result = await runAgent({
-          workflow: "coding",
+        const result = await runCodingSession({
           task: command.instruction,
           contextFiles: [],
           homeDir: options.homeDir,

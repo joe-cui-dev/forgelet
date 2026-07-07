@@ -4,7 +4,7 @@ import { execFile } from "child_process";
 import { mkdir, mkdtemp, readFile, readdir, symlink, utimes, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
-import { runAgent } from "../../src/agent/runAgent.js";
+import { runCodingSession } from "../../src/workflows/coding.js";
 import {
   createInteractiveTerminalOutputController,
   runCli,
@@ -13,8 +13,7 @@ import { FakeModelClient } from "../../src/models/testing/index.js";
 
 test("CLI lists and shows project sessions", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-"));
-  const run = await runAgent({
-    workflow: "coding",
+  const run = await runCodingSession({
     task: "fix tests",
     contextFiles: [],
     workspaceRoot,

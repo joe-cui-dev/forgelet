@@ -2,7 +2,8 @@ import { expect, test } from "@jest/globals";
 import { mkdir, mkdtemp, readFile, readdir, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
-import { runAgent } from "../../src/agent/runAgent.js";
+import { runCodingSession } from "../../src/workflows/coding.js";
+import { runWritingSession } from "../../src/workflows/writing.js";
 import { FakeModelClient } from "../../src/models/testing/index.js";
 import {
   createWritingProject,
@@ -13,8 +14,7 @@ import {
 test("creates a project session trace for a coding workflow", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-run-"));
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "fix tests",
     contextFiles: [],
     model: "deepseek-v4-pro",
@@ -46,8 +46,7 @@ test("records context attachment evidence without storing full content in the tr
   const contextContent = `# Issue\n${"revise this paragraph for clarity. ".repeat(20)}`;
   await writeFile(join(workspaceRoot, "issue.md"), contextContent, "utf8");
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "implement issue",
     contextFiles: ["issue.md"],
     workspaceRoot
@@ -76,8 +75,7 @@ test("selects the built-in model route when project config tries to override def
     "utf8"
   );
 
-  const result = await runAgent({
-    workflow: "writing",
+  const result = await runWritingSession({
     task: "revise this",
     contextFiles: [],
     workspaceRoot
@@ -94,8 +92,7 @@ test("records creative writing variant metadata in the Session trace", async () 
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-creative-"));
   await writeFile(join(workspaceRoot, "draft.md"), "The room was cold.\n", "utf8");
 
-  const result = await runAgent({
-    workflow: "writing",
+  const result = await runWritingSession({
     workflowVariant: "creative",
     creativeStyle: "vivid",
     task: "revise this scene",
@@ -134,8 +131,7 @@ test("keeps scoped read tools available for creative Writing Project continuatio
     { content: "Draft\n\nChapter two body.", toolCalls: [] },
   ]);
 
-  await runAgent({
-    workflow: "writing",
+  await runWritingSession({
     workflowVariant: "creative",
     creativeStyle: "vivid",
     creativeInputKind: "continuation",
@@ -167,8 +163,7 @@ test("keeps prompt-only creative writing runs tool-free outside Writing Projects
     { content: "Draft\n\nA quiet opening.", toolCalls: [] },
   ]);
 
-  await runAgent({
-    workflow: "writing",
+  await runWritingSession({
     workflowVariant: "creative",
     creativeStyle: "vivid",
     creativeInputKind: "draft",
@@ -198,8 +193,7 @@ test("narrows Writing Project read scope to project members", async () => {
     { content: "Draft\n\nChapter three.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "writing",
+  const result = await runWritingSession({
     workflowVariant: "creative",
     creativeStyle: "vivid",
     creativeInputKind: "continuation",
@@ -240,8 +234,7 @@ test("denies workspace reads when a Writing Project has no readable members", as
     { content: "Draft\n\nChapter one.", toolCalls: [] },
   ]);
 
-  await runAgent({
-    workflow: "writing",
+  await runWritingSession({
     workflowVariant: "creative",
     creativeStyle: "vivid",
     task: "write chapter one",
@@ -282,8 +275,7 @@ test("includes a Writing Project member list in the model prompt", async () => {
     { content: "Draft\n\nChapter three.", toolCalls: [] },
   ]);
 
-  await runAgent({
-    workflow: "writing",
+  await runWritingSession({
     workflowVariant: "creative",
     creativeStyle: "vivid",
     creativeInputKind: "continuation",
@@ -323,8 +315,7 @@ test("records Writing Project slug in session_started trace metadata", async () 
     { content: "Draft\n\nChapter two.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "writing",
+  const result = await runWritingSession({
     workflowVariant: "creative",
     creativeStyle: "vivid",
     creativeInputKind: "continuation",
@@ -367,8 +358,7 @@ test("updates Writing Project manifest and trace when project writing creates an
     { content: "Draft\n\nChapter two.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "writing",
+  const result = await runWritingSession({
     workflowVariant: "creative",
     creativeStyle: "vivid",
     creativeInputKind: "continuation",

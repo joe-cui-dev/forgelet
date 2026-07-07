@@ -5,7 +5,7 @@ import { tmpdir } from "os";
 import { listSessions } from "../../src/sessions/index.js";
 import { showSession } from "../../src/sessions/index.js";
 import { buildSessionLineage } from "../../src/sessions/continuation.js";
-import { runAgent } from "../../src/agent/runAgent.js";
+import { runWritingSession } from "../../src/workflows/writing.js";
 
 test("lists completed and incomplete project sessions from traces", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-sessions-"));
@@ -47,8 +47,7 @@ test("lists completed and incomplete project sessions from traces", async () => 
 test("shows a session summary from its trace events", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-show-"));
   await writeFile(join(workspaceRoot, "draft.md"), "Please make this clearer.", "utf8");
-  const result = await runAgent({
-    workflow: "writing",
+  const result = await runWritingSession({
     task: "revise this",
     contextFiles: ["draft.md"],
     workspaceRoot

@@ -3,7 +3,9 @@ import { execFile } from "child_process";
 import { mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from "fs/promises";
 import { basename, join } from "path";
 import { tmpdir } from "os";
-import { runAgent } from "../../src/agent/runAgent.js";
+import { runCodingSession } from "../../src/workflows/coding.js";
+import { runLearningSession } from "../../src/workflows/learning.js";
+import { runWritingSession } from "../../src/workflows/writing.js";
 import { readDebugTranscript } from "../../src/debugTranscript/index.js";
 import { FakeModelClient } from "../../src/models/testing/index.js";
 import type { SessionLiveEvent } from "../../src/sessionLiveView/index.js";
@@ -33,8 +35,7 @@ test("a coding Session can search, read, and finish through read-only tools", as
     },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "find the answer",
     contextFiles: [],
     workspaceRoot,
@@ -108,8 +109,7 @@ test("a model-backed coding Session emits Session Live View events without writi
   ]);
   const liveEvents: SessionLiveEvent[] = [];
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "find the answer",
     contextFiles: [],
     workspaceRoot,
@@ -195,8 +195,7 @@ test("a debug-enabled coding Session writes the full agent-model exchange outsid
     },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "find the answer",
     contextFiles: [],
     workspaceRoot,
@@ -287,8 +286,7 @@ test("workspace_summary returns Markdown observations and compact trace metadata
     },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "summarize workspace",
     contextFiles: [],
     workspaceRoot,
@@ -331,8 +329,7 @@ test("a model-backed coding Session streams model output deltas through Session 
   ]);
   const liveEvents: SessionLiveEvent[] = [];
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "summarize the repo",
     contextFiles: [],
     workspaceRoot,
@@ -401,8 +398,7 @@ test("a model execution failure records the failed model turn before rethrowing"
   const liveEvents: SessionLiveEvent[] = [];
 
   await expect(
-    runAgent({
-      workflow: "writing",
+    runWritingSession({
       workflowVariant: "creative",
       creativeStyle: "vivid",
       task: "write the scene",
@@ -498,8 +494,7 @@ test("a debug-enabled model execution failure records model error and finalizes 
   };
 
   await expect(
-    runAgent({
-      workflow: "coding",
+    runCodingSession({
       task: "inspect this repo",
       contextFiles: [],
       workspaceRoot,
@@ -645,8 +640,7 @@ test("a Session Continuation includes Continuation Context in the first model in
   const parentTracePath = join(sessionDir, "sess_parent.jsonl");
   const parentTraceBefore = await readFile(parentTracePath, "utf8");
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "continue with the inherited clue",
     contextFiles: [],
     workspaceRoot,
@@ -711,8 +705,7 @@ test("a creative writing Session returns a Revision Pack", async () => {
     { content: "The room breathed winter through the walls.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "writing",
+  const result = await runWritingSession({
     workflowVariant: "creative",
     creativeStyle: "vivid",
     task: "revise this scene",
@@ -779,8 +772,7 @@ test("a creative writing Session uses local Style Preset overrides without traci
     { content: "The room breathed winter through the walls.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "writing",
+  const result = await runWritingSession({
     workflowVariant: "creative",
     creativeStyle: "vivid",
     task: "revise this scene",
@@ -807,8 +799,7 @@ test("a prompt-only Creative Brief returns only a Draft without context attachme
     { content: "Rain silvered the convenience store windows.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "writing",
+  const result = await runWritingSession({
     workflowVariant: "creative",
     creativeStyle: "cinematic",
     task: "write a rain-soaked convenience store scene",
@@ -886,8 +877,7 @@ test("a creative Writing Artifact Continuation labels the source separately in t
     { content: "She stepped into a room full of rain.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "writing",
+  const result = await runWritingSession({
     workflowVariant: "creative",
     creativeStyle: "vivid",
     creativeInputKind: "continuation",
@@ -951,8 +941,7 @@ test("a creative Writing Artifact Continuation separates additional context atta
     { content: "She stepped into a room full of rain.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "writing",
+  const result = await runWritingSession({
     workflowVariant: "creative",
     creativeStyle: "vivid",
     creativeInputKind: "continuation",
@@ -1006,8 +995,7 @@ test("a Session Read Scope denies read_file outside the allowed paths", async ()
     { content: "The read was denied.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "inspect the allowed file",
     contextFiles: [],
     allowedReadPaths: ["allowed.txt"],
@@ -1051,8 +1039,7 @@ test("a Session Read Scope allows read_file inside the allowed paths", async () 
     { content: "The allowed file was read.", toolCalls: [] },
   ]);
 
-  await runAgent({
-    workflow: "coding",
+  await runCodingSession({
     task: "inspect the allowed file",
     contextFiles: [],
     allowedReadPaths: ["allowed.txt"],
@@ -1087,8 +1074,7 @@ test("a missing file inside the Session Read Scope returns invalid_input", async
     { content: "The missing file was reported.", toolCalls: [] },
   ]);
 
-  await runAgent({
-    workflow: "coding",
+  await runCodingSession({
     task: "inspect the allowed file",
     contextFiles: [],
     allowedReadPaths: ["allowed"],
@@ -1119,8 +1105,7 @@ test("search_text returns only matches inside the Session Read Scope", async () 
     { content: "Only the allowed match was visible.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "find the allowed match",
     contextFiles: [],
     allowedReadPaths: ["allowed.txt"],
@@ -1158,8 +1143,7 @@ test("list_files returns only paths inside the Session Read Scope", async () => 
     { content: "Only allowed files were listed.", toolCalls: [] },
   ]);
 
-  await runAgent({
-    workflow: "coding",
+  await runCodingSession({
     task: "list allowed files",
     contextFiles: [],
     allowedReadPaths: ["allowed"],
@@ -1190,8 +1174,7 @@ test("collection reads deny targets that do not overlap the Session Read Scope",
     { content: "The directory read was denied.", toolCalls: [] },
   ]);
 
-  await runAgent({
-    workflow: "coding",
+  await runCodingSession({
     task: "list allowed files",
     contextFiles: [],
     allowedReadPaths: ["allowed"],
@@ -1225,8 +1208,7 @@ test("git_status exposes only paths inside the Session Read Scope", async () => 
     { content: "Only allowed status was visible.", toolCalls: [] },
   ]);
 
-  await runAgent({
-    workflow: "coding",
+  await runCodingSession({
     task: "inspect allowed status",
     contextFiles: [],
     allowedReadPaths: ["allowed.txt"],
@@ -1258,8 +1240,7 @@ test("git_diff exposes only content inside the Session Read Scope", async () => 
     { content: "Only allowed diff was visible.", toolCalls: [] },
   ]);
 
-  await runAgent({
-    workflow: "coding",
+  await runCodingSession({
     task: "inspect allowed diff",
     contextFiles: [],
     allowedReadPaths: ["allowed.txt"],
@@ -1300,8 +1281,7 @@ test("a Session compacts old tool observations before a later model turn", async
     { content: "Both files were inspected.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "inspect both files",
     contextFiles: [],
     workspaceRoot,
@@ -1380,8 +1360,7 @@ test("a Session folds an old turn into a Rolling Summary when digests alone cann
     { content: "Both files were inspected.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "inspect both files",
     contextFiles: [],
     workspaceRoot,
@@ -1454,8 +1433,7 @@ test("a Session stops when the fold summarization call itself breaches the token
     { content: "Both files were inspected.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "inspect both files",
     contextFiles: [],
     workspaceRoot,
@@ -1475,8 +1453,7 @@ test("context attachments are rendered for the model without storing full conten
     { content: "I can see the attached issue context.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "use the attached issue",
     contextFiles: ["issue.md"],
     allowedReadPaths: ["allowed.txt"],
@@ -1530,8 +1507,7 @@ test("a Context Attachment does not grant tool access outside the Session Read S
     { content: "The attachment did not expand tool access.", toolCalls: [] },
   ]);
 
-  await runAgent({
-    workflow: "coding",
+  await runCodingSession({
     task: "use the attachment",
     contextFiles: ["issue.md"],
     allowedReadPaths: ["allowed.txt"],
@@ -1570,8 +1546,7 @@ test("a coding Session can inspect a truncated git diff without storing the full
     { content: "I reviewed the diff.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "review the diff",
     contextFiles: [],
     workspaceRoot,
@@ -1619,8 +1594,7 @@ test("a coding Session exposes only registry-projected tool schemas to the model
     { content: "Tools inspected.", toolCalls: [] },
   ]);
 
-  await runAgent({
-    workflow: "coding",
+  await runCodingSession({
     task: "inspect available tools",
     contextFiles: [],
     workspaceRoot,
@@ -1649,8 +1623,7 @@ test("a learning Session exposes only plan updates to the model", async () => {
     { content: "## Summary\nLearned from the source.", toolCalls: [] },
   ]);
 
-  await runAgent({
-    workflow: "learning",
+  await runLearningSession({
     task: "teach me the core ideas",
     contextFiles: ["paper.md"],
     workspaceRoot,
@@ -1672,8 +1645,7 @@ test("a learning Session normalizes model output into a source-linked Learning P
     { content: "These are the core ideas.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "learning",
+  const result = await runLearningSession({
     task: "teach me the core ideas",
     contextFiles: ["paper.md"],
     workspaceRoot,
@@ -1746,8 +1718,7 @@ test("an actionable coding Session can patch, run a configured command, inspect 
   ]);
   const liveEvents: SessionLiveEvent[] = [];
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "change example",
     contextFiles: [],
     workspaceRoot,
@@ -1904,8 +1875,7 @@ test("an actionable Session Continuation audit separates inherited and child cha
     { content: "Changed child.txt.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "finish the child change",
     contextFiles: [],
     workspaceRoot,
@@ -2011,8 +1981,7 @@ test("an actionable Session Continuation can continue editing a parent-owned dir
     { content: "Updated parent.txt.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "continue editing the parent file",
     contextFiles: [],
     workspaceRoot,
@@ -2116,8 +2085,7 @@ test("an actionable Session Continuation still rejects user-owned dirty files", 
     { content: "Patch was rejected.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "try editing a user-owned dirty file",
     contextFiles: [],
     workspaceRoot,
@@ -2240,8 +2208,7 @@ test("an actionable Session Continuation does not inherit parent approval", asyn
     { content: "Patch was rejected in the child Session.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "try the child patch",
     contextFiles: [],
     workspaceRoot,
@@ -2287,8 +2254,7 @@ test("an actionable coding Session prompts the model with action and approval bo
     { content: "I will use approved tools only.", toolCalls: [] },
   ]);
 
-  await runAgent({
-    workflow: "coding",
+  await runCodingSession({
     task: "make a safe edit",
     contextFiles: [],
     workspaceRoot,
@@ -2313,8 +2279,7 @@ test("a read-only coding Session prompts the model to use workspace_summary for 
     { content: "I will summarize the workspace first.", toolCalls: [] },
   ]);
 
-  await runAgent({
-    workflow: "coding",
+  await runCodingSession({
     task: "understand this workspace",
     contextFiles: [],
     workspaceRoot,
@@ -2344,8 +2309,7 @@ test("a writing Session requesting git_diff receives a controlled registry denia
     { content: "I cannot inspect git diffs in this workflow.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "writing",
+  const result = await runWritingSession({
     task: "review git diff",
     contextFiles: [],
     workspaceRoot,
@@ -2382,8 +2346,7 @@ test("a writing Session returns the V1 Critique Revision Notes shape", async () 
     { content: "Make it shorter.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "writing",
+  const result = await runWritingSession({
     task: "revise for clarity",
     contextFiles: ["draft.md"],
     workspaceRoot,
@@ -2417,8 +2380,7 @@ test("an ungranted tool call returns a denial observation and the Session can re
     },
   ]);
 
-  const result = await runAgent({
-    workflow: "writing",
+  const result = await runWritingSession({
     task: "revise draft",
     contextFiles: [],
     workspaceRoot,
@@ -2465,8 +2427,7 @@ test("a one-turn Session reserves its only model turn for a final answer", async
     },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "inspect files",
     contextFiles: [],
     workspaceRoot,
@@ -2505,8 +2466,7 @@ test("a Session warns on its final tool turn and then removes tools for the fina
     { content: "The final answer uses the listed files.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "inspect files",
     contextFiles: [],
     workspaceRoot,
@@ -2565,8 +2525,7 @@ test("tool calls returned on the final answer turn are blocked", async () => {
     },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "inspect files",
     contextFiles: [],
     workspaceRoot,
@@ -2613,8 +2572,7 @@ test("textual tool-call markup is not accepted as a final answer", async () => {
     },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "answer directly",
     contextFiles: [],
     workspaceRoot,
@@ -2643,8 +2601,7 @@ test("empty content on the final answer turn stops the Session", async () => {
   );
   const modelClient = new FakeModelClient([{ content: "   ", toolCalls: [] }]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "answer directly",
     contextFiles: [],
     workspaceRoot,
@@ -2670,8 +2627,7 @@ test("empty final content before the reserved turn is retried", async () => {
     { content: "A usable answer.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "answer after retry",
     contextFiles: [],
     workspaceRoot,
@@ -2705,8 +2661,7 @@ test("a Session stopped by input token limit reports the precise stop reason and
     { content: "This should not be called.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "inspect files within a tiny token limit",
     contextFiles: [],
     workspaceRoot,
@@ -2768,8 +2723,7 @@ test("an over-budget actionable turn records budget-blocked tool calls without a
     { content: "This should not be called.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "change example within a tiny token limit",
     contextFiles: [],
     workspaceRoot,
@@ -2831,8 +2785,7 @@ test("large read_file observations are truncated for the model and not stored fu
     { content: "The large file was truncated.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "read the large file",
     contextFiles: [],
     workspaceRoot,
@@ -2890,8 +2843,7 @@ test("a fresh observation batch is visible in full once before compaction", asyn
     { content: "All evidence inspected.", toolCalls: [] },
   ]);
 
-  await runAgent({
-    workflow: "coding",
+  await runCodingSession({
     task: "inspect all evidence",
     contextFiles: [],
     workspaceRoot,
@@ -2936,8 +2888,7 @@ test("read_file can continue from a byte offset without returning the first chun
     { content: "Read the requested byte range.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "read a later byte range",
     contextFiles: [],
     workspaceRoot,
@@ -2989,8 +2940,7 @@ test("read_file can return a one-based line range without line number prefixes",
     { content: "Read the requested line range.", toolCalls: [] },
   ]);
 
-  await runAgent({
-    workflow: "coding",
+  await runCodingSession({
     task: "read a line range",
     contextFiles: [],
     workspaceRoot,
@@ -3029,8 +2979,7 @@ test("read_file tail reads return the end of a file instead of the first chunk",
     { content: "Read the tail.", toolCalls: [] },
   ]);
 
-  await runAgent({
-    workflow: "coding",
+  await runCodingSession({
     task: "read the file tail",
     contextFiles: [],
     workspaceRoot,
@@ -3069,8 +3018,7 @@ test("read_file rejects conflicting range modes as invalid input", async () => {
     { content: "Saw the range conflict.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "read conflicting ranges",
     contextFiles: [],
     workspaceRoot,
@@ -3112,8 +3060,7 @@ test("read_file byte ranges beyond the end return an empty successful observatio
     { content: "Saw the empty range.", toolCalls: [] },
   ]);
 
-  await runAgent({
-    workflow: "coding",
+  await runCodingSession({
     task: "read beyond eof",
     contextFiles: [],
     workspaceRoot,
@@ -3148,8 +3095,7 @@ test("read_file rejects zero as a one-based start line", async () => {
     { content: "Saw the invalid line range.", toolCalls: [] },
   ]);
 
-  await runAgent({
-    workflow: "coding",
+  await runCodingSession({
     task: "read invalid line range",
     contextFiles: [],
     workspaceRoot,
@@ -3183,8 +3129,7 @@ test("update_plan records the changed Session plan in the trace", async () => {
     { content: "Plan updated and answer prepared.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "make a plan",
     contextFiles: [],
     workspaceRoot,
@@ -3210,8 +3155,7 @@ test("update_plan tells the model the required plan item shape", async () => {
     { content: "No plan update needed.", toolCalls: [] },
   ]);
 
-  await runAgent({
-    workflow: "coding",
+  await runCodingSession({
     task: "inspect the plan tool",
     contextFiles: [],
     workspaceRoot,
@@ -3266,8 +3210,7 @@ test("read-only tools do not follow workspace symlinks outside the workspace", a
     { content: "The file is outside the workspace.", toolCalls: [] },
   ]);
 
-  const result = await runAgent({
-    workflow: "coding",
+  const result = await runCodingSession({
     task: "read symlink",
     contextFiles: [],
     workspaceRoot,
@@ -3317,8 +3260,7 @@ test("a Session Read Scope denies symlinks that escape an allowed directory", as
     { content: "The escaping symlink was denied.", toolCalls: [] },
   ]);
 
-  await runAgent({
-    workflow: "coding",
+  await runCodingSession({
     task: "read allowed files",
     contextFiles: [],
     allowedReadPaths: ["allowed"],
@@ -3351,8 +3293,7 @@ test("Session Read Scope entries are literal paths rather than globs", async () 
     { content: "The literal path was searched.", toolCalls: [] },
   ]);
 
-  await runAgent({
-    workflow: "coding",
+  await runCodingSession({
     task: "search the literal file",
     contextFiles: [],
     allowedReadPaths: ["*.txt"],
