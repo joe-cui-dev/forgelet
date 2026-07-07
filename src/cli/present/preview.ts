@@ -1,4 +1,5 @@
 import { loadConfig, routeModel } from "../../config/index.js";
+import { modelRunnability, providerForModel } from "../../models/routing.js";
 import type { LoadedBrowserSnapshot } from "../../browser/index.js";
 import type { ForgeCommand } from "../parseArgs.js";
 
@@ -12,7 +13,7 @@ export function formatSessionPreview(
 ): string {
   const route = routeModel(config, command.workflow, command.model);
   const provider = providerForModel(route.model, config);
-  const runnable = route.model.startsWith("deepseek-");
+  const runnability = modelRunnability(route.model);
   return [
     "Session Preview",
     `Workflow: ${command.workflow}`,
@@ -25,12 +26,10 @@ export function formatSessionPreview(
     ...(command.creativeStyle ? [`Creative style: ${command.creativeStyle}`] : []),
     `Task: ${command.task}`,
     `Model route: ${route.model} (${route.reason})`,
-    `Runnable: ${runnable ? "yes" : "no"}`,
-    ...(runnable
+    `Runnable: ${runnability.runnable ? "yes" : "no"}`,
+    ...(runnability.runnable
       ? []
-      : [
-          `Runnable reason: model-backed execution currently supports DeepSeek routes only; ${route.model} is not runnable.`,
-        ]),
+      : [`Runnable reason: ${runnability.previewReason}`]),
     `Required provider env var: ${provider.apiKeyEnv}`,
     `Budget: ${formatPreviewBudget(command, config)}`,
     `Action mode: ${formatPreviewActionMode(command)}`,
@@ -40,30 +39,6 @@ export function formatSessionPreview(
     `Capabilities: ${formatPreviewCapabilities(command)}`,
     "Persistence: none; no Session or Trace will be created",
   ].join("\n");
-}
-
-export function providerForModel(
-  model: string,
-  config: LoadedConfig,
-): { name: string; apiKeyEnv: string } {
-  if (model.startsWith("deepseek-")) {
-    return { name: "deepseek", apiKeyEnv: config.providers.deepseek.apiKeyEnv };
-  }
-  if (
-    model.startsWith("gpt-") ||
-    model.startsWith("o1") ||
-    model.startsWith("o3") ||
-    model.startsWith("o4")
-  ) {
-    return { name: "openai", apiKeyEnv: config.providers.openai.apiKeyEnv };
-  }
-  if (model.startsWith("claude-")) {
-    return {
-      name: "anthropic",
-      apiKeyEnv: config.providers.anthropic.apiKeyEnv,
-    };
-  }
-  return { name: "unknown", apiKeyEnv: "unknown" };
 }
 
 export function formatPreviewBudget(

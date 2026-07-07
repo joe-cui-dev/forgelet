@@ -3,6 +3,7 @@ import { createInterface } from "node:readline/promises";
 import { loadConfig, routeModel } from "../config/index.js";
 import { loadDotEnv } from "../config/env.js";
 import { DeepSeekModelClient } from "../models/providers/deepseek.js";
+import { modelRunnability } from "../models/routing.js";
 import type {
   ModelClient,
   ModelTurnInput,
@@ -28,10 +29,9 @@ export async function createDeepSeekLiveModelClient(
     workspaceRoot: input.workspaceRoot,
   });
   const route = routeModel(config, input.workflow, input.modelOverride);
-  if (!route.model.startsWith("deepseek-")) {
-    throw new Error(
-      `Model-backed execution currently supports DeepSeek models only. Route selected ${route.model}.`,
-    );
+  const runnability = modelRunnability(route.model);
+  if (!runnability.runnable) {
+    throw new Error(runnability.errorMessage);
   }
   const apiKeyEnv = config.providers.deepseek.apiKeyEnv;
   const apiKey = input.env[apiKeyEnv];
