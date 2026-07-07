@@ -12,6 +12,10 @@ _Avoid_: Coding agent, chatbot core
 A named task shape that uses the Agent Kernel to coordinate stages, model calls, tools, permissions, trace, budget, and review.
 _Avoid_: Prompt, mode, command
 
+**ReAct Node**:
+A bounded unit of model-and-tool interaction that the Agent Kernel runs for a Workflow, within which model turns, tool calls, permission checks, budget accounting, Active Context compaction, and Trace evidence occur. A Workflow runs one or more ReAct Nodes.
+_Avoid_: Agent loop, chat loop, Session, workflow stage
+
 **Coding Workflow**:
 The Forgelet workflow for repository tasks such as searching code, editing files, running tests, and explaining changes.
 _Avoid_: The Forgelet product, generic agent loop
