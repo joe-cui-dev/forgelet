@@ -1,4 +1,5 @@
 import type { ModelMessage } from "../types.js";
+import { LOW_WATER_RATIO, messageBytes } from "./budget.js";
 
 export interface FoldPlanInput {
   maxConversationBytes: number;
@@ -10,8 +11,6 @@ export type FoldPlan =
   | { action: "none" }
   | { action: "stop" }
   | { action: "fold"; foldTurns: ModelMessage[]; keptTurns: ModelMessage[] };
-
-const LOW_WATER_RATIO = 0.5;
 
 export function planFold(
   turns: ModelMessage[],
@@ -60,11 +59,4 @@ function groupIntoTurns(messages: ModelMessage[]): ModelMessage[][] {
     else groups[groups.length - 1]?.push(message);
   }
   return groups;
-}
-
-function messageBytes(messages: ModelMessage[]): number {
-  return messages.reduce(
-    (total, message) => total + Buffer.byteLength(message.content, "utf8"),
-    0,
-  );
 }

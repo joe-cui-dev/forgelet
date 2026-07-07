@@ -1,5 +1,13 @@
 import type { ModelClient, ModelMessage } from "../types.js";
 import {
+  clipUtf8WithSuffix,
+  conversationBudgetBytes,
+  NARRATIVE_BUDGET_RATIO,
+  rollingSummaryContent,
+  rollingSummaryContentBytes,
+  subBudgetBytes,
+} from "./budget.js";
+import {
   buildFactLedger,
   renderFactLedger,
   type FactLedger,
@@ -18,6 +26,7 @@ export interface FoldAttemptInput {
   protectedRecentTurns: number;
   task: string;
   modelClient: ModelClient;
+  failedFoldAttempts?: number;
   onModelRequest?: (messages: ModelMessage[]) => Promise<void> | void;
   onModelResponse?: (content: string | undefined) => Promise<void> | void;
 }
@@ -37,6 +46,10 @@ export type FoldAttemptResult =
         beforeConversationBytes: number;
         afterConversationBytes: number;
         foldedTurnCount: number;
+        narrativeClipped: boolean;
+        degraded?: boolean;
+        reason?: string;
+        failedAttemptCount?: number;
         text: string;
       };
     }
@@ -49,7 +62,7 @@ export async function attemptConversationFold(
   input: FoldAttemptInput,
 ): Promise<FoldAttemptResult> {
   const rollingSummaryBytes = input.rollingSummary
-    ? Buffer.byteLength(input.rollingSummary.text, "utf8")
+    ? rollingSummaryContentBytes(input.rollingSummary.text)
     : 0;
   const plan = planFold(input.conversation, {
     maxConversationBytes: input.maxConversationBytes,
@@ -60,10 +73,15 @@ export async function attemptConversationFold(
   if (plan.action === "stop") return { outcome: "stop" };
 
   const beforeConversationBytes =
-    messageBytes(input.conversation) + rollingSummaryBytes;
+    conversationBudgetBytes(input.conversation, input.rollingSummary?.text);
+  const narrativeBudgetBytes = subBudgetBytes(
+    input.maxConversationBytes,
+    NARRATIVE_BUDGET_RATIO,
+  );
   const summarizationMessages = buildSummarizationMessages(
     input.rollingSummary?.text,
     plan.foldTurns,
+    narrativeBudgetBytes,
   );
 
   await input.onModelRequest?.(summarizationMessages);
@@ -87,17 +105,37 @@ export async function attemptConversationFold(
     };
     await input.onModelResponse?.(content);
   } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    if ((input.failedFoldAttempts ?? 0) >= 1)
+      return performDegradedFold(input, plan, beforeConversationBytes, reason);
     return {
       outcome: "failed",
-      reason: error instanceof Error ? error.message : String(error),
+      reason,
     };
   }
 
-  const narrative = (content ?? "").trim();
-  if (!narrative) return { outcome: "failed", reason: "empty_summary" };
+  const rawNarrative = (content ?? "").trim();
+  if (!rawNarrative) {
+    if ((input.failedFoldAttempts ?? 0) >= 1)
+      return performDegradedFold(
+        input,
+        plan,
+        beforeConversationBytes,
+        "empty_summary",
+      );
+    return { outcome: "failed", reason: "empty_summary" };
+  }
+  const clippedNarrative = clipUtf8WithSuffix(
+    rawNarrative,
+    narrativeBudgetBytes,
+    "\n[Narrative clipped; see Trace.]",
+  );
+  const narrative = clippedNarrative.text;
 
   const ledger = buildFactLedger(plan.foldTurns, input.rollingSummary?.ledger);
-  const text = `${narrative}\n\n${renderFactLedger(ledger)}`;
+  const text = `${narrative}\n\n${renderFactLedger(ledger, {
+    maxConversationBytes: input.maxConversationBytes,
+  })}`;
   input.conversation.splice(0, input.conversation.length, ...plan.keptTurns);
 
   return {
@@ -107,10 +145,55 @@ export async function attemptConversationFold(
     trace: {
       beforeConversationBytes,
       afterConversationBytes:
-        messageBytes(plan.keptTurns) + Buffer.byteLength(text, "utf8"),
+        conversationBudgetBytes(plan.keptTurns, text),
       foldedTurnCount: plan.foldTurns.filter(
         (message) => message.role === "assistant",
       ).length,
+      narrativeClipped: clippedNarrative.clipped,
+      text,
+    },
+  };
+}
+
+function performDegradedFold(
+  input: FoldAttemptInput,
+  plan: Extract<ReturnType<typeof planFold>, { action: "fold" }>,
+  beforeConversationBytes: number,
+  reason: string,
+): FoldAttemptResult {
+  const failedAttemptCount = (input.failedFoldAttempts ?? 0) + 1;
+  const priorNarrative = narrativeFromSummaryText(input.rollingSummary?.text);
+  const degradedNarrative = [
+    priorNarrative,
+    `Degraded Fold: summarization failed after ${failedAttemptCount} consecutive attempts (${reason}); see Trace for the folded turns and deterministic Fact Ledger evidence.`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  const clippedNarrative = clipUtf8WithSuffix(
+    degradedNarrative,
+    subBudgetBytes(input.maxConversationBytes, NARRATIVE_BUDGET_RATIO),
+    "\n[Narrative clipped; see Trace.]",
+  );
+  const ledger = buildFactLedger(plan.foldTurns, input.rollingSummary?.ledger);
+  const text = `${clippedNarrative.text}\n\n${renderFactLedger(ledger, {
+    maxConversationBytes: input.maxConversationBytes,
+  })}`;
+  input.conversation.splice(0, input.conversation.length, ...plan.keptTurns);
+
+  return {
+    outcome: "folded",
+    rollingSummary: { text, ledger },
+    usage: { inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0 },
+    trace: {
+      beforeConversationBytes,
+      afterConversationBytes: conversationBudgetBytes(plan.keptTurns, text),
+      foldedTurnCount: plan.foldTurns.filter(
+        (message) => message.role === "assistant",
+      ).length,
+      narrativeClipped: clippedNarrative.clipped,
+      degraded: true,
+      reason,
+      failedAttemptCount,
       text,
     },
   };
@@ -122,20 +205,23 @@ export function rollingSummaryMessage(
   if (!rollingSummary) return undefined;
   return {
     role: "user",
-    content: `Rolling Summary (earlier turns folded to stay within budget):\n${rollingSummary.text}`,
+    content: rollingSummaryContent(rollingSummary.text),
   };
 }
 
 function buildSummarizationMessages(
   previousSummaryText: string | undefined,
   foldTurns: ModelMessage[],
+  narrativeBudgetBytes: number,
 ): ModelMessage[] {
+  const wordBudget = Math.max(1, Math.floor(narrativeBudgetBytes / 6));
   return [
     {
       role: "system",
       content: [
         "You are maintaining a Rolling Summary for a long-running Forgelet Session.",
         "Write a concise narrative of the work completed in the turns below, preserving task continuity.",
+        `Hard limit: the narrative must fit within ${narrativeBudgetBytes} bytes, roughly ${wordBudget} words, which is 25% of the active conversation budget.`,
         "Deterministic facts (file paths, hashes, ranges, exit codes) are tracked separately in a Fact Ledger; do not restate raw file contents or command output verbatim.",
       ].join("\n"),
     },
@@ -156,9 +242,9 @@ function buildSummarizationMessages(
   ];
 }
 
-function messageBytes(messages: ModelMessage[]): number {
-  return messages.reduce(
-    (total, message) => total + Buffer.byteLength(message.content, "utf8"),
-    0,
-  );
+function narrativeFromSummaryText(text: string | undefined): string {
+  if (!text) return "";
+  const marker = "\n\nFact Ledger:";
+  const markerIndex = text.indexOf(marker);
+  return markerIndex === -1 ? text : text.slice(0, markerIndex);
 }

@@ -217,6 +217,26 @@ test("counts assistant message content toward the conversation-wide budget", () 
   expect(result.compactedCount).toBe(1);
 });
 
+test("counts the rendered Rolling Summary toward the conversation-wide budget", () => {
+  const conversation: ModelMessage[] = [
+    assistantToolCall("call_old", "read_file"),
+    toolObservation("call_old", "read_file", "old.txt", "a".repeat(2_000)),
+    assistantToolCall("call_new", "read_file"),
+    toolObservation("call_new", "read_file", "new.txt", "b".repeat(500)),
+  ];
+
+  const result = compactConversationInPlace(conversation, {
+    maxConversationBytes: 2_800,
+    rollingSummaryText: "Prior narrative.".repeat(80),
+  });
+
+  expect(result.beforeConversationBytes).toBeGreaterThan(
+    result.targetConversationBytes,
+  );
+  expect(result.compactedCount).toBe(1);
+  expect(JSON.parse(conversation[1]?.content ?? "{}").compacted).toBe(true);
+});
+
 function assistantToolCall(id: string, name: string): ModelMessage {
   return {
     role: "assistant",

@@ -865,6 +865,7 @@ const runReadOnlyLoop = async (
       : undefined;
   let finalContent = "";
   let rollingSummary: RollingSummaryState | undefined;
+  let failedFoldAttempts = 0;
 
   for (let turnIndex = 0; ; turnIndex += 1) {
     const stopReason = budgetStopReason(usage, input.limits);
@@ -886,6 +887,7 @@ const runReadOnlyLoop = async (
     const compaction = compactConversationInPlace(conversation, {
       maxConversationBytes: input.maxConversationBytes,
       observationDigestPreviewBytes: input.observationDigestPreviewBytes,
+      rollingSummaryText: rollingSummary?.text,
     });
     if (
       compaction.compactedCount > 0 ||
@@ -905,6 +907,7 @@ const runReadOnlyLoop = async (
       protectedRecentTurns: input.protectedRecentTurns,
       task: input.session.task,
       modelClient: input.modelClient,
+      failedFoldAttempts,
       onModelRequest: (foldMessages) =>
         input.debugTranscript?.append({
           type: "model_request",
@@ -946,16 +949,24 @@ const runReadOnlyLoop = async (
       input.session.stage = "final";
       return { status: "stopped", reason: "active_context_exhausted", summary };
     }
-    if (foldResult.outcome === "failed")
+    if (foldResult.outcome === "failed") {
+      failedFoldAttempts += 1;
       await input.appendTrace("conversation_fold_failed", {
         reason: foldResult.reason,
+        failedAttemptCount: failedFoldAttempts,
       });
+    }
     if (foldResult.outcome === "folded") {
+      failedFoldAttempts = 0;
       rollingSummary = foldResult.rollingSummary;
       usage.inputTokens += foldResult.usage.inputTokens;
       usage.outputTokens += foldResult.usage.outputTokens;
       usage.estimatedCostUsd += foldResult.usage.estimatedCostUsd;
       await input.appendTrace("conversation_folded", { ...foldResult.trace });
+      if (foldResult.trace.narrativeClipped)
+        await input.appendTrace("conversation_fold_narrative_clipped", {
+          maxConversationBytes: input.maxConversationBytes,
+        });
       const foldBudgetStopReason = tokenOrCostBudgetStopReason(
         usage,
         input.limits,

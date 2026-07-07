@@ -77,6 +77,26 @@ test("signals stop when protected turns plus an existing Rolling Summary alone e
   expect(modelClient.turnInputs).toHaveLength(0);
 });
 
+test("counts the rendered Rolling Summary envelope before deciding a fold fits", async () => {
+  const conversation: ModelMessage[] = [assistantTurn("call_only", 100)];
+  const modelClient = scriptedModelClient([{ content: "unused" }]);
+
+  const result = await attemptConversationFold({
+    conversation,
+    rollingSummary: {
+      text: "Prior narrative.",
+      ledger: { files: [], changedFiles: [], commands: [] },
+    },
+    maxConversationBytes: 140,
+    protectedRecentTurns: 3,
+    task: "task",
+    modelClient,
+  });
+
+  expect(result).toEqual({ outcome: "stop" });
+  expect(modelClient.turnInputs).toHaveLength(0);
+});
+
 test("tolerates an oversized protected region when nothing has folded yet", async () => {
   const conversation: ModelMessage[] = [
     ...turnWithFileRead("call_only", "big.ts", 8_000),
@@ -142,6 +162,47 @@ test("leaves the conversation untouched when the summarization call throws", asy
   expect(conversation).toEqual(before);
 });
 
+test("performs a Degraded Fold on the second consecutive summarization failure", async () => {
+  const conversation: ModelMessage[] = [
+    ...turnWithFileRead("call_old", "old.ts", 5_000),
+    ...turnWithFileRead("call_new", "new.ts", 500),
+  ];
+  const modelClient: ModelClient = {
+    async createTurn() {
+      throw new Error("model unavailable");
+    },
+  };
+
+  const result = await attemptConversationFold({
+    conversation,
+    rollingSummary: {
+      text: "Prior narrative.\n\nFact Ledger: (empty)",
+      ledger: { files: [], changedFiles: [], commands: [] },
+    },
+    maxConversationBytes: 4_000,
+    protectedRecentTurns: 1,
+    task: "task",
+    modelClient,
+    failedFoldAttempts: 1,
+  });
+
+  expect(result.outcome).toBe("folded");
+  if (result.outcome !== "folded") throw new Error("expected folded");
+  expect(result.rollingSummary.text).toContain("Prior narrative.");
+  expect(result.rollingSummary.text).toContain(
+    "Degraded Fold: summarization failed after 2 consecutive attempts",
+  );
+  expect(result.rollingSummary.ledger.files.map((file) => file.path)).toEqual([
+    "old.ts",
+  ]);
+  expect(result.trace).toMatchObject({
+    degraded: true,
+    reason: "model unavailable",
+    failedAttemptCount: 2,
+  });
+  expect(conversation).toEqual(turnWithFileRead("call_new", "new.ts", 500));
+});
+
 test("a refold absorbs the previous Rolling Summary into the new one", async () => {
   const conversation: ModelMessage[] = [
     ...turnWithFileRead("call_older", "older.ts", 5_000),
@@ -176,6 +237,34 @@ test("a refold absorbs the previous Rolling Summary into the new one", async () 
       message.content.includes("Prior narrative."),
     ),
   ).toBe(true);
+});
+
+test("clips an oversized narrative to the 25 percent sub-budget without failing the fold", async () => {
+  const conversation: ModelMessage[] = [
+    ...turnWithFileRead("call_old", "old.ts", 5_000),
+    ...turnWithFileRead("call_new", "new.ts", 500),
+  ];
+  const modelClient = scriptedModelClient([{ content: "界".repeat(80) }]);
+
+  const result = await attemptConversationFold({
+    conversation,
+    rollingSummary: undefined,
+    maxConversationBytes: 400,
+    protectedRecentTurns: 1,
+    task: "task",
+    modelClient,
+  });
+
+  expect(result.outcome).toBe("folded");
+  if (result.outcome !== "folded") throw new Error("expected folded");
+  const narrative = result.rollingSummary.text.split("\n\nFact Ledger:")[0] ?? "";
+  expect(Buffer.byteLength(narrative, "utf8")).toBeLessThanOrEqual(100);
+  expect(narrative).toContain("[Narrative clipped; see Trace.]");
+  expect(narrative).not.toContain("\uFFFD");
+  expect(result.trace.narrativeClipped).toBe(true);
+  expect(
+    modelClient.turnInputs[0]?.messages[0]?.content,
+  ).toContain("100 bytes");
 });
 
 test("rollingSummaryMessage renders the stored text for the model", () => {

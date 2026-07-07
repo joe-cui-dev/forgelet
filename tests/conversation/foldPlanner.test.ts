@@ -53,6 +53,22 @@ test("signals stop when protected turns plus an existing Rolling Summary alone e
   expect(plan).toEqual({ action: "stop" });
 });
 
+test("counts the rendered Rolling Summary envelope toward the budget", () => {
+  const turns = [assistantTurn("t1", 100)];
+
+  const plan = planFold(turns, {
+    maxConversationBytes: 140,
+    protectedRecentTurns: 3,
+    rollingSummaryBytes: Buffer.byteLength(
+      "Rolling Summary (earlier turns folded to stay within budget):\n" +
+        "Prior narrative.",
+      "utf8",
+    ),
+  });
+
+  expect(plan).toEqual({ action: "stop" });
+});
+
 test("tolerates an oversized protected region when nothing has folded yet", () => {
   const turns = [
     ...turnWithObservation("t1", 8_000),

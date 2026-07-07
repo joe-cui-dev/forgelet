@@ -58,7 +58,7 @@ test("records changed files and command outcomes from folded observations", () =
   const ledger = buildFactLedger(messages);
 
   expect(ledger.changedFiles).toEqual(["src/a.ts", "src/b.ts"]);
-  expect(ledger.commands).toEqual(["npm test (exit 0, 1200ms)"]);
+  expect(renderFactLedger(ledger)).toContain("- npm test (exit 0, 1200ms)");
 });
 
 test("carries a previous ledger forward across refolds, merging by path", () => {
@@ -102,7 +102,7 @@ test("carries a previous ledger forward across refolds, merging by path", () => 
     {
       path: "src/index.ts",
       contentHash: "hash-v2",
-      ranges: ["byte range 0-500 of 1000", "byte range 500-1000 of 1000"],
+      ranges: ["byte range 0-1000 of 1000"],
     },
     {
       path: "src/other.ts",
@@ -110,6 +110,64 @@ test("carries a previous ledger forward across refolds, merging by path", () => 
       ranges: ["byte range 0-200 of 200"],
     },
   ]);
+});
+
+test("deduplicates commands by command string and keeps the latest exit code plus run count", () => {
+  const ledger = buildFactLedger([
+    commandObservation("call_1", "npm test", 1),
+    commandObservation("call_2", "npm run typecheck", 0),
+    commandObservation("call_3", "npm test", 0),
+  ]);
+
+  expect(renderFactLedger(ledger)).toContain("- npm test (exit 0, 2 runs)");
+  expect(renderFactLedger(ledger)).toContain("- npm run typecheck (exit 0)");
+});
+
+test("bounds rendered ledger bytes by evicting old commands before old file reads", () => {
+  const ledger = buildFactLedger([
+    commandObservation("call_1", `node ${"a".repeat(80)}`, 0),
+    commandObservation("call_2", `node ${"b".repeat(80)}`, 0),
+    toolObservation({
+      toolCallId: "call_file_old",
+      toolName: "read_file",
+      path: `src/${"old".repeat(20)}.ts`,
+      contentHash: "old-hash",
+      returnedStartByte: 0,
+      returnedEndByte: 100,
+      totalBytes: 100,
+    }),
+    toolObservation({
+      toolCallId: "call_file_new",
+      toolName: "read_file",
+      path: "src/new.ts",
+      contentHash: "new-hash",
+      returnedStartByte: 0,
+      returnedEndByte: 100,
+      totalBytes: 100,
+    }),
+    {
+      role: "tool",
+      toolCallId: "call_patch",
+      content: JSON.stringify({
+        ok: true,
+        toolCallId: "call_patch",
+        toolName: "apply_patch",
+        summary: "Patched files.",
+        metadata: { changedFiles: ["src/changed.ts"] },
+      }),
+    },
+  ]);
+
+  const rendered = renderFactLedger(ledger, { maxConversationBytes: 840 });
+
+  expect(Buffer.byteLength(rendered, "utf8")).toBeLessThanOrEqual(210);
+  expect(rendered).toContain("src/changed.ts");
+  expect(rendered).toContain("src/new.ts");
+  expect(rendered).not.toContain("node ");
+  expect(rendered).not.toContain("oldold");
+  expect(rendered).toContain(
+    "Ledger truncated: evicted 2 command entries and 1 file-read entry; see Trace for full evidence.",
+  );
 });
 
 test("renders a deterministic text form of a populated ledger", () => {
@@ -188,6 +246,24 @@ function toolObservation(options: {
         returnedEndByte: options.returnedEndByte,
         totalBytes: options.totalBytes,
       },
+    }),
+  };
+}
+
+function commandObservation(
+  toolCallId: string,
+  command: string,
+  exitCode: number,
+): ModelMessage {
+  return {
+    role: "tool",
+    toolCallId,
+    content: JSON.stringify({
+      ok: exitCode === 0,
+      toolCallId,
+      toolName: "run_command",
+      summary: `Ran ${command}.`,
+      metadata: { command, exitCode },
     }),
   };
 }

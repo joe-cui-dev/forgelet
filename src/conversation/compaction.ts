@@ -1,8 +1,10 @@
 import type { ModelMessage } from "../types.js";
+import { clipUtf8WithSuffix, conversationBudgetBytes } from "./budget.js";
 
 export interface CompactionOptions {
   maxConversationBytes: number;
   observationDigestPreviewBytes?: number;
+  rollingSummaryText?: string;
 }
 
 export interface CompactionResult {
@@ -36,7 +38,10 @@ export function compactConversationInPlace(
   conversation: ModelMessage[],
   options: CompactionOptions,
 ): CompactionResult {
-  const beforeConversationBytes = conversationBytes(conversation);
+  const beforeConversationBytes = conversationBudgetBytes(
+    conversation,
+    options.rollingSummaryText,
+  );
   const result: CompactionResult = {
     compactedCount: 0,
     uncompactableCount: 0,
@@ -65,7 +70,11 @@ export function compactConversationInPlace(
   const compactedTools = new Set<string>();
 
   for (const candidate of candidates) {
-    if (conversationBytes(conversation) <= options.maxConversationBytes) break;
+    if (
+      conversationBudgetBytes(conversation, options.rollingSummaryText) <=
+      options.maxConversationBytes
+    )
+      break;
     const parsed = parseObservation(candidate.message.content);
     if (!parsed) {
       result.uncompactableCount += 1;
@@ -79,7 +88,10 @@ export function compactConversationInPlace(
     compactedTools.add(parsed.toolName);
   }
 
-  result.afterConversationBytes = conversationBytes(conversation);
+  result.afterConversationBytes = conversationBudgetBytes(
+    conversation,
+    options.rollingSummaryText,
+  );
   result.toolNames = [...compactedTools];
   result.residualOverageBytes = Math.max(
     0,
@@ -238,21 +250,8 @@ const COMPACT_METADATA_KEYS = [
   "scopeConstrained",
 ] as const;
 
-function conversationBytes(conversation: ModelMessage[]): number {
-  return conversation.reduce(
-    (total, message) =>
-      total +
-      (message.role === "assistant" || message.role === "tool"
-        ? Buffer.byteLength(message.content, "utf8")
-        : 0),
-    0,
-  );
-}
-
 function clipUtf8(value: string, maxBytes: number): string {
-  const buffer = Buffer.from(value, "utf8");
-  if (buffer.length <= maxBytes) return value;
-  return buffer.subarray(0, maxBytes).toString("utf8");
+  return clipUtf8WithSuffix(value, maxBytes, "").text;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
