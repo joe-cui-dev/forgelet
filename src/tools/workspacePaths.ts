@@ -8,6 +8,7 @@ import {
 export const SKIPPED_WORKSPACE_DIRECTORIES = new Set([
   ".git",
   ".forgelet",
+  ".claude/worktrees",
   "node_modules",
   "dist",
   "dist-test",
@@ -84,7 +85,13 @@ export const listWorkspaceFiles = async (
     directories: [],
     skippedDirectories: [],
   };
-  await collectWorkspaceFiles(root, workspaceRoot, realWorkspaceRoot, readScope, output);
+  await collectWorkspaceFiles(
+    root,
+    workspaceRoot,
+    realWorkspaceRoot,
+    readScope,
+    output,
+  );
   output.files.sort();
   output.directories.sort();
   output.skippedDirectories.sort();
