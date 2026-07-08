@@ -22,18 +22,18 @@ Do not default to reading deleted or historical planning docs from git history. 
 
 ## Source Map
 
-- CLI parsing and output: `src/cli/`
+- CLI split by responsibility under `src/cli/`: dispatch (`index.ts`), arg parsing (`parseArgs.ts`), per-domain output formatting (`present/`), `run`/`resume` command bodies (`commands/`), model-client and approval-handler assembly (`wiring.ts`), interactive terminal glue (`terminal.ts`)
 - Agent Kernel session shell and bounded ReAct node: `src/kernel/`
 - Workflow definitions and typed entries: `src/workflows/`
 - Tool registry and tools: `src/tools/`
 - Permissions and read scope: `src/permissions/`, `src/readScope/`
-- Model adapters and test clients: `src/models/`
-- Model routing and user config: `src/config/`
+- Model adapters, provider-for-model mapping and runnability (`routing.ts`), and test clients: `src/models/`
+- Workflow-to-model routing (`routeModel`) and user config: `src/config/`
 - Trace, Sessions, and explain: `src/trace/`, `src/sessions/`, `src/explain/`
 - Debug transcripts (separate from traces): `src/debugTranscript/`
 - Browser context bridge: `src/browser/`, `src/native-host/`
 - Writing artifacts: `src/writingArtifacts/`
-- Writing project manifests and continuation heads: `src/writingProjects/`
+- Writing project manifests, continuation heads, and project run preparation rules: `src/writingProjects/`
 - Creative style presets: `src/creativeStylePresets/`
 - Knowledge notes: `src/knowledge/`
 - User-approved memory persistence: `src/memory/`
