@@ -17,7 +17,7 @@ test("defaults the active observation working-set target", async () => {
 
   const config = await loadConfig({ workspaceRoot });
 
-  expect(config.activeContext.maxConversationBytes).toBe(16_384);
+  expect(config.activeContext.maxConversationBytes).toBe(65_536);
   expect(config.activeContext.observationDigestPreviewBytes).toBe(2_048);
   expect(config.activeContext.protectedRecentTurns).toBe(3);
 });

@@ -476,7 +476,6 @@ export const runReactNode = async (
           },
         });
         output = await input.modelClient.createTurn({
-          task: input.session.task,
           messages,
           tools: wrapupOnly ? [] : tools,
           onOutputDelta: input.onLiveEvent

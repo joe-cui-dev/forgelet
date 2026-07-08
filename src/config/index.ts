@@ -13,6 +13,7 @@ export interface RoutingConfig {
 export interface StageRoutingConfig {
   default: string;
   review: string;
+  maxConversationBytes?: number;
 }
 
 export interface ProviderSettings {
@@ -87,7 +88,7 @@ export const defaultConfig: ForgeletConfig = {
     maxEstimatedCostUsd: 1.0,
   },
   activeContext: {
-    maxConversationBytes: 16 * 1024,
+    maxConversationBytes: 64 * 1024,
     observationDigestPreviewBytes: 2_048,
     protectedRecentTurns: 3,
   },

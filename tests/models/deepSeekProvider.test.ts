@@ -42,7 +42,6 @@ test("DeepSeekModelClient converts Forgelet turns to chat completions with tools
   });
 
   const result = await client.createTurn({
-    task: "inspect readme",
     messages: [
       { role: "system", content: "Kernel rules" },
       { role: "user", content: "Task: inspect readme" },
@@ -112,7 +111,6 @@ test("DeepSeekModelClient estimates cost when the API returns token usage withou
   });
 
   const result = await client.createTurn({
-    task: "estimate cost",
     messages: [{ role: "user", content: "Hello" }],
     tools: [],
   });
@@ -151,7 +149,6 @@ test("DeepSeekModelClient requests streaming and emits text deltas when caller o
   });
 
   const result = await client.createTurn({
-    task: "stream greeting",
     messages: [{ role: "user", content: "Say hello" }],
     tools: [],
     onOutputDelta: (delta) => {

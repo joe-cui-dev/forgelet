@@ -79,7 +79,8 @@ export async function attemptConversationFold(
     NARRATIVE_BUDGET_RATIO,
   );
   const summarizationMessages = buildSummarizationMessages(
-    input.rollingSummary?.text,
+    input.task,
+    narrativeFromSummaryText(input.rollingSummary?.text),
     plan.foldTurns,
     narrativeBudgetBytes,
   );
@@ -93,7 +94,6 @@ export async function attemptConversationFold(
   } = { inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0 };
   try {
     const output = await input.modelClient.createTurn({
-      task: input.task,
       messages: summarizationMessages,
       tools: [],
     });
@@ -210,6 +210,7 @@ export function rollingSummaryMessage(
 }
 
 function buildSummarizationMessages(
+  task: string,
   previousSummaryText: string | undefined,
   foldTurns: ModelMessage[],
   narrativeBudgetBytes: number,
@@ -220,7 +221,8 @@ function buildSummarizationMessages(
       role: "system",
       content: [
         "You are maintaining a Rolling Summary for a long-running Forgelet Session.",
-        "Write a concise narrative of the work completed in the turns below, preserving task continuity.",
+        `Session task: ${task}`,
+        "Write the narrative as findings, conclusions, and open judgments still needed to complete the Session task; it is not an activity recap. Drop routine activity (\"explored\", \"read file X\") unless it changes the next decision.",
         `Hard limit: the narrative must fit within ${narrativeBudgetBytes} bytes, roughly ${wordBudget} words, which is 25% of the active conversation budget.`,
         "Deterministic facts (file paths, hashes, ranges, exit codes) are tracked separately in a Fact Ledger; do not restate raw file contents or command output verbatim.",
         "Do not copy or imitate the Fact Ledger section in your narrative; the ledger is appended separately, so never fabricate a 'Fact Ledger' heading, hashes, or entries.",
@@ -230,7 +232,7 @@ function buildSummarizationMessages(
       ? [
           {
             role: "user" as const,
-            content: `Existing Rolling Summary:\n${previousSummaryText}`,
+            content: `Existing narrative:\n${previousSummaryText}`,
           },
         ]
       : []),
@@ -238,7 +240,7 @@ function buildSummarizationMessages(
     {
       role: "user",
       content:
-        "Summarize the turns above into an updated Rolling Summary narrative. Be concise and focus on task progress and decisions.",
+        "Summarize the turns above into an updated Rolling Summary narrative. Be concise. If the turns above conflict with the existing narrative, prefer the evidence in the turns above over the existing narrative.",
     },
   ];
 }

@@ -1897,7 +1897,7 @@ test("CLI help documents the active observation config key", async () => {
   const result = await runCli(["--help"]);
 
   expect(result.stdout).toMatch(
-    /forge config set activeContext\.maxConversationBytes 16384/,
+    /forge config set activeContext\.maxConversationBytes 65536/,
   );
   expect(result.stdout).toMatch(
     /forge config set activeContext\.observationDigestPreviewBytes 2048/,

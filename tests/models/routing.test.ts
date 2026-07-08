@@ -1,4 +1,8 @@
-import { modelRunnability, providerForModel } from "../../src/models/routing.js";
+import {
+  maxConversationBytesForRoute,
+  modelRunnability,
+  providerForModel,
+} from "../../src/models/routing.js";
 import type { ForgeletConfig } from "../../src/config/index.js";
 
 const config: Pick<ForgeletConfig, "providers"> = {
@@ -39,6 +43,39 @@ describe("providerForModel", () => {
       name: "unknown",
       apiKeyEnv: "unknown",
     });
+  });
+});
+
+describe("maxConversationBytesForRoute", () => {
+  const routingConfig: Pick<ForgeletConfig, "routing" | "activeContext"> = {
+    routing: {
+      coding: { default: "deepseek-v4-flash", review: "deepseek-v4-flash" },
+      writing: { default: "deepseek-v4-flash", review: "deepseek-v4-flash" },
+      learning: { default: "deepseek-v4-flash", review: "deepseek-v4-flash" },
+      fallback: "gpt-5",
+    },
+    activeContext: {
+      maxConversationBytes: 65_536,
+      observationDigestPreviewBytes: 2_048,
+      protectedRecentTurns: 3,
+    },
+  };
+
+  it("falls back to the global default when the route has no override", () => {
+    expect(maxConversationBytesForRoute(routingConfig, "coding")).toBe(65_536);
+  });
+
+  it("prefers the route's override over the global default", () => {
+    const withOverride: Pick<ForgeletConfig, "routing" | "activeContext"> = {
+      ...routingConfig,
+      routing: {
+        ...routingConfig.routing,
+        coding: { ...routingConfig.routing.coding, maxConversationBytes: 32_768 },
+      },
+    };
+
+    expect(maxConversationBytesForRoute(withOverride, "coding")).toBe(32_768);
+    expect(maxConversationBytesForRoute(withOverride, "writing")).toBe(65_536);
   });
 });
 

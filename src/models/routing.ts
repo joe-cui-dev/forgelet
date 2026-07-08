@@ -1,4 +1,5 @@
 import type { ForgeletConfig } from "../config/index.js";
+import type { WorkflowKind } from "../types.js";
 
 export function providerForModel(
   model: string,
@@ -19,6 +20,16 @@ export function providerForModel(
     return { name: "anthropic", apiKeyEnv: config.providers.anthropic.apiKeyEnv };
   }
   return { name: "unknown", apiKeyEnv: "unknown" };
+}
+
+export function maxConversationBytesForRoute(
+  config: Pick<ForgeletConfig, "routing" | "activeContext">,
+  workflow: WorkflowKind,
+): number {
+  return (
+    config.routing[workflow].maxConversationBytes ??
+    config.activeContext.maxConversationBytes
+  );
 }
 
 export function modelRunnability(

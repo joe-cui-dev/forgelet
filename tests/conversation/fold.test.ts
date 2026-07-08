@@ -55,6 +55,28 @@ test("folds the oldest turns and builds a Rolling Summary with a Fact Ledger", a
   expect(modelClient.turnInputs[0]?.tools).toEqual([]);
 });
 
+test("anchors the fold prompt to the Session task", async () => {
+  const conversation: ModelMessage[] = [
+    ...turnWithFileRead("call_old", "old.ts", 5_000),
+    ...turnWithFileRead("call_new", "new.ts", 500),
+  ];
+  const modelClient = scriptedModelClient([{ content: "Read old.ts." }]);
+
+  await attemptConversationFold({
+    conversation,
+    rollingSummary: undefined,
+    maxConversationBytes: 4_000,
+    protectedRecentTurns: 1,
+    task: "Explain how the ReAct loop works.",
+    modelClient,
+  });
+
+  const systemMessage = modelClient.turnInputs[0]?.messages[0];
+  expect(systemMessage?.content).toContain(
+    "Session task: Explain how the ReAct loop works.",
+  );
+});
+
 test("tells the summarizer not to imitate the Fact Ledger", async () => {
   const conversation: ModelMessage[] = [
     ...turnWithFileRead("call_old", "old.ts", 5_000),
@@ -288,6 +310,89 @@ test("clips an oversized narrative to the 25 percent sub-budget without failing 
   expect(
     modelClient.turnInputs[0]?.messages[0]?.content,
   ).toContain("100 bytes");
+});
+
+test("passes only the prior narrative into the fold prompt, not the Fact Ledger", async () => {
+  const conversation: ModelMessage[] = [
+    ...turnWithFileRead("call_older", "older.ts", 5_000),
+    ...turnWithFileRead("call_new", "new.ts", 500),
+  ];
+  const modelClient = scriptedModelClient([{ content: "Updated narrative." }]);
+
+  await attemptConversationFold({
+    conversation,
+    rollingSummary: {
+      text: "Prior narrative.\n\nFact Ledger:\nFiles read:\n- oldest.ts: byte range 0-100 of 100",
+      ledger: {
+        files: [{ path: "oldest.ts", ranges: ["byte range 0-100 of 100"] }],
+        changedFiles: [],
+        commands: [],
+      },
+    },
+    maxConversationBytes: 4_000,
+    protectedRecentTurns: 1,
+    task: "task",
+    modelClient,
+  });
+
+  const summarizationMessages = modelClient.turnInputs[0]?.messages ?? [];
+  const priorNarrativeMessage = summarizationMessages.find((message) =>
+    message.content.includes("Existing narrative:"),
+  );
+  expect(priorNarrativeMessage?.content).toContain("Prior narrative.");
+  expect(priorNarrativeMessage?.content).not.toContain("Fact Ledger:");
+  expect(priorNarrativeMessage?.content).not.toContain("oldest.ts: byte range");
+});
+
+test("narrative contract preserves findings over activity recap", async () => {
+  const conversation: ModelMessage[] = [
+    ...turnWithFileRead("call_old", "old.ts", 5_000),
+    ...turnWithFileRead("call_new", "new.ts", 500),
+  ];
+  const modelClient = scriptedModelClient([{ content: "Read old.ts." }]);
+
+  await attemptConversationFold({
+    conversation,
+    rollingSummary: undefined,
+    maxConversationBytes: 4_000,
+    protectedRecentTurns: 1,
+    task: "task",
+    modelClient,
+  });
+
+  const systemMessage = modelClient.turnInputs[0]?.messages[0];
+  expect(systemMessage?.content).toContain(
+    "findings, conclusions, and open judgments still needed to complete the Session task",
+  );
+  expect(systemMessage?.content).toContain(
+    "not an activity recap",
+  );
+});
+
+test("narrative contract asks the fold model to prefer new evidence over the existing narrative", async () => {
+  const conversation: ModelMessage[] = [
+    ...turnWithFileRead("call_old", "old.ts", 5_000),
+    ...turnWithFileRead("call_new", "new.ts", 500),
+  ];
+  const modelClient = scriptedModelClient([{ content: "Read old.ts." }]);
+
+  await attemptConversationFold({
+    conversation,
+    rollingSummary: {
+      text: "Stale narrative.\n\nFact Ledger: (empty)",
+      ledger: { files: [], changedFiles: [], commands: [] },
+    },
+    maxConversationBytes: 4_000,
+    protectedRecentTurns: 1,
+    task: "task",
+    modelClient,
+  });
+
+  const finalMessage =
+    modelClient.turnInputs[0]?.messages.at(-1);
+  expect(finalMessage?.content).toContain(
+    "prefer the evidence in the turns above over the existing narrative",
+  );
 });
 
 test("rollingSummaryMessage renders the stored text for the model", () => {

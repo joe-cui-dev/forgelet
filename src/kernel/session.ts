@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import { relative } from "node:path";
 import { browserSnapshotToContextAttachment } from "../browser/index.js";
 import { loadConfig, routeModel } from "../config/index.js";
+import { maxConversationBytesForRoute } from "../models/routing.js";
 import { loadDurableMemory } from "../memory/index.js";
 import {
   createDebugTranscriptWriter,
@@ -254,7 +255,10 @@ export async function runKernelSession<TCompletion = void>(
         safeCommands: config.safeCommands,
         commandTimeoutMs: config.commandTimeoutMs,
         maxPatchBytes: config.maxPatchBytes,
-        maxConversationBytes: config.activeContext.maxConversationBytes,
+        maxConversationBytes: maxConversationBytesForRoute(
+          config,
+          input.definition.kind,
+        ),
         observationDigestPreviewBytes:
           config.activeContext.observationDigestPreviewBytes,
         protectedRecentTurns: config.activeContext.protectedRecentTurns,

@@ -10,7 +10,6 @@ async function main(): Promise<void> {
 
   const client = new DeepSeekModelClient({ apiKey, model: process.env.DEEPSEEK_MODEL ?? "deepseek-v4-pro" });
   const result = await client.createTurn({
-    task: "Validate Forgelet tool-call protocol.",
     messages: [
       {
         role: "system",
