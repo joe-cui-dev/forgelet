@@ -61,8 +61,8 @@ The deterministic compacted form of a tool observation in Active Context. A dige
 _Avoid_: Model summary, truncated log, preview
 
 **Rolling Summary**:
-The single folded message at the head of a Session's conversation that replaces its oldest turns when Observation Digests alone cannot keep the conversation within budget. It pairs a model-generated narrative of the folded work with a Fact Ledger, is rewritten in place each time more turns are folded, and both halves are deterministically bounded so the Rolling Summary alone can never exhaust the fold target.
-_Avoid_: Chat summary, checkpoint chain, durable memory, transcript
+The single folded message at the head of a Session's conversation that replaces its oldest turns when Observation Digests alone cannot keep the conversation within budget. It pairs a task-anchored, model-generated narrative with a Fact Ledger, is rewritten in place each time more turns are folded, and both halves are deterministically bounded so the Rolling Summary alone can never exhaust the fold target. The narrative preserves the findings, conclusions, and open judgments still needed to complete the Session's task; it is not a recap of activity, and facts of record (what was read, changed, or run) belong to the Fact Ledger.
+_Avoid_: Chat summary, progress report, checkpoint chain, durable memory, transcript
 
 **Fact Ledger**:
 The deterministic, machine-assembled part of a Rolling Summary that carries facts forward from folded Observation Digests, such as files read with their ranges and hashes, files changed, and commands run with their outcomes. A Fact Ledger never passes through a model and is deterministically bounded; evicted entries remain recoverable from the Trace.
