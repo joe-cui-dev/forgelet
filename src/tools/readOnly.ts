@@ -16,6 +16,7 @@ import { summarizeWorkspace } from "./workspaceSummary.js";
 import {
   listWorkspaceFiles,
   readTextIfSmall,
+  resolveWorkspacePathTarget,
   safeWorkspacePath,
 } from "./workspacePaths.js";
 
@@ -82,21 +83,28 @@ export const createReadOnlyTools = (plan: AgentPlan): ToolDefinition[] => {
       execute: async (input, ctx) => {
         const query = requiredString(input, "query");
         const path = optionalString(input, "path") ?? ".";
-        const root = await safeWorkspacePath(ctx.workspaceRoot, path);
-        const { files } = await listWorkspaceFiles(
-          root,
+        const target = await resolveWorkspacePathTarget(
           ctx.workspaceRoot,
-          ctx.readScope,
+          path,
         );
         const matches: string[] = [];
-        for (const file of files) {
-          const absolutePath = await safeWorkspacePath(ctx.workspaceRoot, file);
-          const content = await readTextIfSmall(absolutePath);
-          if (!content) continue;
-          content.split("\n").forEach((line, index) => {
-            if (line.includes(query))
-              matches.push(`${file}:${index + 1}: ${line}`);
-          });
+        if (target.isFile) {
+          matches.push(
+            ...(await matchesInFile(target.absolutePath, target.relativePath, query)),
+          );
+        } else {
+          const { files } = await listWorkspaceFiles(
+            target.absolutePath,
+            ctx.workspaceRoot,
+            ctx.readScope,
+          );
+          for (const file of files) {
+            const absolutePath = await safeWorkspacePath(
+              ctx.workspaceRoot,
+              file,
+            );
+            matches.push(...(await matchesInFile(absolutePath, file, query)));
+          }
         }
         return {
           ok: true,
@@ -354,6 +362,22 @@ export const createReadOnlyTools = (plan: AgentPlan): ToolDefinition[] => {
       },
     },
   ];
+};
+
+// Finds query matches within a single file, formatted as `path:line: text` for search_text.
+const matchesInFile = async (
+  absolutePath: string,
+  relativePath: string,
+  query: string,
+): Promise<string[]> => {
+  const content = await readTextIfSmall(absolutePath);
+  if (!content) return [];
+  const matches: string[] = [];
+  content.split("\n").forEach((line, index) => {
+    if (line.includes(query))
+      matches.push(`${relativePath}:${index + 1}: ${line}`);
+  });
+  return matches;
 };
 
 const classifyCollectionRead = async (

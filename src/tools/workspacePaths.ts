@@ -1,4 +1,4 @@
-import { readdir, readFile, realpath } from "node:fs/promises";
+import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { extname, relative, resolve } from "node:path";
 import {
   doesPathOverlapSessionReadScope,
@@ -34,6 +34,43 @@ export const safeWorkspacePath = async (
     throw new Error(`Path is outside workspace: ${path}`);
   return realTarget;
 };
+
+export interface WorkspacePathTarget {
+  absolutePath: string;
+  relativePath: string;
+  isFile: boolean;
+}
+
+// Resolves a workspace-relative path to its real location and reports whether it names a
+// file or a directory, so tools like search_text can accept either. Raises a clear,
+// model-actionable error instead of a raw errno when the path does not exist.
+export const resolveWorkspacePathTarget = async (
+  workspaceRoot: string,
+  path: string,
+): Promise<WorkspacePathTarget> => {
+  const realWorkspaceRoot = await realpath(workspaceRoot);
+  let absolutePath: string;
+  try {
+    absolutePath = await safeWorkspacePath(workspaceRoot, path);
+  } catch (error) {
+    if (isMissingPathError(error))
+      throw new Error(`Path does not exist in workspace: ${path}`);
+    throw error;
+  }
+  const stats = await stat(absolutePath);
+  return {
+    absolutePath,
+    relativePath: relative(realWorkspaceRoot, absolutePath),
+    isFile: stats.isFile(),
+  };
+};
+
+const isMissingPathError = (error: unknown): boolean =>
+  typeof error === "object" &&
+  error !== null &&
+  "code" in error &&
+  ((error as NodeJS.ErrnoException).code === "ENOENT" ||
+    (error as NodeJS.ErrnoException).code === "ENOTDIR");
 
 // Recursively lists workspace files while skipping generated and internal folders.
 export const listWorkspaceFiles = async (
