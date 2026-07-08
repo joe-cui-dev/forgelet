@@ -43,6 +43,8 @@ test("coding definition renders the read-only system prompt", () => {
       "When you need an overview of an unfamiliar workspace, call workspace_summary first.",
       "Follow up with targeted search_text, read_file, git_status, or git_diff only when specific evidence is needed.",
       "workspace_summary is an on-demand tool result; do not assume it was automatically injected.",
+      "When you need to locate specific code — a symbol, a function, or where a described behavior is implemented — and the file is not named or obvious, find it with search_text before opening files with read_file; if the user named the file or the path is obvious, read it directly.",
+      "Do not speculatively open multiple files in parallel before their relevance is confirmed; once search or references confirm which files matter, you may read them in parallel.",
     ].join("\n"),
   );
 });

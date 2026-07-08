@@ -88,7 +88,7 @@ export const defaultConfig: ForgeletConfig = {
     maxEstimatedCostUsd: 1.0,
   },
   activeContext: {
-    maxConversationBytes: 64 * 1024,
+    maxConversationBytes: 128 * 1024,
     observationDigestPreviewBytes: 2_048,
     protectedRecentTurns: 3,
   },
