@@ -23,7 +23,10 @@ import {
   type RollingSummaryState,
 } from "../conversation/fold.js";
 import type { LoadedDurableMemory } from "../memory/index.js";
-import type { DebugTranscriptWriter } from "../debugTranscript/index.js";
+import type {
+  DebugTranscriptEvent,
+  DebugTranscriptWriter,
+} from "../debugTranscript/index.js";
 import type { SessionLiveEvent, SessionLiveEventSink } from "../sessionLiveView/index.js";
 import type { ContinuationContext } from "../sessions/continuation.js";
 import { createReadOnlyTools } from "../tools/readOnly.js";
@@ -67,7 +70,14 @@ export interface ReactNodeInput {
   onLiveEvent?: SessionLiveEventSink;
   debugTranscript?: DebugTranscriptWriter;
   definition: WorkflowDefinition<unknown>;
-  appendTrace(type: string, payload: Record<string, unknown>): Promise<void>;
+  /** ts lets a caller preserve the real moment an event happened when the
+   * append itself is deferred (e.g. flushing buffered events from
+   * concurrently-executed read tool calls after the group settles). */
+  appendTrace(
+    type: string,
+    payload: Record<string, unknown>,
+    ts?: string,
+  ): Promise<void>;
 }
 
 export interface ReactNodeResult {
@@ -177,6 +187,43 @@ const liveCommand = (toolCall: ModelToolCall): string | undefined => {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
+// Bounded retry for transient model-turn errors only; the conversation-fold
+// model call has its own failure tolerance (Degraded Fold, ADR 0022) and is
+// deliberately left untouched here.
+const MODEL_TURN_MAX_RETRIES = 2;
+const MODEL_TURN_RETRY_BASE_DELAY_MS = 250;
+
+const RETRYABLE_CAUSE_CATEGORIES = new Set([
+  "request_error",
+  "response_aborted",
+  "response_aborted_empty_body",
+  "response_error",
+  "timeout",
+]);
+
+/** A statusCode, when present, means a real HTTP response was received and
+ * takes priority over causeCategory: only 429/5xx are transient. Absent a
+ * statusCode, classify by causeCategory (network/timeout errors are
+ * transient; malformed-response categories like invalid_json are not). */
+const isRetryableModelTurnError = (error: unknown): boolean => {
+  const record = isRecord(error) ? error : {};
+  const statusCode =
+    typeof record.statusCode === "number" ? record.statusCode : undefined;
+  if (statusCode !== undefined) return statusCode === 429 || statusCode >= 500;
+  const causeCategory =
+    typeof record.causeCategory === "string" ? record.causeCategory : undefined;
+  return causeCategory !== undefined && RETRYABLE_CAUSE_CATEGORIES.has(causeCategory);
+};
+
+const modelTurnRetryDelayMs = (attempt: number): number => {
+  const backoff = MODEL_TURN_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+  const jitter = Math.random() * MODEL_TURN_RETRY_BASE_DELAY_MS;
+  return Math.round(backoff + jitter);
+};
+
+const wait = (ms: number): Promise<void> =>
+  new Promise((resolveWait) => setTimeout(resolveWait, ms));
+
 const emitLiveEvent = async (
   sink: SessionLiveEventSink | undefined,
   event: SessionLiveEvent,
@@ -275,6 +322,18 @@ export const runReactNode = async (
     const remainingModelTurns = input.limits.maxModelTurns - usage.modelTurns;
     const finalOnly = remainingModelTurns === 1;
     const finalToolTurn = remainingModelTurns === 2;
+    const budgetWrapupReason = finalOnly
+      ? undefined
+      : budgetWrapupStopReason(usage, input.limits);
+    if (budgetWrapupReason)
+      await input.appendTrace("budget_wrapup_triggered", {
+        turnIndex,
+        reason: budgetWrapupReason,
+        usage,
+        limits: input.limits,
+        reserveFraction: BUDGET_WRAPUP_RESERVE_FRACTION,
+      });
+    const wrapupOnly = finalOnly || budgetWrapupReason !== undefined;
     const compaction = compactConversationInPlace(conversation, {
       maxConversationBytes: input.maxConversationBytes,
       observationDigestPreviewBytes: input.observationDigestPreviewBytes,
@@ -392,76 +451,110 @@ export const runReactNode = async (
         ? `Active observations compacted: ${compaction.afterConversationBytes}/${compaction.targetConversationBytes} bytes.`
         : undefined,
       rollingSummaryMessage(rollingSummary),
-      finalOnly,
+      wrapupOnly,
       finalToolTurn,
     );
     let output: ModelTurnOutput;
-    try {
-      await emitLiveEvent(input.onLiveEvent, {
-        type: "model_turn_started",
-        turnIndex,
-        model: input.route.model,
-      });
-      await input.debugTranscript?.append({
-        type: "model_request",
-        ts: new Date().toISOString(),
-        sessionId: input.session.id,
-        payload: {
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        await emitLiveEvent(input.onLiveEvent, {
+          type: "model_turn_started",
           turnIndex,
           model: input.route.model,
+        });
+        await input.debugTranscript?.append({
+          type: "model_request",
+          ts: new Date().toISOString(),
+          sessionId: input.session.id,
+          payload: {
+            turnIndex,
+            model: input.route.model,
+            task: input.session.task,
+            messages,
+            tools: wrapupOnly ? [] : tools,
+            finalOnly: wrapupOnly,
+          },
+        });
+        output = await input.modelClient.createTurn({
           task: input.session.task,
           messages,
-          tools: finalOnly ? [] : tools,
-          finalOnly,
-        },
-      });
-      output = await input.modelClient.createTurn({
-        task: input.session.task,
-        messages,
-        tools: finalOnly ? [] : tools,
-        onOutputDelta: input.onLiveEvent
-          ? async (delta) => {
-              await emitLiveEvent(input.onLiveEvent, {
-                type: "model_output_delta",
-                turnIndex,
-                model: input.route.model,
-                text: delta.text,
-              });
-            }
-          : undefined,
-      });
-      await input.debugTranscript?.append({
-        type: "model_response",
-        ts: new Date().toISOString(),
-        sessionId: input.session.id,
-        payload: {
+          tools: wrapupOnly ? [] : tools,
+          onOutputDelta: input.onLiveEvent
+            ? async (delta) => {
+                await emitLiveEvent(input.onLiveEvent, {
+                  type: "model_output_delta",
+                  turnIndex,
+                  model: input.route.model,
+                  text: delta.text,
+                });
+              }
+            : undefined,
+        });
+        await input.debugTranscript?.append({
+          type: "model_response",
+          ts: new Date().toISOString(),
+          sessionId: input.session.id,
+          payload: {
+            turnIndex,
+            model: input.route.model,
+            content: output.content,
+            toolCalls: output.toolCalls,
+            finishReason: output.finishReason,
+            usage: output.usage,
+          },
+        });
+        break;
+      } catch (error) {
+        if (
+          attempt <= MODEL_TURN_MAX_RETRIES &&
+          isRetryableModelTurnError(error)
+        ) {
+          const delayMs = modelTurnRetryDelayMs(attempt);
+          await input.debugTranscript?.append({
+            type: "model_error",
+            ts: new Date().toISOString(),
+            sessionId: input.session.id,
+            payload: {
+              turnIndex,
+              model: input.route.model,
+              finalOnly: wrapupOnly,
+              attempt,
+              maxRetries: MODEL_TURN_MAX_RETRIES,
+              delayMs,
+              error: modelErrorTracePayload(error),
+            },
+          });
+          await input.appendTrace("model_turn_retry", {
+            turnIndex,
+            model: input.route.model,
+            finalOnly: wrapupOnly,
+            attempt,
+            maxRetries: MODEL_TURN_MAX_RETRIES,
+            delayMs,
+            error: modelErrorTracePayload(error),
+          });
+          await wait(delayMs);
+          continue;
+        }
+        await input.debugTranscript?.append({
+          type: "model_error",
+          ts: new Date().toISOString(),
+          sessionId: input.session.id,
+          payload: {
+            turnIndex,
+            model: input.route.model,
+            finalOnly: wrapupOnly,
+            error: modelErrorTracePayload(error),
+          },
+        });
+        await input.appendTrace("model_turn_error", {
           turnIndex,
           model: input.route.model,
-          content: output.content,
-          toolCalls: output.toolCalls,
-          finishReason: output.finishReason,
-          usage: output.usage,
-        },
-      });
-    } catch (error) {
-      await input.debugTranscript?.append({
-        type: "model_error",
-        ts: new Date().toISOString(),
-        sessionId: input.session.id,
-        payload: {
-          turnIndex,
-          model: input.route.model,
-          finalOnly,
+          finalOnly: wrapupOnly,
           error: modelErrorTracePayload(error),
-        },
-      });
-      await input.appendTrace("model_turn_error", {
-        turnIndex,
-        model: input.route.model,
-        finalOnly,
-        error: modelErrorTracePayload(error),
-      });
-      throw error;
+        });
+        throw error;
+      }
     }
 
     usage.modelTurns += 1;
@@ -515,9 +608,10 @@ export const runReactNode = async (
       };
     }
 
-    if (finalOnly && output.toolCalls.length > 0) {
+    if (wrapupOnly && output.toolCalls.length > 0) {
+      const reason = budgetWrapupReason ?? "max_model_turns";
       await input.appendTrace("budget_blocked_tool_calls", {
-        reason: "max_model_turns",
+        reason,
         skippedCount: output.toolCalls.length,
         toolNames: output.toolCalls.map((toolCall) => toolCall.name),
       });
@@ -525,14 +619,14 @@ export const runReactNode = async (
         input.session,
         input.route,
         usage,
-        "max_model_turns",
+        reason,
         input.limits,
-        { reason: "max_model_turns", skippedCount: output.toolCalls.length },
+        { reason, skippedCount: output.toolCalls.length },
       );
       input.session.stage = "final";
       return {
         status: "stopped",
-        reason: "max_model_turns",
+        reason,
         summary,
       };
     }
@@ -541,19 +635,47 @@ export const runReactNode = async (
       output.toolCalls.length === 0 &&
       !isUsableFinalContent(output.content ?? "")
     ) {
-      if (!finalOnly) continue;
+      if (!wrapupOnly) continue;
+      const reason = budgetWrapupReason ?? "max_model_turns";
       const summary = formatStoppedSummary(
         input.session,
         input.route,
         usage,
-        "max_model_turns",
+        reason,
         input.limits,
       );
       input.session.stage = "final";
       return {
         status: "stopped",
-        reason: "max_model_turns",
+        reason,
         summary,
+      };
+    }
+
+    // No tool calls is the loop exit condition: model content becomes the
+    // Session's final answer, unless a budget wrap-up triggered this closing
+    // turn — that finishes as a stopped Session with the wrap-up content
+    // attached, so onCompleted effects do not fire for it (gated on
+    // status === "completed" in session.ts).
+    if (output.toolCalls.length === 0 && budgetWrapupReason) {
+      const wrapupContent = input.definition.normalizeFinalContent?.(
+        output.content ?? "",
+        { contextAttachments: input.contextAttachments },
+      ) ?? (output.content ?? "");
+      input.session.stage = "final";
+      const summary = formatBudgetWrapupSummary(
+        input.session,
+        input.route,
+        usage,
+        budgetWrapupReason,
+        input.limits,
+        wrapupContent,
+      );
+      return {
+        status: "stopped",
+        reason: budgetWrapupReason,
+        summary,
+        finalContent: wrapupContent,
       };
     }
 
@@ -591,27 +713,182 @@ export const runReactNode = async (
       content: output.content ?? "",
       toolCalls: output.toolCalls,
     });
-    for (const toolCall of output.toolCalls) {
-      const observation = await executeToolCall({
-        toolCall,
-        toolRegistry,
-        session: input.session,
-        workspaceRoot: input.workspaceRoot,
-        grantedCapabilities,
-        readScope: input.readScope,
-        onLiveEvent: input.onLiveEvent,
-        turnIndex,
-        debugTranscript: input.debugTranscript,
-        appendTrace: input.appendTrace,
-      });
-      recordAuditObservation(audit, observation);
-      conversation.push({
-        role: "tool",
-        toolCallId: observation.toolCallId,
-        content: JSON.stringify(observationForModel(observation)),
-      });
+    for (const group of groupToolCallsForExecution(
+      output.toolCalls,
+      toolRegistry,
+    )) {
+      const observations =
+        group.kind === "serial"
+          ? [
+              await executeToolCall({
+                toolCall: group.toolCall,
+                toolRegistry,
+                session: input.session,
+                workspaceRoot: input.workspaceRoot,
+                grantedCapabilities,
+                readScope: input.readScope,
+                onLiveEvent: input.onLiveEvent,
+                turnIndex,
+                debugTranscript: input.debugTranscript,
+                appendTrace: input.appendTrace,
+              }),
+            ]
+          : await executeParallelReadToolCalls({
+              toolCalls: group.toolCalls,
+              toolRegistry,
+              session: input.session,
+              workspaceRoot: input.workspaceRoot,
+              grantedCapabilities,
+              readScope: input.readScope,
+              onLiveEvent: input.onLiveEvent,
+              turnIndex,
+              debugTranscript: input.debugTranscript,
+              appendTrace: input.appendTrace,
+            });
+      for (const observation of observations) {
+        recordAuditObservation(audit, observation);
+        conversation.push({
+          role: "tool",
+          toolCallId: observation.toolCallId,
+          content: JSON.stringify(observationForModel(observation)),
+        });
+      }
     }
   }
+};
+
+// Only calls whose capability is read-only (never subject to interactive
+// approval, see permissions/index.ts) may run concurrently; everything else
+// (writes, commands, plan updates) keeps strict serial order. Consecutive
+// read-capability calls form one parallel group; any other call is its own
+// serial group, so relative ordering across groups is unaffected.
+const PARALLEL_READ_CAPABILITIES = new Set<Capability>([
+  "read_context",
+  "read_workspace",
+  "git_read",
+]);
+const MAX_PARALLEL_TOOL_CALLS = 4;
+
+type ToolCallGroup =
+  | { kind: "parallel_read"; toolCalls: ModelToolCall[] }
+  | { kind: "serial"; toolCall: ModelToolCall };
+
+export const groupToolCallsForExecution = (
+  toolCalls: ModelToolCall[],
+  toolRegistry: ToolRegistry,
+): ToolCallGroup[] => {
+  const groups: ToolCallGroup[] = [];
+  for (const toolCall of toolCalls) {
+    const capability = toolRegistry.capabilityFor(toolCall.name);
+    const isParallelSafe =
+      capability !== undefined && PARALLEL_READ_CAPABILITIES.has(capability);
+    const lastGroup = groups.at(-1);
+    if (isParallelSafe && lastGroup?.kind === "parallel_read") {
+      lastGroup.toolCalls.push(toolCall);
+    } else if (isParallelSafe) {
+      groups.push({ kind: "parallel_read", toolCalls: [toolCall] });
+    } else {
+      groups.push({ kind: "serial", toolCall });
+    }
+  }
+  return groups;
+};
+
+/** Runs a concurrency-limited map over items, returning results in the
+ * original item order regardless of completion order. */
+const mapWithConcurrencyLimit = async <T, R>(
+  items: T[],
+  limit: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> => {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    async () => {
+      for (;;) {
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= items.length) return;
+        results[index] = await mapper(items[index] as T, index);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
+};
+
+/** Executes a group of read-capability tool calls concurrently. Trace and
+ * Debug Transcript events are buffered per call (each keeping the real
+ * timestamp of the moment it actually happened) and flushed in original
+ * tool-call order after the group settles, so replay/debug stays
+ * deterministic even though execution itself is not. Live events pass
+ * through immediately and may interleave, since they are presentation only
+ * (ADR 0015). Conversation order is guaranteed by returning observations in
+ * the original tool-call order, not completion order. */
+export const executeParallelReadToolCalls = async (input: {
+  toolCalls: ModelToolCall[];
+  toolRegistry: ToolRegistry;
+  session: AgentSession;
+  workspaceRoot: string;
+  grantedCapabilities: Capability[];
+  readScope?: string[];
+  onLiveEvent?: SessionLiveEventSink;
+  turnIndex: number;
+  debugTranscript?: DebugTranscriptWriter;
+  appendTrace(
+    type: string,
+    payload: Record<string, unknown>,
+    ts?: string,
+  ): Promise<void>;
+}): Promise<ToolObservation[]> => {
+  const perCallTraceEvents: {
+    type: string;
+    payload: Record<string, unknown>;
+    ts: string;
+  }[][] = input.toolCalls.map(() => []);
+  const perCallDebugEvents: DebugTranscriptEvent[][] = input.toolCalls.map(
+    () => [],
+  );
+
+  const observations = await mapWithConcurrencyLimit(
+    input.toolCalls,
+    MAX_PARALLEL_TOOL_CALLS,
+    (toolCall, index) =>
+      executeToolCall({
+        toolCall,
+        toolRegistry: input.toolRegistry,
+        session: input.session,
+        workspaceRoot: input.workspaceRoot,
+        grantedCapabilities: input.grantedCapabilities,
+        readScope: input.readScope,
+        onLiveEvent: input.onLiveEvent,
+        turnIndex: input.turnIndex,
+        debugTranscript: input.debugTranscript
+          ? {
+              path: input.debugTranscript.path,
+              append: async (event) => {
+                perCallDebugEvents[index]?.push(event);
+              },
+            }
+          : undefined,
+        appendTrace: async (type, payload) => {
+          perCallTraceEvents[index]?.push({
+            type,
+            payload,
+            ts: new Date().toISOString(),
+          });
+        },
+      }),
+  );
+
+  for (const events of perCallTraceEvents)
+    for (const event of events)
+      await input.appendTrace(event.type, event.payload, event.ts);
+  for (const events of perCallDebugEvents)
+    for (const event of events) await input.debugTranscript?.append(event);
+
+  return observations;
 };
 
 const recordAuditObservation = (
@@ -864,6 +1141,25 @@ const tokenOrCostBudgetStopReason = (
   return undefined;
 };
 
+// Reserve fraction for the proactive budget wrap-up: once usage crosses this
+// share of a token/cost limit, the loop stops issuing tool-capable turns and
+// gives the model a closing turn instead of running cold into the hard stop.
+const BUDGET_WRAPUP_RESERVE_FRACTION = 0.9;
+
+const budgetWrapupStopReason = (
+  usage: BudgetUsage,
+  limits: BudgetLimits,
+): SessionStopReason | undefined => {
+  if (usage.inputTokens >= limits.maxInputTokens * BUDGET_WRAPUP_RESERVE_FRACTION)
+    return "input_token_limit_exceeded";
+  if (
+    usage.estimatedCostUsd >=
+    limits.maxEstimatedCostUsd * BUDGET_WRAPUP_RESERVE_FRACTION
+  )
+    return "estimated_cost_budget_exceeded";
+  return undefined;
+};
+
 const isUsableFinalContent = (content: string): boolean => {
   const trimmed = content.trim();
   if (!trimmed) return false;
@@ -994,5 +1290,21 @@ const formatStoppedSummary = (
           `Skipped ${blockedToolCalls.skippedCount} tool call${blockedToolCalls.skippedCount === 1 ? "" : "s"} because ${blockedToolCalls.reason} was reached.`,
         ]
       : []),
+  ].join("\n");
+};
+
+const formatBudgetWrapupSummary = (
+  session: AgentSession,
+  route: ActLoopRoute,
+  usage: BudgetUsage,
+  reason: SessionStopReason,
+  limits: BudgetLimits,
+  wrapupContent: string,
+): string => {
+  return [
+    formatStoppedSummary(session, route, usage, reason, limits),
+    "",
+    "The model produced a wrap-up answer before the budget stop:",
+    wrapupContent,
   ].join("\n");
 };

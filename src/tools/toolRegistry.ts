@@ -19,6 +19,10 @@ import {
 
 export interface ToolRegistry {
   listTools(grantedCapabilities: readonly Capability[]): ToolSchema[];
+  /** Looks up a tool's capability before executing it, so callers can decide
+   * execution strategy (e.g. which calls are safe to run concurrently)
+   * without running the tool first. Returns undefined for unknown tools. */
+  capabilityFor(toolName: string): Capability | undefined;
   execute(
     toolCall: ModelToolCall,
     ctx: ToolContext,
@@ -75,6 +79,9 @@ export const createToolRegistry = (
           description,
           inputSchema,
         }));
+    },
+    capabilityFor(toolName) {
+      return tools.find((candidate) => candidate.name === toolName)?.capability;
     },
     async execute(toolCall, ctx) {
       const tool = tools.find((candidate) => candidate.name === toolCall.name);

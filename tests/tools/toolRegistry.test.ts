@@ -35,6 +35,17 @@ test("ToolRegistry lists only model-facing schemas for granted capabilities", ()
   expect("capability" in registry.listTools(["read_workspace"])[0]).toBe(false);
 });
 
+test("ToolRegistry looks up a tool's capability by name without executing it", () => {
+  const registry = createToolRegistry([
+    testTool({ name: "read_file", capability: "read_workspace" }),
+    testTool({ name: "git_diff", providerId: "git", capability: "git_read" }),
+  ]);
+
+  expect(registry.capabilityFor("read_file")).toBe("read_workspace");
+  expect(registry.capabilityFor("git_diff")).toBe("git_read");
+  expect(registry.capabilityFor("unknown_tool")).toBeUndefined();
+});
+
 test("ToolRegistry executes a granted tool and returns an allow decision", async () => {
   const registry = createToolRegistry([
     testTool({

@@ -267,12 +267,12 @@ export async function runKernelSession<TCompletion = void>(
         approvalHandler: input.approvalHandler,
         onLiveEvent: input.onLiveEvent,
         debugTranscript,
-        appendTrace: (type, payload) =>
+        appendTrace: (type, payload, ts) =>
           traceWriter.append(
             createTraceEvent(
               sessionId,
               type,
-              new Date().toISOString(),
+              ts ?? new Date().toISOString(),
               payload,
             ),
           ),
