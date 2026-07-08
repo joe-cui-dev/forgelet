@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
-import { basename, dirname, resolve } from "node:path";
+import { readFile, realpath } from "node:fs/promises";
+import { basename, dirname, relative, resolve } from "node:path";
 import type { ToolContext, ToolResult } from "../types.js";
 import { listWorkspaceFiles, safeWorkspacePath } from "./workspacePaths.js";
 
@@ -17,7 +17,7 @@ export interface WorkspaceSummary {
     totalFiles: number;
   };
   directories: string[];
-  manifests: string[];
+  anchorFiles: string[];
   configs: string[];
   scripts: Record<string, string>;
   dependencies: string[];
@@ -45,16 +45,30 @@ export const summarizeWorkspace = async (
   const maxExcerptBytes =
     optionalPositiveInteger(input, "maxExcerptBytes") ??
     DEFAULT_MAX_EXCERPT_BYTES;
+  const realWorkspaceRoot = await realpath(ctx.workspaceRoot);
   const root = await safeWorkspacePath(ctx.workspaceRoot, requestedPath);
   const listed = await listWorkspaceFiles(root, ctx.workspaceRoot, ctx.readScope);
+  // Truncated slice bounds the unbounded inventories (configs, test conventions); anchor
+  // files are detected on the full scope-filtered listing and unioned in beyond the slice.
   const files = listed.files.slice(0, maxFiles);
   const truncated = listed.files.length > files.length;
-  const manifests = findManifestFiles(files);
-  const packageJsonPath = manifests.find((file) => basename(file) === "package.json");
+  const scanRoot = relative(realWorkspaceRoot, root);
+  const anchorFiles = selectAnchorFiles(listed.files, scanRoot);
+  const anchorsBeyondSlice = anchorFiles.filter((file) => !files.includes(file));
+  const packageJsonPath = anchorFiles.find(
+    (file) => basename(file) === "package.json",
+  );
   const packageRoot = packageJsonPath ? dirname(packageJsonPath) : ".";
   const packageJson = packageJsonPath
     ? await readPackageJson(resolve(ctx.workspaceRoot, packageJsonPath))
     : undefined;
+  // Entrypoint verification runs on the full listing so an anchored package.json whose
+  // main/bin points past the slice still resolves to a real, listed file.
+  const entrypointCandidates = findEntrypointCandidates(
+    listed.files,
+    packageJson,
+    packageRoot,
+  );
   const summary: WorkspaceSummary = {
     content: "",
     path: requestedPath,
@@ -62,25 +76,19 @@ export const summarizeWorkspace = async (
     limits: {
       maxFiles,
       maxExcerptBytes,
-      scannedFiles: files.length,
+      scannedFiles: files.length + anchorsBeyondSlice.length,
       totalFiles: listed.files.length,
     },
     directories: listed.directories,
-    manifests,
+    anchorFiles,
     configs: findConfigFiles(files),
     scripts: packageJson ? readPackageScripts(packageJson) : {},
     dependencies: packageJson ? readPackageDependencies(packageJson) : [],
-    entrypointCandidates: findEntrypointCandidates(
-      files,
-      packageJson,
-      packageRoot,
-    ),
+    entrypointCandidates,
     testConventions: findTestConventions(files, listed.directories),
     excerpts: await readHighSignalExcerpts(
       ctx.workspaceRoot,
-      files,
-      packageJson,
-      packageRoot,
+      excerptCandidates(anchorFiles, entrypointCandidates, files),
       maxExcerptBytes,
     ),
     skippedDirectories: listed.skippedDirectories,
@@ -96,26 +104,34 @@ export const summarizeWorkspace = async (
   };
 };
 
-const findManifestFiles = (files: string[]): string[] =>
-  files.filter((file) => {
-    const name = basename(file);
-    return (
-      name === "package.json" ||
-      name === "README.md" ||
-      name === "package-lock.json" ||
-      name === "pnpm-lock.yaml" ||
-      name === "yarn.lock"
-    );
-  }).sort((left, right) => manifestOrder(left) - manifestOrder(right));
+// Anchor Files (see CONTEXT.md): the fixed high-signal set located directly at the summary's
+// effective scan root, listed in canonical order.
+export const ANCHOR_FILE_NAMES = [
+  "package.json",
+  "README.md",
+  "AGENTS.md",
+  "CONTEXT.md",
+] as const;
 
-const manifestOrder = (path: string): number => {
-  const name = basename(path);
-  if (name === "package.json") return 0;
-  if (name === "README.md") return 1;
-  if (name === "package-lock.json") return 2;
-  if (name === "pnpm-lock.yaml") return 3;
-  if (name === "yarn.lock") return 4;
-  return 5;
+// Selects the scan-root Anchor Files from a scope-filtered listing. `scanRoot` is the
+// workspace-relative scan root ("" or "." for the workspace root). Matching is
+// case-insensitive; if multiple casings coexist on a case-sensitive filesystem the
+// byte-order-smallest path wins, keeping detection deterministic. Only direct children of
+// the scan root qualify — nested same-named files are never Anchor Files.
+export const selectAnchorFiles = (files: string[], scanRoot: string): string[] => {
+  const rootDir = scanRoot === "" || scanRoot === "." ? "." : scanRoot;
+  const best = new Map<string, string>();
+  for (const file of files) {
+    if (dirname(file) !== rootDir) continue;
+    const lowerName = basename(file).toLowerCase();
+    const anchor = ANCHOR_FILE_NAMES.find((name) => name.toLowerCase() === lowerName);
+    if (!anchor) continue;
+    const existing = best.get(anchor);
+    if (existing === undefined || file < existing) best.set(anchor, file);
+  }
+  return ANCHOR_FILE_NAMES.map((name) => best.get(name)).filter(
+    (file): file is string => file !== undefined,
+  );
 };
 
 const findConfigFiles = (files: string[]): string[] =>
@@ -222,6 +238,7 @@ const renderWorkspaceSummary = (summary: WorkspaceSummary): string => {
     "# Workspace",
     `- Path: ${summary.path}`,
     summary.scopeConstrained ? "- Session Read Scope: constrained" : "- Session Read Scope: full workspace",
+    formatList("Anchor Files", summary.anchorFiles),
     "",
     "## Scripts and dependencies",
     formatList("Scripts", Object.keys(summary.scripts)),
@@ -239,11 +256,16 @@ const renderWorkspaceSummary = (summary: WorkspaceSummary): string => {
     "## High-signal excerpts",
     ...formatExcerpts(summary.excerpts),
   ];
+  const anchorsBeyondMaxFiles = Math.max(
+    0,
+    summary.limits.scannedFiles - summary.limits.maxFiles,
+  );
   if (
     summary.truncated ||
     summary.scopeConstrained ||
     summary.skippedDirectories.length > 0 ||
-    truncatedExcerptPaths.length > 0
+    truncatedExcerptPaths.length > 0 ||
+    anchorsBeyondMaxFiles > 0
   ) {
     sections.push(
       "",
@@ -257,18 +279,19 @@ const renderWorkspaceSummary = (summary: WorkspaceSummary): string => {
       formatList("Truncated excerpts", truncatedExcerptPaths),
       `- Truncated: ${summary.truncated ? "yes" : "no"}`,
     );
+    if (anchorsBeyondMaxFiles > 0)
+      sections.push(
+        `- Anchor files scanned beyond max files: ${anchorsBeyondMaxFiles}`,
+      );
   }
   return sections.join("\n");
 };
 
 const readHighSignalExcerpts = async (
   workspaceRoot: string,
-  files: string[],
-  packageJson: Record<string, unknown> | undefined,
-  packageRoot: string,
+  candidates: string[],
   maxExcerptBytes: number,
 ): Promise<WorkspaceSummaryExcerpt[]> => {
-  const candidates = excerptCandidates(files, packageJson, packageRoot).slice(0, 5);
   const excerpts: WorkspaceSummaryExcerpt[] = [];
   for (const path of candidates) {
     const buffer = await readTextBuffer(resolve(workspaceRoot, path));
@@ -285,33 +308,24 @@ const readHighSignalExcerpts = async (
   return excerpts;
 };
 
+// Builds the ordered excerpt candidate list within a fixed budget of 5: every detected
+// Anchor File first, then the single remaining non-anchor slot filled by priority
+// entrypoint > test sample > tsconfig. Configs and test conventions already have their own
+// rendered sections, so the test/tsconfig samples are drawn from the truncated slice.
 const excerptCandidates = (
-  files: string[],
-  packageJson: Record<string, unknown> | undefined,
-  packageRoot = ".",
+  anchorFiles: string[],
+  entrypointCandidates: string[],
+  sliceFiles: string[],
 ): string[] => {
-  const candidates = new Set<string>();
-  addFirstMatching(candidates, files, (file) =>
-    ["README.md", "CONTEXT.md", "AGENTS.md"].includes(basename(file)),
-  );
-  if (files.includes("package.json")) candidates.add("package.json");
-  addFirstMatching(candidates, files, (file) => /^tsconfig.*\.json$/.test(basename(file)));
-  for (const entrypoint of findEntrypointCandidates(files, packageJson, packageRoot)) {
-    candidates.add(entrypoint);
-  }
-  addFirstMatching(candidates, files, (file) =>
-    /\.(test|spec)\.[cm]?[jt]sx?$/.test(file),
-  );
-  return [...candidates];
-};
-
-const addFirstMatching = (
-  candidates: Set<string>,
-  files: string[],
-  predicate: (file: string) => boolean,
-): void => {
-  const match = files.find(predicate);
-  if (match) candidates.add(match);
+  const candidates: string[] = [];
+  const add = (path: string | undefined): void => {
+    if (path && !candidates.includes(path)) candidates.push(path);
+  };
+  for (const anchor of anchorFiles) add(anchor);
+  for (const entrypoint of entrypointCandidates) add(entrypoint);
+  add(sliceFiles.find((file) => /\.(test|spec)\.[cm]?[jt]sx?$/.test(file)));
+  add(sliceFiles.find((file) => /^tsconfig.*\.json$/.test(basename(file))));
+  return candidates.slice(0, 5);
 };
 
 const readTextBuffer = async (path: string): Promise<Buffer | undefined> => {
