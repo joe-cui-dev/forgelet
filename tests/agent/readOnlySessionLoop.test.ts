@@ -294,7 +294,7 @@ test("workspace_summary returns Markdown observations and compact trace metadata
   });
 
   const toolMessage = JSON.parse(
-    modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "{}",
+    modelClient.turnInputs[1]?.messages.at(-2)?.content ?? "{}",
   );
   expect(toolMessage.content).toMatch(/# Workspace/);
   expect(toolMessage.metadata).toMatchObject({
@@ -1005,7 +1005,7 @@ test("a Session Read Scope denies read_file outside the allowed paths", async ()
 
   expect(result.session.readScope).toEqual(["allowed.txt"]);
   const denied = JSON.parse(
-    modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "{}",
+    modelClient.turnInputs[1]?.messages.at(-2)?.content ?? "{}",
   );
   expect(denied).toMatchObject({
     ok: false,
@@ -1048,7 +1048,7 @@ test("a Session Read Scope allows read_file inside the allowed paths", async () 
   });
 
   expect(
-    JSON.parse(modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "{}"),
+    JSON.parse(modelClient.turnInputs[1]?.messages.at(-2)?.content ?? "{}"),
   ).toMatchObject({
     ok: true,
     toolName: "read_file",
@@ -1083,7 +1083,7 @@ test("a missing file inside the Session Read Scope returns invalid_input", async
   });
 
   expect(
-    JSON.parse(modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "{}"),
+    JSON.parse(modelClient.turnInputs[1]?.messages.at(-2)?.content ?? "{}"),
   ).toMatchObject({
     ok: false,
     error: { code: "invalid_input" },
@@ -1114,7 +1114,7 @@ test("search_text returns only matches inside the Session Read Scope", async () 
   });
 
   const observation = JSON.parse(
-    modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "{}",
+    modelClient.turnInputs[1]?.messages.at(-2)?.content ?? "{}",
   );
   expect(observation.content).toMatch(/allowed\.txt/);
   expect(observation.content).not.toMatch(/secret\.txt/);
@@ -1152,7 +1152,7 @@ test("list_files returns only paths inside the Session Read Scope", async () => 
   });
 
   const observation = JSON.parse(
-    modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "{}",
+    modelClient.turnInputs[1]?.messages.at(-2)?.content ?? "{}",
   );
   expect(observation.content).toMatch(/allowed\/visible\.txt/);
   expect(observation.content).not.toMatch(/secret|hidden\.txt/);
@@ -1183,7 +1183,7 @@ test("collection reads deny targets that do not overlap the Session Read Scope",
   });
 
   const observation = JSON.parse(
-    modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "{}",
+    modelClient.turnInputs[1]?.messages.at(-2)?.content ?? "{}",
   );
   expect(observation).toMatchObject({
     ok: false,
@@ -1217,7 +1217,7 @@ test("git_status exposes only paths inside the Session Read Scope", async () => 
   });
 
   const observation = JSON.parse(
-    modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "{}",
+    modelClient.turnInputs[1]?.messages.at(-2)?.content ?? "{}",
   );
   expect(observation.content).toMatch(/allowed\.txt/);
   expect(observation.content).not.toMatch(/secret\.txt/);
@@ -1249,7 +1249,7 @@ test("git_diff exposes only content inside the Session Read Scope", async () => 
   });
 
   const observation = JSON.parse(
-    modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "{}",
+    modelClient.turnInputs[1]?.messages.at(-2)?.content ?? "{}",
   );
   expect(observation.content).toMatch(/allowed\.txt/);
   expect(observation.content).toMatch(/after allowed/);
@@ -1298,7 +1298,9 @@ test("a Session compacts old tool observations before a later model turn", async
     8_000,
   );
   expect(
-    thirdTurnMessages.find((message) => message.role === "user")?.content,
+    thirdTurnMessages
+      .filter((message) => message.role === "user")
+      .at(-1)?.content,
   ).toMatch(/Active observations compacted: \d+\/4096 bytes/);
 
   const events = (await readFile(result.tracePath ?? "", "utf8"))
@@ -1521,7 +1523,7 @@ test("a Context Attachment does not grant tool access outside the Session Read S
     )?.content,
   ).toMatch(/attached issue/);
   expect(
-    JSON.parse(modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "{}"),
+    JSON.parse(modelClient.turnInputs[1]?.messages.at(-2)?.content ?? "{}"),
   ).toMatchObject({
     ok: false,
     error: { code: "permission_denied" },
@@ -1556,7 +1558,7 @@ test("a coding Session can inspect a truncated git diff without storing the full
   expect(
     modelClient.turnInputs[0]?.tools.some((tool) => tool.name === "git_diff"),
   ).toBe(true);
-  const toolMessage = modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "";
+  const toolMessage = modelClient.turnInputs[1]?.messages.at(-2)?.content ?? "";
   const observation = JSON.parse(toolMessage);
   expect(observation.ok).toBe(true);
   expect(observation.toolName).toBe("git_diff");
@@ -2320,7 +2322,7 @@ test("a writing Session requesting git_diff receives a controlled registry denia
   expect(
     modelClient.turnInputs[0]?.tools.some((tool) => tool.name === "git_diff"),
   ).toBe(false);
-  expect(modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "").toMatch(
+  expect(modelClient.turnInputs[1]?.messages.at(-2)?.content ?? "").toMatch(
     /permission_denied/,
   );
 
@@ -2391,7 +2393,7 @@ test("an ungranted tool call returns a denial observation and the Session can re
   expect(
     modelClient.turnInputs[0]?.tools.some((tool) => tool.name === "read_file"),
   ).toBe(false);
-  expect(modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "").toMatch(
+  expect(modelClient.turnInputs[1]?.messages.at(-2)?.content ?? "").toMatch(
     /permission_denied/,
   );
 
@@ -2474,7 +2476,7 @@ test("a Session warns on its final tool turn and then removes tools for the fina
   });
 
   expect(modelClient.turnInputs[0]?.tools.length).toBeGreaterThan(0);
-  expect(modelClient.turnInputs[0]?.messages[1]?.content).toMatch(
+  expect(modelClient.turnInputs[0]?.messages.at(-1)?.content).toMatch(
     /final tool-capable turn/,
   );
   expect(modelClient.turnInputs[1]?.tools).toEqual([]);
@@ -2489,10 +2491,13 @@ test("a Session warns on its final tool turn and then removes tools for the fina
       message.content.includes("Listed"),
     ),
   ).toBe(true);
-  expect(modelClient.turnInputs[1]?.messages[0]?.content).toMatch(
+  expect(modelClient.turnInputs[1]?.messages[0]?.content).not.toMatch(
     /FINAL ANSWER ONLY/,
   );
-  expect(modelClient.turnInputs[1]?.messages[1]?.content).toMatch(
+  expect(modelClient.turnInputs[1]?.messages.at(-1)?.content).toMatch(
+    /FINAL ANSWER ONLY/,
+  );
+  expect(modelClient.turnInputs[1]?.messages.at(-1)?.content).toMatch(
     /reserved final answer turn/,
   );
   expect(result.summary).toMatch(/The final answer uses the listed files/);
@@ -2792,7 +2797,7 @@ test("large read_file observations are truncated for the model and not stored fu
     modelClient,
   });
 
-  const toolMessage = modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "";
+  const toolMessage = modelClient.turnInputs[1]?.messages.at(-2)?.content ?? "";
   const observation = JSON.parse(toolMessage);
   expect(observation.metadata.truncated).toBe(true);
   expect(observation.metadata.totalBytes).toBe(
@@ -2895,7 +2900,7 @@ test("read_file can continue from a byte offset without returning the first chun
     modelClient,
   });
 
-  const toolMessage = modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "";
+  const toolMessage = modelClient.turnInputs[1]?.messages.at(-2)?.content ?? "";
   const observation = JSON.parse(toolMessage);
   expect(observation.ok).toBe(true);
   expect(observation.content).toBe("SECOND_CHUNK");
@@ -2947,7 +2952,7 @@ test("read_file can return a one-based line range without line number prefixes",
     modelClient,
   });
 
-  const toolMessage = modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "";
+  const toolMessage = modelClient.turnInputs[1]?.messages.at(-2)?.content ?? "";
   const observation = JSON.parse(toolMessage);
   expect(observation.ok).toBe(true);
   expect(observation.content).toBe("line two\nline three");
@@ -2986,7 +2991,7 @@ test("read_file tail reads return the end of a file instead of the first chunk",
     modelClient,
   });
 
-  const toolMessage = modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "";
+  const toolMessage = modelClient.turnInputs[1]?.messages.at(-2)?.content ?? "";
   const observation = JSON.parse(toolMessage);
   expect(observation.ok).toBe(true);
   expect(observation.content).toBe("tail one\ntail two");
@@ -3025,7 +3030,7 @@ test("read_file rejects conflicting range modes as invalid input", async () => {
     modelClient,
   });
 
-  const toolMessage = modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "";
+  const toolMessage = modelClient.turnInputs[1]?.messages.at(-2)?.content ?? "";
   const observation = JSON.parse(toolMessage);
   expect(observation.ok).toBe(false);
   expect(observation.error.code).toBe("invalid_input");
@@ -3067,7 +3072,7 @@ test("read_file byte ranges beyond the end return an empty successful observatio
     modelClient,
   });
 
-  const toolMessage = modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "";
+  const toolMessage = modelClient.turnInputs[1]?.messages.at(-2)?.content ?? "";
   const observation = JSON.parse(toolMessage);
   expect(observation.ok).toBe(true);
   expect(observation.content).toBe("");
@@ -3102,7 +3107,7 @@ test("read_file rejects zero as a one-based start line", async () => {
     modelClient,
   });
 
-  const toolMessage = modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "";
+  const toolMessage = modelClient.turnInputs[1]?.messages.at(-2)?.content ?? "";
   const observation = JSON.parse(toolMessage);
   expect(observation.ok).toBe(false);
   expect(observation.error.code).toBe("invalid_input");
@@ -3217,7 +3222,7 @@ test("read-only tools do not follow workspace symlinks outside the workspace", a
     modelClient,
   });
 
-  const toolMessage = modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "";
+  const toolMessage = modelClient.turnInputs[1]?.messages.at(-2)?.content ?? "";
   expect(toolMessage).toMatch(/outside workspace/);
   expect(toolMessage).not.toMatch(/outside secret/);
 
@@ -3269,7 +3274,7 @@ test("a Session Read Scope denies symlinks that escape an allowed directory", as
   });
 
   const observation = JSON.parse(
-    modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "{}",
+    modelClient.turnInputs[1]?.messages.at(-2)?.content ?? "{}",
   );
   expect(observation).toMatchObject({
     ok: false,
@@ -3302,7 +3307,7 @@ test("Session Read Scope entries are literal paths rather than globs", async () 
   });
 
   const observation = JSON.parse(
-    modelClient.turnInputs[1]?.messages.at(-1)?.content ?? "{}",
+    modelClient.turnInputs[1]?.messages.at(-2)?.content ?? "{}",
   );
   expect(observation.content).toMatch(/\*\.txt/);
   expect(observation.content).not.toMatch(/secret\.txt/);

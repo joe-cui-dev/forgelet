@@ -84,9 +84,9 @@ test("creative draft output is wrapped in a Draft heading", () => {
 test("writing definition renders the plain writing system prompt", () => {
   const definition = createWritingWorkflowDefinition({});
 
-  expect(definition.systemPrompt({ act: false, finalOnly: false })).toBe(
+  expect(definition.systemPrompt({ act: false })).toBe(
     [
-      ...kernelCommonPromptLines(false),
+      ...kernelCommonPromptLines(),
       "This is a Writing Workflow Session.",
       "Use the provided context and Durable Memory, but do not request workspace, git, shell, patch, or command tools.",
       "Return the final answer with these headings: Critique, Revision, Notes.",
@@ -118,9 +118,9 @@ test("writing definition renders creative draft, continuation, and revision prom
     creativeInputKind: "draft",
   });
   await draft.prepareSession?.({ workspaceRoot });
-  expect(draft.systemPrompt({ act: false, finalOnly: false })).toBe(
+  expect(draft.systemPrompt({ act: false })).toBe(
     [
-      ...kernelCommonPromptLines(false),
+      ...kernelCommonPromptLines(),
       "This is a Creative Writing Workflow variant.",
       stylePresetBlock,
       "Use the Creative Brief and Durable Memory for original drafting, but do not request workspace, git, shell, patch, or command tools.",
@@ -134,9 +134,9 @@ test("writing definition renders creative draft, continuation, and revision prom
     creativeInputKind: "continuation",
   });
   await continuation.prepareSession?.({ workspaceRoot });
-  expect(continuation.systemPrompt({ act: false, finalOnly: false })).toBe(
+  expect(continuation.systemPrompt({ act: false })).toBe(
     [
-      ...kernelCommonPromptLines(false),
+      ...kernelCommonPromptLines(),
       "This is a Creative Writing Workflow variant.",
       stylePresetBlock,
       "Use the Creative Brief, Continuation source, Additional context attachments, and Durable Memory to continue the source prose, but do not request workspace, git, shell, patch, or command tools.",
@@ -150,9 +150,9 @@ test("writing definition renders creative draft, continuation, and revision prom
     creativeInputKind: "revision",
   });
   await revision.prepareSession?.({ workspaceRoot });
-  expect(revision.systemPrompt({ act: false, finalOnly: false })).toBe(
+  expect(revision.systemPrompt({ act: false })).toBe(
     [
-      ...kernelCommonPromptLines(false),
+      ...kernelCommonPromptLines(),
       "This is a Creative Writing Workflow variant.",
       stylePresetBlock,
       "Use the Creative Brief, any provided Context Attachments, and Durable Memory, but do not request workspace, git, shell, patch, or command tools.",

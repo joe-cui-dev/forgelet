@@ -14,7 +14,7 @@ test("learning definition grants source-backed text capabilities", () => {
 test("learning definition renders the Learning Workflow system prompt", () => {
   const definition = createLearningWorkflowDefinition();
 
-  const prompt = definition.systemPrompt({ act: false, finalOnly: false });
+  const prompt = definition.systemPrompt({ act: false });
 
   expect(prompt).toContain("This is a source-backed Learning Workflow Session.");
   expect(prompt).toContain(

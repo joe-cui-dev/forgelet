@@ -51,9 +51,9 @@ export function createLearningWorkflowDefinition(): WorkflowDefinition {
     capabilities() {
       return ["read_context", "update_plan", "model_generate_text"];
     },
-    systemPrompt({ finalOnly }) {
+    systemPrompt() {
       return [
-        ...kernelCommonPromptLines(finalOnly),
+        ...kernelCommonPromptLines(),
         "This is a source-backed Learning Workflow Session.",
         "Use explicit Context Attachments, browser context, and accepted Durable Memory only within their boundaries.",
         "Treat Durable Memory as preference or terminology guidance, not source material.",

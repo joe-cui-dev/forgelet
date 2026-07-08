@@ -68,6 +68,10 @@ _Avoid_: Chat summary, progress report, checkpoint chain, durable memory, transc
 The deterministic, machine-assembled part of a Rolling Summary that carries facts forward from folded Observation Digests, such as files read with their ranges and hashes, files changed, and commands run with their outcomes. A Fact Ledger never passes through a model and is deterministically bounded; evicted entries remain recoverable from the Trace.
 _Avoid_: Model summary, durable memory, trace event, transaction log
 
+**Turn Status**:
+The volatile per-turn state the Agent Kernel reports to the model — plan progress, budget consumption, compaction status, and wrapup notices — kept distinct from the task context, which does not change from turn to turn. Turn Status is rendered after the conversation so the Active Context ahead of it stays stable across turns.
+_Avoid_: Budget line, status prompt, system reminder
+
 **Degraded Fold**:
 A fold performed after repeated summarization failures, in which the Rolling Summary's narrative is a deterministic placeholder pointing at the Trace while the Fact Ledger updates as usual. A Degraded Fold is fully traced and is not a silent drop.
 _Avoid_: Silent drop, truncation, retry

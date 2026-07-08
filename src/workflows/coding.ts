@@ -63,7 +63,7 @@ export function createCodingWorkflowDefinition(): WorkflowDefinition {
     createActionableTools(deps) {
       return createActionableCodingTools(deps);
     },
-    systemPrompt({ act, finalOnly }) {
+    systemPrompt({ act }) {
       const codingWorkspaceSummaryGuidance = [
         "When you need an overview of an unfamiliar workspace, call workspace_summary first.",
         "Follow up with targeted search_text, read_file, git_status, or git_diff only when specific evidence is needed.",
@@ -71,7 +71,7 @@ export function createCodingWorkflowDefinition(): WorkflowDefinition {
       ];
       if (act)
         return [
-          ...kernelCommonPromptLines(finalOnly),
+          ...kernelCommonPromptLines(),
           "This is an actionable Coding Workflow Session.",
           ...codingWorkspaceSummaryGuidance,
           "You may request apply_patch and run_command only when those tools are provided.",
@@ -79,7 +79,7 @@ export function createCodingWorkflowDefinition(): WorkflowDefinition {
           "Do not claim verification succeeded unless a run_command observation shows the command ran successfully.",
         ].join("\n");
       return [
-        ...kernelCommonPromptLines(finalOnly),
+        ...kernelCommonPromptLines(),
         "This is a read-only Coding Workflow Session.",
         "Read-only tools may inspect workspace content; do not claim to write files or run commands.",
         ...codingWorkspaceSummaryGuidance,

@@ -177,13 +177,13 @@ export function createWritingWorkflowDefinition(
           workspaceRoot,
         );
     },
-    systemPrompt({ finalOnly }) {
+    systemPrompt() {
       if (
         input.workflowVariant === "creative" &&
         input.creativeInputKind === "draft"
       )
         return [
-          ...kernelCommonPromptLines(finalOnly),
+          ...kernelCommonPromptLines(),
           "This is a Creative Writing Workflow variant.",
           creativeStylePresetBlock,
           "Use the Creative Brief and Durable Memory for original drafting, but do not request workspace, git, shell, patch, or command tools.",
@@ -194,7 +194,7 @@ export function createWritingWorkflowDefinition(
         input.creativeInputKind === "continuation"
       )
         return [
-          ...kernelCommonPromptLines(finalOnly),
+          ...kernelCommonPromptLines(),
           "This is a Creative Writing Workflow variant.",
           creativeStylePresetBlock,
           "Use the Creative Brief, Continuation source, Additional context attachments, and Durable Memory to continue the source prose, but do not request workspace, git, shell, patch, or command tools.",
@@ -202,7 +202,7 @@ export function createWritingWorkflowDefinition(
         ].join("\n");
       if (input.workflowVariant === "creative")
         return [
-          ...kernelCommonPromptLines(finalOnly),
+          ...kernelCommonPromptLines(),
           "This is a Creative Writing Workflow variant.",
           creativeStylePresetBlock,
           "Use the Creative Brief, any provided Context Attachments, and Durable Memory, but do not request workspace, git, shell, patch, or command tools.",
@@ -211,7 +211,7 @@ export function createWritingWorkflowDefinition(
           "Alternatives must include exactly two options: one more vivid/literary and one clearer/tighter.",
         ].join("\n");
       return [
-        ...kernelCommonPromptLines(finalOnly),
+        ...kernelCommonPromptLines(),
         "This is a Writing Workflow Session.",
         "Use the provided context and Durable Memory, but do not request workspace, git, shell, patch, or command tools.",
         "Return the final answer with these headings: Critique, Revision, Notes.",

@@ -14,7 +14,7 @@ import {
 import type { WorkflowDefinition } from "./workflowDefinition.js";
 import type { ActLoopRoute } from "./reactNode.js";
 
-export function kernelCommonPromptLines(finalOnly: boolean): string[] {
+export function kernelCommonPromptLines(): string[] {
   return [
     "You are running inside the Forgelet Agent Kernel.",
     "Use only the tools provided in this turn.",
@@ -22,12 +22,6 @@ export function kernelCommonPromptLines(finalOnly: boolean): string[] {
     "When you can answer the task, return final content with no tool calls.",
     "Tool observations may be compacted into Observation Digests, and older turns may fold into a Rolling Summary paired with a Fact Ledger to keep the active context within budget.",
     "The Fact Ledger records files read with their ranges and hashes, files changed, and commands run with their outcomes; hash-unchanged ranges it already lists need not be re-read unless their content is required.",
-    ...(finalOnly
-      ? [
-          "FINAL ANSWER ONLY: synthesize the best answer from existing evidence.",
-          "Do not call or request tools, and do not emit tool-call syntax. If evidence is incomplete, state that limitation in the answer.",
-        ]
-      : []),
   ];
 }
 
@@ -72,7 +66,7 @@ export const buildMessages = (
   const messages: ModelMessage[] = [
     {
       role: "system",
-      content: definition.systemPrompt({ act, finalOnly }),
+      content: definition.systemPrompt({ act }),
     },
     {
       role: "user",
@@ -96,23 +90,6 @@ export const buildMessages = (
         ...contextAttachmentLines,
         ...(contextAttachmentLines.length > 0 ? [""] : []),
         ...durableMemoryLines,
-        ...(durableMemoryLines.length > 0 ? [""] : []),
-        "Current plan:",
-        ...plan.items.map((item) => `- ${item.status}: ${item.step}`),
-        "",
-        `Budget: ${usage.modelTurns}/${limits.maxModelTurns} model turns, $${usage.estimatedCostUsd.toFixed(4)}/$${limits.maxEstimatedCostUsd.toFixed(4)} estimated.`,
-        ...(compactionStatus ? [compactionStatus] : []),
-        ...(finalToolTurn
-          ? [
-              "This is the final tool-capable turn. Request only operations still required to finish.",
-            ]
-          : []),
-        ...(finalOnly
-          ? [
-              "This is the reserved final answer turn. No tools are available.",
-              "Return a non-empty final answer from existing evidence. Do not request tools or emit tool-call syntax.",
-            ]
-          : []),
       ].join("\n"),
     },
   ];
@@ -121,6 +98,29 @@ export const buildMessages = (
   messages.push(
     ...(finalOnly ? conversationForFinalAnswer(conversation) : conversation),
   );
+  messages.push({
+    role: "user",
+    content: [
+      "Current plan:",
+      ...plan.items.map((item) => `- ${item.status}: ${item.step}`),
+      "",
+      `Budget: ${usage.modelTurns}/${limits.maxModelTurns} model turns, $${usage.estimatedCostUsd.toFixed(4)}/$${limits.maxEstimatedCostUsd.toFixed(4)} estimated.`,
+      ...(compactionStatus ? [compactionStatus] : []),
+      ...(finalToolTurn
+        ? [
+            "This is the final tool-capable turn. Request only operations still required to finish.",
+          ]
+        : []),
+      ...(finalOnly
+        ? [
+            "FINAL ANSWER ONLY: synthesize the best answer from existing evidence.",
+            "Do not call or request tools, and do not emit tool-call syntax. If evidence is incomplete, state that limitation in the answer.",
+            "This is the reserved final answer turn. No tools are available.",
+            "Return a non-empty final answer from existing evidence. Do not request tools or emit tool-call syntax.",
+          ]
+        : []),
+    ].join("\n"),
+  });
   return messages;
 };
 

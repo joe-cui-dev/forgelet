@@ -65,7 +65,7 @@ export interface WorkflowDefinition<TCompletion = void> {
 
   prepareSession?(ctx: { workspaceRoot: string }): Promise<void>;
 
-  systemPrompt(ctx: { act: boolean; finalOnly: boolean }): string;
+  systemPrompt(ctx: { act: boolean }): string;
 
   taskLabel?(): string;
 

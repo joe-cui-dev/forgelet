@@ -30,7 +30,7 @@ test("coding definition adds write and command capabilities in act mode", () => 
 test("coding definition renders the read-only system prompt", () => {
   const definition = createCodingWorkflowDefinition();
 
-  expect(definition.systemPrompt({ act: false, finalOnly: false })).toBe(
+  expect(definition.systemPrompt({ act: false })).toBe(
     [
       "You are running inside the Forgelet Agent Kernel.",
       "Use only the tools provided in this turn.",
@@ -49,14 +49,11 @@ test("coding definition renders the read-only system prompt", () => {
   );
 });
 
-test("coding definition renders final-only act instructions", () => {
+test("coding definition renders the actionable system prompt", () => {
   const definition = createCodingWorkflowDefinition();
 
-  const prompt = definition.systemPrompt({ act: true, finalOnly: true });
+  const prompt = definition.systemPrompt({ act: true });
 
-  expect(prompt).toContain(
-    "FINAL ANSWER ONLY: synthesize the best answer from existing evidence.",
-  );
   expect(prompt).toContain("This is an actionable Coding Workflow Session.");
   expect(prompt).toContain(
     "Do not claim verification succeeded unless a run_command observation shows the command ran successfully.",
