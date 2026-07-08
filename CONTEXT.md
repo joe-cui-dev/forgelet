@@ -76,6 +76,10 @@ _Avoid_: Silent drop, truncation, retry
 A deterministic, on-demand overview of the current project workspace exposed through read Capabilities. It helps the model understand project shape without becoming Durable Memory or bypassing Session Read Scope.
 _Avoid_: Repository cache, project memory, hidden index
 
+**Anchor Files**:
+The fixed set of high-signal files — package.json, README.md, AGENTS.md, and CONTEXT.md — located directly at a Workspace Summary's effective scan root, which the summary always detects and excerpts when readable, regardless of scan truncation. Anchor Files never bypass Session Read Scope; nested same-named files and lockfiles are not Anchor Files.
+_Avoid_: Manifest, Project Manifest, priority files, special files
+
 **Tool Provider**:
 A source of related tools that share an operational boundary, such as workspace files, shell commands, browser context, writing surfaces, or MCP.
 _Avoid_: Plugin, tool category
