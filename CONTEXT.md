@@ -40,6 +40,14 @@ _Avoid_: Agent conversation, chat session, workflow session
 A new Session that continues from a prior Session while preserving explicit lineage. It inherits Continuation Context but does not mutate earlier Sessions or their Traces.
 _Avoid_: Reopened session, appended trace, chat resume
 
+**Background Session**:
+A Session whose Effect Envelope was declared at start. Declaring the envelope is what makes it background: in-envelope confirmable actions are auto-approved with Trace evidence, and an action beyond the envelope pauses the Session in place for the Decision Queue instead of prompting. It is not a separate mode, workflow, or process kind, and the process runs in the user's foreground terminal until it completes or pauses.
+_Avoid_: Unattended mode, daemon session, async job, detached session
+
+**Pause Snapshot**:
+The resumable working state a paused Session writes at the moment it pauses — its model-facing conversation, Effect Envelope, remaining budget, and workflow position — so the same Session can resume in a later process. A Pause Snapshot is working state, not a record: it exists only while its Session is paused, and is deleted once the Session resumes past it or reaches a terminal outcome. It is neither Trace evidence nor a Debug Transcript.
+_Avoid_: Debug Transcript, checkpoint chain, session backup, saved conversation
+
 **Trace**:
 The chronological record of events that actually occurred during a Session. A Trace is evidence for review, explanation, and memory provenance.
 _Avoid_: Transcript, log dump, demo script
@@ -101,7 +109,7 @@ The Session-time rule that decides whether a concrete tool call is allowed, requ
 _Avoid_: Tool allowlist, global approval
 
 **Effect Envelope**:
-The user-declared boundary of durable effects one Session may apply without per-action confirmation, stated when the Session starts and recorded as Trace evidence. The Permission Policy auto-approves confirmable actions inside the envelope; actions outside it require an explicit user decision, and destructive or secret-touching actions stay denied regardless of the envelope.
+The user-declared boundary of durable effects one Session may apply without per-action confirmation, stated when the Session starts and recorded as Trace evidence. The Permission Policy auto-approves confirmable actions inside the envelope; actions outside it require an explicit user decision, and destructive or secret-touching actions stay denied regardless of the envelope. A Decision Queue decision may widen a paused Session's envelope for the rest of that Session; the amendment is recorded as Trace evidence like the original declaration.
 _Avoid_: Auto-approve flag, permission bypass, global trust setting, unattended mode
 
 **Decision Queue**:
