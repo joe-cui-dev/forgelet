@@ -8,13 +8,14 @@ Forgelet should remain a workbench for code, writing, learning, browser context,
 
 Current implemented surfaces:
 
-- `forge code` for read-only and actionable Coding Sessions.
+- `forge code` for read-only and actionable Coding Sessions, including `--write-scope`/`--allow-command` Background Sessions that declare an Effect Envelope, auto-approve in-envelope confirmable actions, and pause in place beyond it.
+- `forge queue` and `forge decide <sessionId>` for the Decision Queue: listing paused Sessions and deciding (approve/deny/approve-and-widen/stop) to resume them in place.
 - `forge write` for prose revision, creative drafting, browser-backed writing, saved Writing Artifacts, artifact continuation, Writing Project continuity, and artifact catalog search.
 - `forge learn` for source-backed Learning Packs from files or browser context.
 - `forge notes create/search` for project-scope Knowledge Notes promoted from completed Learning Sessions.
 - `forge browser read-current` and `forge browser install-host` for read-only browser snapshots.
 - `forge resume` for child Session Continuations.
-- `forge sessions`, `forge explain`, `forge memory suggest/accept`, and config commands for review and operation.
+- `forge sessions` (with `running` and `paused` states), `forge explain`, `forge memory suggest/accept`, and config commands for review and operation.
 
 ## Long-Term Direction
 
@@ -36,22 +37,19 @@ Far-future and not committed: event-triggered Sessions, proactive suggestions, a
 1. Project memory review workflow:
    Turn memory suggestions into a clearer review surface while keeping writes user-approved and traceable. This is the precursor to Memory Scope and Memory Recall work on the long-term ladder.
 
-2. Background Session MVP:
-   Run one user-initiated Coding Session to completion without the user present (the mechanism lives in the kernel and permission layers and stays workflow-agnostic; other workflows inherit budget ceilings, but Coding is the acceptance target because only it has confirmable actions today): declare an Effect Envelope at start, auto-approve in-envelope actions with Trace evidence, pause in place beyond the envelope, and decide/resume from a CLI Decision Queue, with `forge sessions` gaining running and paused states (a paused Session is by definition awaiting a decision). Budgets gain wall-clock and turn ceilings so an unattended Session cannot run away.
-
-3. Diagnose workflow:
+2. Diagnose workflow:
    Add a debugging workflow that follows reproduce, minimize, hypothesize, instrument, fix, and regression-test stages.
 
-4. Test discovery improvements:
+3. Test discovery improvements:
    Help Coding Sessions find the right verification command before editing.
 
-5. Model pricing and diagnostics:
+4. Model pricing and diagnostics:
    Make provider/model availability, routing, and estimated cost easier to inspect.
 
-6. Local review UI:
+5. Local review UI:
    Add an inspect-and-review web surface after the CLI workflows remain stable. Its primary long-term job is reviewing background Session outcomes and Decision Queue items.
 
-7. Shared types decomposition:
+6. Shared types decomposition:
    Split `src/types.ts` by owning module: model-client contract types move under `src/models`, session and audit types to their owning modules. Unblocked now that the CLI decomposition has landed.
 
 ## Non-Goals

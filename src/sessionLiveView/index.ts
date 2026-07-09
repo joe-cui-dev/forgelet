@@ -39,7 +39,8 @@ export type SessionLiveEvent =
       type: "session_finished";
       status: SessionFinishStatus;
       reason?: string;
-    };
+    }
+  | { type: "session_paused"; sessionId: string };
 
 export type SessionLiveEventSink = (
   event: SessionLiveEvent,
@@ -78,6 +79,8 @@ export const formatSessionLiveEvent = (event: SessionLiveEvent): string => {
       return event.reason
         ? `Session ${event.status}: ${event.reason}`
         : `Session ${event.status}`;
+    case "session_paused":
+      return `Session paused: ${event.sessionId}`;
   }
 };
 

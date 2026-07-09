@@ -33,6 +33,15 @@ forge code --act --budget 0.25 "fix the small failing test"
 `forge code` starts a model-backed Coding Session. It can read workspace files, inspect Git status/diff, update the Session plan, and write Trace evidence. Add `--act` only when you want the Coding Workflow to request confirmed file edits and configured commands.
 
 ```bash
+forge code --write-scope src --write-scope docs "add a changelog entry"
+forge code --write-scope . --allow-command "npm test" "run the tests and fix failures"
+forge queue
+forge decide <sessionId>
+```
+
+Repeating `--write-scope` (workspace-relative path prefixes, or `.` for the whole workspace) declares a Coding Session's Effect Envelope; this is the only switch into background semantics — there is no separate `--background` flag. Within the envelope, confirm-tier file edits and commands auto-approve and are cited in the Trace instead of prompting; the command allowlist defaults to every configured safe command unless narrowed with `--allow-command`. An action outside the envelope pauses the Session in place (same Session id, same Trace) and exits the process instead of prompting. Use `forge queue` to list paused Sessions and their pending action, and `forge decide <sessionId>` (or `forge decide` with no id when exactly one Session is paused) to approve once, deny once, approve-and-widen the envelope, or stop with a wrap-up turn. `--max-wall-clock-ms` and `--max-turns` override the wall-clock and model-turn ceilings for one run.
+
+```bash
 forge write --context draft.md "revise this for clarity"
 forge write --with-browser "turn this article into an outline"
 forge write --creative --style vivid "write a rain-soaked convenience store scene"

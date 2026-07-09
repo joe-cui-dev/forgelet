@@ -33,6 +33,15 @@ export async function createTraceWriter(
   };
 }
 
+export function openExistingTraceWriter(tracePath: string): TraceWriter {
+  return {
+    tracePath,
+    async append(event: TraceEvent): Promise<void> {
+      await appendFile(tracePath, `${JSON.stringify(event)}\n`, "utf8");
+    },
+  };
+}
+
 export async function findSessionTracePath(
   workspaceRoot: string,
   sessionId: string,

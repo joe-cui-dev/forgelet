@@ -69,7 +69,9 @@ export type SessionStopReason =
   | "input_token_limit_exceeded"
   | "estimated_cost_budget_exceeded"
   | "max_model_turns"
-  | "active_context_exhausted";
+  | "active_context_exhausted"
+  | "user_stopped"
+  | "wall_clock_limit_exceeded";
 
 export interface SessionAudit {
   changeGroups: AuditChangeGroups;
@@ -335,6 +337,7 @@ export interface BudgetLimits {
   maxModelTurns: number;
   maxInputTokens: number;
   maxEstimatedCostUsd: number;
+  maxWallClockMs: number;
 }
 
 export interface BudgetUsage {

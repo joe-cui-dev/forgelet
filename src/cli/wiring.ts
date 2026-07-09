@@ -90,6 +90,20 @@ export function createTerminalApprovalHandler(): ApprovalHandler {
   };
 }
 
+export function createTerminalDecidePrompt(): (prompt: string) => Promise<string> {
+  return async (prompt) => {
+    const readline = createInterface({
+      input: process.stdin,
+      output: process.stderr,
+    });
+    try {
+      return await readline.question(prompt);
+    } finally {
+      readline.close();
+    }
+  };
+}
+
 export function formatApprovalPrompt(request: ApprovalRequest): string {
   if (request.toolCall.name === "run_command") {
     const command = isRecord(request.toolCall.input) && typeof request.toolCall.input.command === "string"

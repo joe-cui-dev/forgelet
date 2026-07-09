@@ -44,6 +44,72 @@ test("lists completed and incomplete project sessions from traces", async () => 
     ]);
 });
 
+test("lists a paused session distinctly from a resumed-then-finished one", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-sessions-paused-"));
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(sessionDir, "sess_paused.jsonl"),
+    [
+      JSON.stringify({ type: "session_started", ts: "2026-06-16T00:00:00.000Z", sessionId: "sess_paused", payload: { workflow: "coding", startedAt: "2026-06-16T00:00:00.000Z" } }),
+      JSON.stringify({ type: "user_task", ts: "2026-06-16T00:00:00.000Z", sessionId: "sess_paused", payload: { task: "write docs" } }),
+      JSON.stringify({ type: "session_paused", ts: "2026-06-16T00:00:01.000Z", sessionId: "sess_paused", payload: { reason: "out_of_envelope" } }),
+    ].join("\n"),
+    "utf8",
+  );
+  await writeFile(
+    join(sessionDir, "sess_resumed_then_done.jsonl"),
+    [
+      JSON.stringify({ type: "session_started", ts: "2026-06-16T00:01:00.000Z", sessionId: "sess_resumed_then_done", payload: { workflow: "coding", startedAt: "2026-06-16T00:01:00.000Z" } }),
+      JSON.stringify({ type: "user_task", ts: "2026-06-16T00:01:00.000Z", sessionId: "sess_resumed_then_done", payload: { task: "write docs" } }),
+      JSON.stringify({ type: "session_paused", ts: "2026-06-16T00:01:01.000Z", sessionId: "sess_resumed_then_done", payload: { reason: "out_of_envelope" } }),
+      JSON.stringify({ type: "session_resumed", ts: "2026-06-16T00:01:02.000Z", sessionId: "sess_resumed_then_done", payload: { decision: "approve" } }),
+      JSON.stringify({ type: "session_finished", ts: "2026-06-16T00:01:03.000Z", sessionId: "sess_resumed_then_done", payload: { status: "completed" } }),
+    ].join("\n"),
+    "utf8",
+  );
+
+  const sessions = await listSessions(workspaceRoot);
+
+  expect(
+    sessions.map((session) => ({ id: session.id, status: session.status })),
+  ).toEqual([
+    { id: "sess_resumed_then_done", status: "completed" },
+    { id: "sess_paused", status: "paused" },
+  ]);
+});
+
+test("marks a session running when its pid marker names a live process, incomplete otherwise", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-sessions-running-"));
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  const runningDir = join(workspaceRoot, ".forgelet", "running");
+  await mkdir(sessionDir, { recursive: true });
+  await mkdir(runningDir, { recursive: true });
+  await writeFile(
+    join(sessionDir, "sess_live.jsonl"),
+    JSON.stringify({ type: "session_started", ts: "2026-06-16T00:00:00.000Z", sessionId: "sess_live", payload: { workflow: "coding", startedAt: "2026-06-16T00:00:00.000Z" } }),
+    "utf8",
+  );
+  await writeFile(join(runningDir, "sess_live.pid"), "4242", "utf8");
+  await writeFile(
+    join(sessionDir, "sess_stale.jsonl"),
+    JSON.stringify({ type: "session_started", ts: "2026-06-16T00:01:00.000Z", sessionId: "sess_stale", payload: { workflow: "coding", startedAt: "2026-06-16T00:01:00.000Z" } }),
+    "utf8",
+  );
+  await writeFile(join(runningDir, "sess_stale.pid"), "9999", "utf8");
+
+  const sessions = await listSessions(workspaceRoot, {
+    isProcessAlive: (pid) => pid === 4242,
+  });
+
+  expect(
+    sessions.map((session) => ({ id: session.id, status: session.status })),
+  ).toEqual([
+    { id: "sess_stale", status: "incomplete" },
+    { id: "sess_live", status: "running" },
+  ]);
+});
+
 test("shows a session summary from its trace events", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-show-"));
   await writeFile(join(workspaceRoot, "draft.md"), "Please make this clearer.", "utf8");

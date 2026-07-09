@@ -1,6 +1,9 @@
 import type {
   AgentPlan,
   AgentSession,
+  BudgetLimits,
+  LoadedContextAttachment,
+  ModelClient,
   SessionFinishStatus,
   TraceEvent,
   WorkflowKind,
@@ -16,6 +19,11 @@ import {
   summarizeDebugTranscriptFile,
   type DebugTranscriptWriter,
 } from "../debugTranscript/index.js";
+import {
+  createEnvelopeApprovalHandler,
+  widenEnvelopeForRequest,
+  type EffectEnvelope,
+} from "../permissions/envelope.js";
 import { normalizeSessionReadScope } from "../readScope/index.js";
 import type {
   SessionLiveEvent,
@@ -25,17 +33,33 @@ import {
   buildContinuationContext,
   continuationContextTracePayload,
 } from "../sessions/continuation.js";
-import { createTraceWriter } from "../trace/index.js";
+import {
+  deletePauseSnapshot,
+  pauseSnapshotPath,
+  readPauseSnapshot,
+  writePauseSnapshot,
+  type PauseSnapshot,
+} from "../sessions/pauseSnapshot.js";
+import { removePidMarker, writePidMarker } from "../sessions/pidMarker.js";
+import {
+  createTraceWriter,
+  findSessionTracePath,
+  openExistingTraceWriter,
+  type TraceWriter,
+} from "../trace/index.js";
 import type {
   CompletionEffects,
   KernelSessionResult,
   RunKernelSessionInput,
+  WorkflowDefinition,
 } from "./workflowDefinition.js";
 import {
   gitStatusPaths,
   modelErrorTracePayload,
   runReactNode,
   type ActLoopRoute,
+  type ReactNodeFinishResult,
+  type ReactNodePausedResult,
   type ReactNodeResult,
 } from "./reactNode.js";
 
@@ -51,6 +75,7 @@ export async function runKernelSession<TCompletion = void>(
   const startedAt = new Date();
   const now = startedAt.toISOString();
   const sessionId = `sess_${startedAt.getTime().toString(36)}`;
+  await writePidMarker(input.workspaceRoot, sessionId);
   const taskHash = hashTask(input.task);
   const continuationContext = input.continuationSourceSessionId
     ? await buildContinuationContext(
@@ -154,6 +179,7 @@ export async function runKernelSession<TCompletion = void>(
       startedAt: now,
       taskHash,
       ...(readScope ? { readScope } : {}),
+      ...(input.envelope ? { envelope: input.envelope } : {}),
       ...(continuationContext
         ? {
             continuation: {
@@ -233,6 +259,13 @@ export async function runKernelSession<TCompletion = void>(
       }),
     );
 
+  const limits = {
+    ...config.budgets,
+    maxEstimatedCostUsd: input.budgetUsd ?? config.budgets.maxEstimatedCostUsd,
+    maxWallClockMs: input.maxWallClockMs ?? config.budgets.maxWallClockMs,
+    maxModelTurns: input.maxModelTurns ?? config.budgets.maxModelTurns,
+  };
+
   // Deterministic low-level tests may omit a model client. Public CLI runs pass
   // a model client and do not use this branch.
   if (input.modelClient) {
@@ -247,11 +280,7 @@ export async function runKernelSession<TCompletion = void>(
         workspaceRoot: input.workspaceRoot,
         route,
         plan,
-        limits: {
-          ...config.budgets,
-          maxEstimatedCostUsd:
-            input.budgetUsd ?? config.budgets.maxEstimatedCostUsd,
-        },
+        limits,
         safeCommands: config.safeCommands,
         commandTimeoutMs: config.commandTimeoutMs,
         maxPatchBytes: config.maxPatchBytes,
@@ -268,7 +297,10 @@ export async function runKernelSession<TCompletion = void>(
         tracePath: traceWriter.tracePath,
         continuationContext,
         definition: input.definition,
-        approvalHandler: input.approvalHandler,
+        approvalHandler: input.envelope
+          ? createEnvelopeApprovalHandler(input.envelope)
+          : input.approvalHandler,
+        now: input.now,
         onLiveEvent: input.onLiveEvent,
         debugTranscript,
         appendTrace: (type, payload, ts) =>
@@ -326,82 +358,46 @@ export async function runKernelSession<TCompletion = void>(
         status: "failed",
         reason: "model_execution_error",
       });
+      await removePidMarker(input.workspaceRoot, sessionId);
       throw error;
     }
 
-    let completionEffects: CompletionEffects<TCompletion> | undefined;
-    if (execution.status === "completed" && execution.finalContent)
-      completionEffects = await input.definition.onCompleted?.({
-        workspaceRoot: input.workspaceRoot,
+    if (execution.status === "paused") {
+      if (!input.envelope)
+        throw new Error(
+          `Session paused without a declared Effect Envelope: ${sessionId}.`,
+        );
+      return pauseKernelExecution({
+        sessionId,
         session,
-        finalContent: execution.finalContent,
-        contextAttachments,
-        appendTrace: (type, payload) =>
-          traceWriter.append(
-            createTraceEvent(
-              sessionId,
-              type,
-              new Date().toISOString(),
-              payload,
-            ),
-          ),
-      });
-    const executionSummary = [
-      execution.summary,
-      ...(completionEffects?.summaryLines ?? []),
-    ].join("\n");
-
-    if (debugTranscript)
-      await finishDebugTranscript({
-        writer: debugTranscript,
-        sessionId,
+        execution,
+        definition: input.definition,
         workspaceRoot: input.workspaceRoot,
-        status: execution.status,
-        ...(execution.reason ? { reason: execution.reason } : {}),
-        appendTrace: (payload) =>
-          traceWriter.append(
-            createTraceEvent(
-              sessionId,
-              "debug_transcript_finished",
-              new Date().toISOString(),
-              payload,
-            ),
-          ),
+        task: input.task,
+        taskHash,
+        createdAt: session.createdAt,
+        envelope: input.envelope,
+        route,
+        readScope,
+        plan,
+        limits,
+        debug: input.debug === true,
+        traceWriter,
+        onLiveEvent: input.onLiveEvent,
       });
+    }
 
-    await traceWriter.append(
-      createTraceEvent(sessionId, "final_summary", new Date().toISOString(), {
-        summary: withTracePath(executionSummary, traceWriter.tracePath),
-        ...(completionEffects?.finalSummaryTraceExtras ?? {}),
-        ...(execution.audit ? { audit: execution.audit } : {}),
-      }),
-    );
-    await traceWriter.append(
-      createTraceEvent(
-        sessionId,
-        "session_finished",
-        new Date().toISOString(),
-        {
-          status: execution.status,
-          reason: execution.reason,
-          finishedAt: new Date().toISOString(),
-        },
-      ),
-    );
-    await emitLiveEvent(input.onLiveEvent, {
-      type: "session_finished",
-      status: execution.status,
-      ...(execution.reason ? { reason: execution.reason } : {}),
-    });
-
-    return {
+    return finalizeKernelExecution({
+      sessionId,
       session,
-      summary: withTracePath(executionSummary, traceWriter.tracePath),
-      tracePath: traceWriter.tracePath,
-      ...(completionEffects?.completion !== undefined
-        ? { completion: completionEffects.completion }
-        : {}),
-    };
+      execution,
+      definition: input.definition,
+      contextAttachments,
+      workspaceRoot: input.workspaceRoot,
+      traceWriter,
+      debugTranscript,
+      onLiveEvent: input.onLiveEvent,
+    });
   }
 
   await traceWriter.append(
@@ -440,12 +436,403 @@ export async function runKernelSession<TCompletion = void>(
     `Trace: ${traceWriter.tracePath}`,
   ];
 
+  await removePidMarker(input.workspaceRoot, sessionId);
   return {
     session,
     summary: details.join("\n"),
     tracePath: traceWriter.tracePath,
   };
 };
+
+export type ResumeDecision =
+  | { kind: "approve" }
+  | { kind: "deny" }
+  | { kind: "widen" }
+  | { kind: "stop" };
+
+export interface ResumeKernelSessionInput<TCompletion = void> {
+  definition: WorkflowDefinition<TCompletion>;
+  workspaceRoot: string;
+  sessionId: string;
+  modelClient: ModelClient;
+  decision: ResumeDecision;
+  homeDir?: string;
+  /** Injectable clock for deterministic wall-clock budget tests; defaults to Date.now. */
+  now?: () => number;
+  onLiveEvent?: SessionLiveEventSink;
+}
+
+/**
+ * Resumes a paused Session in place: the same Session id, the same Trace,
+ * continuing from exactly where the pending confirm-tier action interrupted
+ * it (ADR 0027). approve-and-widen amends the declared Effect Envelope in
+ * memory (traced separately) before the pending call is retried through the
+ * normal envelope-approval path, so it — and any now-in-scope sibling calls
+ * in the same batch — auto-approve.
+ */
+export async function resumeKernelSession<TCompletion = void>(
+  input: ResumeKernelSessionInput<TCompletion>,
+): Promise<KernelSessionResult<TCompletion>> {
+  const snapshot = await readPauseSnapshot(input.workspaceRoot, input.sessionId);
+  await writePidMarker(input.workspaceRoot, snapshot.sessionId);
+  const tracePath = await findSessionTracePath(input.workspaceRoot, input.sessionId);
+  const traceWriter = openExistingTraceWriter(tracePath);
+  const resumedAt = new Date().toISOString();
+  await traceWriter.append(
+    createTraceEvent(snapshot.sessionId, "session_resumed", resumedAt, {
+      decision: input.decision.kind,
+    }),
+  );
+
+  let effectiveEnvelope = snapshot.envelope;
+  if (input.decision.kind === "widen") {
+    const widened = widenEnvelopeForRequest(
+      snapshot.envelope,
+      snapshot.pendingToolRequest,
+    );
+    await traceWriter.append(
+      createTraceEvent(snapshot.sessionId, "envelope_amended", resumedAt, {
+        before: snapshot.envelope,
+        after: widened,
+      }),
+    );
+    effectiveEnvelope = widened;
+  }
+
+  const session: AgentSession = {
+    id: snapshot.sessionId,
+    workflow: snapshot.workflow,
+    ...(snapshot.workflowVariant
+      ? { workflowVariant: snapshot.workflowVariant }
+      : {}),
+    ...(snapshot.creativeStyle ? { creativeStyle: snapshot.creativeStyle } : {}),
+    ...(snapshot.creativeInputKind
+      ? { creativeInputKind: snapshot.creativeInputKind }
+      : {}),
+    task: snapshot.task,
+    taskHash: snapshot.taskHash,
+    ...(snapshot.readScope ? { readScope: snapshot.readScope } : {}),
+    stage: "act_loop",
+    plan: snapshot.plan,
+    createdAt: snapshot.createdAt,
+  };
+
+  const config = await loadConfig({
+    homeDir: input.homeDir,
+    workspaceRoot: input.workspaceRoot,
+  });
+  const debugTranscript = snapshot.debug
+    ? await createDebugTranscriptWriter(input.workspaceRoot, snapshot.sessionId)
+    : undefined;
+  const decisionKind: "approve" | "deny" | "stop" =
+    input.decision.kind === "widen" ? "approve" : input.decision.kind;
+
+  let execution: ReactNodeResult;
+  try {
+    execution = await runReactNode({
+      modelClient: input.modelClient,
+      session,
+      contextAttachments: [],
+      workspaceRoot: input.workspaceRoot,
+      route: snapshot.route,
+      plan: snapshot.plan,
+      limits: snapshot.limits,
+      safeCommands: config.safeCommands,
+      commandTimeoutMs: config.commandTimeoutMs,
+      maxPatchBytes: config.maxPatchBytes,
+      maxConversationBytes: maxConversationBytesForRoute(
+        config,
+        snapshot.workflow,
+      ),
+      observationDigestPreviewBytes:
+        config.activeContext.observationDigestPreviewBytes,
+      protectedRecentTurns: config.activeContext.protectedRecentTurns,
+      readScope: snapshot.readScope,
+      act: true,
+      baselineDirtyPaths: snapshot.sessionState.baselineDirtyPaths,
+      tracePath: traceWriter.tracePath,
+      definition: input.definition,
+      envelope: effectiveEnvelope,
+      resume: {
+        decision: decisionKind,
+        pendingToolCall: snapshot.pendingToolCall,
+        remainingToolCalls: snapshot.remainingToolCalls,
+        conversation: snapshot.conversation,
+        rollingSummary: snapshot.rollingSummary,
+        failedFoldAttempts: snapshot.failedFoldAttempts,
+        usage: snapshot.usage,
+        turnIndex: snapshot.turnIndex,
+        audit: snapshot.audit,
+        sessionState: snapshot.sessionState,
+        activeWallClockMs: snapshot.activeWallClockMs,
+      },
+      now: input.now,
+      onLiveEvent: input.onLiveEvent,
+      debugTranscript,
+      appendTrace: (type, payload, ts) =>
+        traceWriter.append(
+          createTraceEvent(
+            snapshot.sessionId,
+            type,
+            ts ?? new Date().toISOString(),
+            payload,
+          ),
+        ),
+    });
+  } catch (error) {
+    const failure = modelExecutionFailurePayload(error, traceWriter.tracePath);
+    if (debugTranscript)
+      await finishDebugTranscript({
+        writer: debugTranscript,
+        sessionId: snapshot.sessionId,
+        workspaceRoot: input.workspaceRoot,
+        status: "failed",
+        appendTrace: (payload) =>
+          traceWriter.append(
+            createTraceEvent(
+              snapshot.sessionId,
+              "debug_transcript_finished",
+              new Date().toISOString(),
+              payload,
+            ),
+          ),
+      });
+    await traceWriter.append(
+      createTraceEvent(
+        snapshot.sessionId,
+        "final_summary",
+        new Date().toISOString(),
+        { summary: failure.summary, error: failure.error },
+      ),
+    );
+    await traceWriter.append(
+      createTraceEvent(
+        snapshot.sessionId,
+        "session_finished",
+        new Date().toISOString(),
+        {
+          status: "failed",
+          reason: "model_execution_error",
+          error: failure.error,
+          finishedAt: new Date().toISOString(),
+        },
+      ),
+    );
+    await emitLiveEvent(input.onLiveEvent, {
+      type: "session_finished",
+      status: "failed",
+      reason: "model_execution_error",
+    });
+    await removePidMarker(input.workspaceRoot, snapshot.sessionId);
+    throw error;
+  }
+
+  // The loop ran to a definitive outcome without crashing; the Pause
+  // Snapshot's job is done (ADR 0033). A "paused" outcome below writes a
+  // fresh one for the newly-pending action.
+  await deletePauseSnapshot(input.workspaceRoot, snapshot.sessionId);
+
+  if (execution.status === "paused")
+    return pauseKernelExecution({
+      sessionId: snapshot.sessionId,
+      session,
+      execution,
+      definition: input.definition,
+      workspaceRoot: input.workspaceRoot,
+      task: snapshot.task,
+      taskHash: snapshot.taskHash,
+      createdAt: snapshot.createdAt,
+      envelope: effectiveEnvelope,
+      route: snapshot.route,
+      readScope: snapshot.readScope,
+      plan: snapshot.plan,
+      limits: snapshot.limits,
+      debug: snapshot.debug,
+      traceWriter,
+      onLiveEvent: input.onLiveEvent,
+    });
+
+  return finalizeKernelExecution({
+    sessionId: snapshot.sessionId,
+    session,
+    execution,
+    definition: input.definition,
+    contextAttachments: [],
+    workspaceRoot: input.workspaceRoot,
+    traceWriter,
+    debugTranscript,
+    onLiveEvent: input.onLiveEvent,
+  });
+}
+
+async function finalizeKernelExecution<TCompletion>(input: {
+  sessionId: string;
+  session: AgentSession;
+  execution: ReactNodeFinishResult;
+  definition: WorkflowDefinition<TCompletion>;
+  contextAttachments: LoadedContextAttachment[];
+  workspaceRoot: string;
+  traceWriter: TraceWriter;
+  debugTranscript?: DebugTranscriptWriter;
+  onLiveEvent?: SessionLiveEventSink;
+}): Promise<KernelSessionResult<TCompletion>> {
+  const {
+    sessionId,
+    session,
+    execution,
+    definition,
+    contextAttachments,
+    workspaceRoot,
+    traceWriter,
+    debugTranscript,
+  } = input;
+  let completionEffects: CompletionEffects<TCompletion> | undefined;
+  if (execution.status === "completed" && execution.finalContent)
+    completionEffects = await definition.onCompleted?.({
+      workspaceRoot,
+      session,
+      finalContent: execution.finalContent,
+      contextAttachments,
+      appendTrace: (type, payload) =>
+        traceWriter.append(
+          createTraceEvent(sessionId, type, new Date().toISOString(), payload),
+        ),
+    });
+  const executionSummary = [
+    execution.summary,
+    ...(completionEffects?.summaryLines ?? []),
+  ].join("\n");
+
+  if (debugTranscript)
+    await finishDebugTranscript({
+      writer: debugTranscript,
+      sessionId,
+      workspaceRoot,
+      status: execution.status,
+      ...(execution.reason ? { reason: execution.reason } : {}),
+      appendTrace: (payload) =>
+        traceWriter.append(
+          createTraceEvent(
+            sessionId,
+            "debug_transcript_finished",
+            new Date().toISOString(),
+            payload,
+          ),
+        ),
+    });
+
+  await traceWriter.append(
+    createTraceEvent(sessionId, "final_summary", new Date().toISOString(), {
+      summary: withTracePath(executionSummary, traceWriter.tracePath),
+      ...(completionEffects?.finalSummaryTraceExtras ?? {}),
+      ...(execution.audit ? { audit: execution.audit } : {}),
+    }),
+  );
+  await traceWriter.append(
+    createTraceEvent(sessionId, "session_finished", new Date().toISOString(), {
+      status: execution.status,
+      reason: execution.reason,
+      finishedAt: new Date().toISOString(),
+    }),
+  );
+  await emitLiveEvent(input.onLiveEvent, {
+    type: "session_finished",
+    status: execution.status,
+    ...(execution.reason ? { reason: execution.reason } : {}),
+  });
+  await removePidMarker(workspaceRoot, sessionId);
+
+  return {
+    session,
+    summary: withTracePath(executionSummary, traceWriter.tracePath),
+    tracePath: traceWriter.tracePath,
+    ...(completionEffects?.completion !== undefined
+      ? { completion: completionEffects.completion }
+      : {}),
+  };
+}
+
+async function pauseKernelExecution<TCompletion>(input: {
+  sessionId: string;
+  session: AgentSession;
+  execution: ReactNodePausedResult;
+  definition: WorkflowDefinition<TCompletion>;
+  workspaceRoot: string;
+  task: string;
+  taskHash: string;
+  createdAt: string;
+  envelope: EffectEnvelope;
+  route: ActLoopRoute;
+  readScope?: string[];
+  plan: AgentPlan;
+  limits: BudgetLimits;
+  debug: boolean;
+  traceWriter: TraceWriter;
+  onLiveEvent?: SessionLiveEventSink;
+}): Promise<KernelSessionResult<TCompletion>> {
+  const { sessionId, session, execution, definition, traceWriter } = input;
+  const pausedAt = new Date().toISOString();
+  const snapshot: PauseSnapshot = {
+    sessionId,
+    workflow: definition.kind,
+    ...(definition.sessionTraits?.workflowVariant
+      ? { workflowVariant: definition.sessionTraits.workflowVariant }
+      : {}),
+    ...(definition.sessionTraits?.creativeStyle
+      ? { creativeStyle: definition.sessionTraits.creativeStyle }
+      : {}),
+    ...(definition.sessionTraits?.creativeInputKind
+      ? { creativeInputKind: definition.sessionTraits.creativeInputKind }
+      : {}),
+    task: input.task,
+    taskHash: input.taskHash,
+    createdAt: input.createdAt,
+    envelope: input.envelope,
+    route: input.route,
+    ...(input.readScope ? { readScope: input.readScope } : {}),
+    plan: input.plan,
+    conversation: execution.conversation,
+    ...(execution.rollingSummary
+      ? { rollingSummary: execution.rollingSummary }
+      : {}),
+    failedFoldAttempts: execution.failedFoldAttempts,
+    usage: execution.usage,
+    activeWallClockMs: execution.activeWallClockMs,
+    limits: input.limits,
+    turnIndex: execution.turnIndex,
+    audit: execution.audit,
+    sessionState: execution.sessionState,
+    debug: input.debug,
+    pendingToolCall: execution.pendingToolCall,
+    pendingToolRequest: execution.pendingToolRequest,
+    remainingToolCalls: execution.remainingToolCalls,
+    executedObservations: execution.executedObservations,
+    tracePath: traceWriter.tracePath,
+    pausedAt,
+  };
+  await writePauseSnapshot(input.workspaceRoot, snapshot);
+  const snapshotPath = pauseSnapshotPath(input.workspaceRoot, sessionId);
+  await traceWriter.append(
+    createTraceEvent(sessionId, "session_paused", pausedAt, {
+      reason: "out_of_envelope",
+      toolName: execution.pendingToolCall.name,
+      targets: execution.pendingToolRequest.targets,
+      snapshotPath,
+    }),
+  );
+  await emitLiveEvent(input.onLiveEvent, {
+    type: "session_paused",
+    sessionId,
+  });
+  await removePidMarker(input.workspaceRoot, sessionId);
+  return {
+    session,
+    summary: `Forgelet session paused: ${sessionId}\nRun \`forge decide ${sessionId}\` to review the pending action.`,
+    tracePath: traceWriter.tracePath,
+    status: "paused",
+    snapshotPath,
+  };
+}
 
 const modelExecutionFailurePayload = (
   error: unknown,

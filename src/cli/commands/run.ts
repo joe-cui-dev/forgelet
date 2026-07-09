@@ -5,6 +5,7 @@ import {
 } from "../../workflows/index.js";
 import { loadConfig } from "../../config/index.js";
 import { loadCurrentBrowserSnapshot } from "../../browser/index.js";
+import type { EffectEnvelope } from "../../permissions/envelope.js";
 import {
   loadWritingProject,
   prepareWritingProjectRun,
@@ -20,6 +21,15 @@ import {
   createTerminalApprovalHandler,
 } from "../wiring.js";
 import type { RunCliOptions } from "../index.js";
+
+export function formatEffectEnvelopeBanner(envelope: EffectEnvelope): string {
+  return [
+    "Effect Envelope declared:",
+    `  Write scope: ${envelope.writeScopePrefixes.join(", ") || "(none)"}`,
+    `  Allowed commands: ${envelope.allowedCommands.join(", ") || "(none)"}`,
+    "Actions outside this envelope will pause the Session for `forge decide`.",
+  ].join("\n");
+}
 
 export async function runRunCommand(
   command: RunCommand,
@@ -56,6 +66,17 @@ export async function runRunCommand(
     },
     options.createLiveModelClient ?? createDeepSeekLiveModelClient,
   );
+  const envelope: EffectEnvelope | undefined =
+    command.workflow === "coding" && command.writeScopePrefixes
+      ? {
+          writeScopePrefixes: command.writeScopePrefixes,
+          allowedCommands:
+            command.allowedCommands ??
+            (
+              await loadConfig({ homeDir: options.homeDir, workspaceRoot })
+            ).safeCommands,
+        }
+      : undefined;
   const result =
     command.workflow === "writing"
       ? await runWritingSession({
@@ -100,17 +121,22 @@ export async function runRunCommand(
             allowedReadPaths: command.allowedReadPaths,
             model: command.model,
             budgetUsd: command.budgetUsd,
+            maxWallClockMs: command.maxWallClockMs,
+            maxModelTurns: command.maxModelTurns,
             homeDir: options.homeDir,
             workspaceRoot,
             modelClient,
             act: command.act,
             debug: command.debug === true,
-            approvalHandler: command.act
-              ? options.approvalHandler ?? createTerminalApprovalHandler()
-              : undefined,
+            envelope,
+            approvalHandler:
+              command.act && !envelope
+                ? options.approvalHandler ?? createTerminalApprovalHandler()
+                : undefined,
             onLiveEvent: options.onLiveEvent,
           });
   return [
+    ...(envelope ? [formatEffectEnvelopeBanner(envelope), ""] : []),
     ...formatPreviewBrowserContext(browserSnapshot),
     ...(browserSnapshot ? [""] : []),
     ...projectRun.warnings,

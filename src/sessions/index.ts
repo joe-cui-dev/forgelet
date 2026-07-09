@@ -1,13 +1,21 @@
 import { basename } from "node:path";
-import type { ContextAttachment, SessionAudit, WorkflowKind } from "../types.js";
+import type { ContextAttachment, SessionAudit, TraceEvent, WorkflowKind } from "../types.js";
 import { findSessionTracePath, listSessionTraceFiles, readTraceFile } from "../trace/index.js";
+import { isProcessAlive as defaultIsProcessAlive, readPidMarker } from "./pidMarker.js";
 
 export type SessionStatus =
   | "completed"
   | "stopped"
   | "failed"
   | "incomplete"
-  | "malformed";
+  | "malformed"
+  | "paused"
+  | "running";
+
+export interface SessionReadModelOptions {
+  /** Injectable pid-liveness probe for deterministic "running" status tests. */
+  isProcessAlive?: (pid: number) => boolean;
+}
 
 export interface SessionSummary {
   id: string;
@@ -31,7 +39,10 @@ export interface SessionDetail extends SessionSummary {
   audit?: SessionAudit;
 }
 
-export async function listSessions(workspaceRoot: string): Promise<SessionSummary[]> {
+export async function listSessions(
+  workspaceRoot: string,
+  options: SessionReadModelOptions = {},
+): Promise<SessionSummary[]> {
   const traceFiles = await listSessionTraceFiles(workspaceRoot);
   const sessions: SessionSummary[] = [];
 
@@ -42,14 +53,13 @@ export async function listSessions(workspaceRoot: string): Promise<SessionSummar
       if (!started) continue;
 
       const task = events.find((event) => event.type === "user_task");
-      const finished = events.find((event) => event.type === "session_finished");
       sessions.push({
         id: started.sessionId,
         workflow: asWorkflow(started.payload.workflow),
         task: typeof task?.payload.task === "string" ? task.payload.task : "",
         taskHash: asTaskHash(started.payload.taskHash),
         startedAt: typeof started.payload.startedAt === "string" ? started.payload.startedAt : started.ts,
-        status: asSessionStatus(finished?.payload.status),
+        status: await deriveSessionStatus(workspaceRoot, started.sessionId, events, options),
         tracePath
       });
     } catch {
@@ -73,20 +83,52 @@ function asWorkflow(value: unknown): WorkflowKind {
   return "coding";
 }
 
-function asSessionStatus(value: unknown): SessionStatus {
+async function deriveSessionStatus(
+  workspaceRoot: string,
+  sessionId: string,
+  events: TraceEvent[],
+  options: SessionReadModelOptions,
+): Promise<SessionStatus> {
+  const finished = events.find((event) => event.type === "session_finished");
+  if (finished) return asFinishedStatus(finished.payload.status);
+
+  const lastPausedIndex = findLastIndex(events, (event) => event.type === "session_paused");
+  const lastResumedIndex = findLastIndex(events, (event) => event.type === "session_resumed");
+  if (lastPausedIndex !== -1 && lastPausedIndex > lastResumedIndex) return "paused";
+
+  const pid = await readPidMarker(workspaceRoot, sessionId);
+  const isProcessAlive = options.isProcessAlive ?? defaultIsProcessAlive;
+  if (pid !== undefined && isProcessAlive(pid)) return "running";
+  return "incomplete";
+}
+
+function findLastIndex(
+  events: TraceEvent[],
+  predicate: (event: TraceEvent) => boolean,
+): number {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    if (predicate(events[index] as TraceEvent)) return index;
+  }
+  return -1;
+}
+
+function asFinishedStatus(value: unknown): SessionStatus {
   if (value === "completed" || value === "stopped" || value === "failed")
     return value;
   return "incomplete";
 }
 
-export async function showSession(workspaceRoot: string, sessionId: string): Promise<SessionDetail> {
+export async function showSession(
+  workspaceRoot: string,
+  sessionId: string,
+  options: SessionReadModelOptions = {},
+): Promise<SessionDetail> {
   const tracePath = await findSessionTracePath(workspaceRoot, sessionId);
   const events = await readTraceFile(tracePath);
   const started = events.find((event) => event.type === "session_started");
   if (!started) throw new Error(`Session trace does not contain session_started: ${sessionId}`);
 
   const task = events.find((event) => event.type === "user_task");
-  const finished = events.find((event) => event.type === "session_finished");
   const route = events.find((event) => event.type === "routing_selected");
   const finalSummary = events.find((event) => event.type === "final_summary");
   const contextAttachments = events
@@ -99,7 +141,7 @@ export async function showSession(workspaceRoot: string, sessionId: string): Pro
     task: typeof task?.payload.task === "string" ? task.payload.task : "",
     taskHash: asTaskHash(started.payload.taskHash),
     startedAt: typeof started.payload.startedAt === "string" ? started.payload.startedAt : started.ts,
-    status: asSessionStatus(finished?.payload.status),
+    status: await deriveSessionStatus(workspaceRoot, started.sessionId, events, options),
     tracePath,
     contextAttachments,
     route: route ? { model: String(route.payload.model ?? ""), reason: String(route.payload.reason ?? "") } : undefined,

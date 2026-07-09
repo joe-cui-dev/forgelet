@@ -13,6 +13,7 @@ import type {
   SessionFinishStatus,
   SessionStopReason,
   ToolObservation,
+  ToolRequest,
   WorkflowKind,
 } from "../types.js";
 import { execFile } from "node:child_process";
@@ -28,6 +29,11 @@ import type {
   DebugTranscriptWriter,
 } from "../debugTranscript/index.js";
 import type { SessionLiveEvent, SessionLiveEventSink } from "../sessionLiveView/index.js";
+import {
+  createResumeApprovalHandler,
+  SessionPauseSignal,
+  type EffectEnvelope,
+} from "../permissions/envelope.js";
 import type { ContinuationContext } from "../sessions/continuation.js";
 import { createReadOnlyTools } from "../tools/readOnly.js";
 import {
@@ -67,6 +73,10 @@ export interface ReactNodeInput {
   tracePath: string;
   continuationContext?: ContinuationContext;
   approvalHandler?: ApprovalHandler;
+  envelope?: EffectEnvelope;
+  resume?: ReactNodeResumeState;
+  /** Injectable clock for deterministic wall-clock budget tests; defaults to Date.now. */
+  now?: () => number;
   onLiveEvent?: SessionLiveEventSink;
   debugTranscript?: DebugTranscriptWriter;
   definition: WorkflowDefinition<unknown>;
@@ -80,12 +90,60 @@ export interface ReactNodeInput {
   ): Promise<void>;
 }
 
-export interface ReactNodeResult {
+/** Restored loop state for re-entering a paused Session. The pending call is
+ * resolved (approved, denied, or abandoned via stop) before the main loop
+ * resumes at resume.turnIndex + 1; approve-and-widen is expressed by the
+ * caller passing an already-widened `envelope` alongside decision "approve". */
+export interface ReactNodeResumeState {
+  decision: "approve" | "deny" | "stop";
+  pendingToolCall: ModelToolCall;
+  remainingToolCalls: ModelToolCall[];
+  conversation: ModelMessage[];
+  rollingSummary?: RollingSummaryState;
+  failedFoldAttempts: number;
+  usage: BudgetUsage;
+  turnIndex: number;
+  audit: {
+    changedFiles: string[];
+    commands: { command: string; exitCode: number | null; timedOut: boolean }[];
+  };
+  sessionState: ReactNodePausedSessionState;
+  activeWallClockMs: number;
+}
+
+export type ReactNodeResult = ReactNodeFinishResult | ReactNodePausedResult;
+
+export interface ReactNodeFinishResult {
   status: SessionFinishStatus;
   reason?: SessionStopReason;
   summary: string;
   finalContent?: string;
   audit?: SessionAudit;
+}
+
+export interface ReactNodePausedSessionState {
+  baselineDirtyPaths: Set<string>;
+  continuationOwnedDirtyPaths?: Set<string>;
+  forgeletTouchedPaths: Set<string>;
+}
+
+export interface ReactNodePausedResult {
+  status: "paused";
+  pendingToolCall: ModelToolCall;
+  pendingToolRequest: ToolRequest;
+  remainingToolCalls: ModelToolCall[];
+  executedObservations: ToolObservation[];
+  conversation: ModelMessage[];
+  rollingSummary?: RollingSummaryState;
+  failedFoldAttempts: number;
+  usage: BudgetUsage;
+  turnIndex: number;
+  audit: {
+    changedFiles: string[];
+    commands: { command: string; exitCode: number | null; timedOut: boolean }[];
+  };
+  sessionState: ReactNodePausedSessionState;
+  activeWallClockMs: number;
 }
 
 interface BudgetBlockedToolCalls {
@@ -240,38 +298,51 @@ const emitLiveEvent = async (
 export const runReactNode = async (
   input: ReactNodeInput,
 ): Promise<ReactNodeResult> => {
-  const usage: BudgetUsage = {
-    modelTurns: 0,
-    inputTokens: 0,
-    outputTokens: 0,
-    estimatedCostUsd: 0,
-  };
+  const now = input.now ?? Date.now;
+  const runStartedAtMs = now();
+  const priorWallClockMs = input.resume?.activeWallClockMs ?? 0;
+  const elapsedWallClockMs = (): number => priorWallClockMs + (now() - runStartedAtMs);
+  const usage: BudgetUsage = input.resume
+    ? { ...input.resume.usage }
+    : { modelTurns: 0, inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0 };
   const grantedCapabilities = input.definition.capabilities({
     act: input.act,
     readScope: input.readScope,
   });
+  const actionableSessionState: ReactNodePausedSessionState = input.resume
+    ? input.resume.sessionState
+    : {
+        baselineDirtyPaths: input.baselineDirtyPaths,
+        continuationOwnedDirtyPaths: input.continuationContext
+          ? new Set(
+              input.continuationContext.priorChangedFiles.flatMap(
+                (item) => item.paths,
+              ),
+            )
+          : undefined,
+        forgeletTouchedPaths: new Set(),
+      };
   const actionableTools = input.act
     ? (input.definition.createActionableTools?.({
         safeCommands: input.safeCommands,
         commandTimeoutMs: input.commandTimeoutMs,
         maxPatchBytes: input.maxPatchBytes,
-        sessionState: {
-          baselineDirtyPaths: input.baselineDirtyPaths,
-          continuationOwnedDirtyPaths: input.continuationContext
-            ? new Set(
-                input.continuationContext.priorChangedFiles.flatMap(
-                  (item) => item.paths,
-                ),
-              )
-            : undefined,
-          forgeletTouchedPaths: new Set(),
-        },
+        sessionState: actionableSessionState,
       }) ?? [])
     : [];
   const toolRegistry = createToolRegistry(
     [...createReadOnlyTools(input.plan), ...actionableTools],
     {
-      approvalHandler: input.approvalHandler,
+      approvalHandler: input.resume
+        ? createResumeApprovalHandler(
+            input.resume.pendingToolCall.id,
+            input.resume.decision === "approve" ? "approve" : "deny",
+            input.envelope ?? { writeScopePrefixes: [], allowedCommands: [] },
+            input.resume.decision === "stop"
+              ? "Session stopped by user via `forge decide`."
+              : "Denied by user via `forge decide`.",
+          )
+        : input.approvalHandler,
       onPermissionDecision: async (event) => {
         await emitLiveEvent(input.onLiveEvent, {
           type: "permission_checkpoint",
@@ -295,18 +366,69 @@ export const runReactNode = async (
   }) === false
     ? []
     : toolRegistry.listTools(grantedCapabilities);
-  const conversation: ModelMessage[] = [];
-  const audit: RunAuditState = {
-    changedFiles: new Set(),
-    commands: [],
-  };
+  const conversation: ModelMessage[] = input.resume
+    ? input.resume.conversation
+    : [];
+  const audit: RunAuditState = input.resume
+    ? {
+        changedFiles: new Set(input.resume.audit.changedFiles),
+        commands: [...input.resume.audit.commands],
+      }
+    : { changedFiles: new Set(), commands: [] };
   await input.definition.prepareSession?.({ workspaceRoot: input.workspaceRoot });
   let finalContent = "";
-  let rollingSummary: RollingSummaryState | undefined;
-  let failedFoldAttempts = 0;
+  let rollingSummary: RollingSummaryState | undefined = input.resume?.rollingSummary;
+  let failedFoldAttempts = input.resume?.failedFoldAttempts ?? 0;
+  let forcedStopReason: SessionStopReason | undefined;
 
-  for (let turnIndex = 0; ; turnIndex += 1) {
-    const stopReason = budgetStopReason(usage, input.limits);
+  if (input.resume) {
+    const batchOutcome = await executeToolCallBatch({
+      toolCalls: [input.resume.pendingToolCall, ...input.resume.remainingToolCalls],
+      toolRegistry,
+      session: input.session,
+      workspaceRoot: input.workspaceRoot,
+      grantedCapabilities,
+      readScope: input.readScope,
+      onLiveEvent: input.onLiveEvent,
+      turnIndex: input.resume.turnIndex,
+      debugTranscript: input.debugTranscript,
+      appendTrace: input.appendTrace,
+      audit,
+    });
+    if (batchOutcome.outcome === "paused")
+      return {
+        status: "paused",
+        pendingToolCall: batchOutcome.pendingToolCall,
+        pendingToolRequest: batchOutcome.pendingToolRequest,
+        remainingToolCalls: batchOutcome.remainingToolCalls,
+        executedObservations: batchOutcome.executedObservations,
+        conversation,
+        rollingSummary,
+        failedFoldAttempts,
+        usage,
+        turnIndex: input.resume.turnIndex,
+        audit: {
+          changedFiles: [...audit.changedFiles],
+          commands: audit.commands,
+        },
+        sessionState: actionableSessionState,
+        activeWallClockMs: elapsedWallClockMs(),
+      };
+    for (const observation of batchOutcome.observations)
+      conversation.push({
+        role: "tool",
+        toolCallId: observation.toolCallId,
+        content: JSON.stringify(observationForModel(observation)),
+      });
+    if (input.resume.decision === "stop") forcedStopReason = "user_stopped";
+  }
+
+  for (
+    let turnIndex = input.resume ? input.resume.turnIndex + 1 : 0;
+    ;
+    turnIndex += 1
+  ) {
+    const stopReason = budgetStopReason(usage, input.limits, elapsedWallClockMs());
     if (stopReason) {
       const summary = formatStoppedSummary(
         input.session,
@@ -324,7 +446,9 @@ export const runReactNode = async (
     const finalToolTurn = remainingModelTurns === 2;
     const budgetWrapupReason = finalOnly
       ? undefined
-      : budgetWrapupStopReason(usage, input.limits);
+      : (forcedStopReason ??
+        budgetWrapupStopReason(usage, input.limits, elapsedWallClockMs()));
+    forcedStopReason = undefined;
     if (budgetWrapupReason)
       await input.appendTrace("budget_wrapup_triggered", {
         turnIndex,
@@ -332,6 +456,7 @@ export const runReactNode = async (
         usage,
         limits: input.limits,
         reserveFraction: BUDGET_WRAPUP_RESERVE_FRACTION,
+        elapsedWallClockMs: elapsedWallClockMs(),
       });
     const wrapupOnly = finalOnly || budgetWrapupReason !== undefined;
     const compaction = compactConversationInPlace(conversation, {
@@ -712,46 +837,44 @@ export const runReactNode = async (
       content: output.content ?? "",
       toolCalls: output.toolCalls,
     });
-    for (const group of groupToolCallsForExecution(
-      output.toolCalls,
+    const batchOutcome = await executeToolCallBatch({
+      toolCalls: output.toolCalls,
       toolRegistry,
-    )) {
-      const observations =
-        group.kind === "serial"
-          ? [
-              await executeToolCall({
-                toolCall: group.toolCall,
-                toolRegistry,
-                session: input.session,
-                workspaceRoot: input.workspaceRoot,
-                grantedCapabilities,
-                readScope: input.readScope,
-                onLiveEvent: input.onLiveEvent,
-                turnIndex,
-                debugTranscript: input.debugTranscript,
-                appendTrace: input.appendTrace,
-              }),
-            ]
-          : await executeParallelReadToolCalls({
-              toolCalls: group.toolCalls,
-              toolRegistry,
-              session: input.session,
-              workspaceRoot: input.workspaceRoot,
-              grantedCapabilities,
-              readScope: input.readScope,
-              onLiveEvent: input.onLiveEvent,
-              turnIndex,
-              debugTranscript: input.debugTranscript,
-              appendTrace: input.appendTrace,
-            });
-      for (const observation of observations) {
-        recordAuditObservation(audit, observation);
-        conversation.push({
-          role: "tool",
-          toolCallId: observation.toolCallId,
-          content: JSON.stringify(observationForModel(observation)),
-        });
-      }
+      session: input.session,
+      workspaceRoot: input.workspaceRoot,
+      grantedCapabilities,
+      readScope: input.readScope,
+      onLiveEvent: input.onLiveEvent,
+      turnIndex,
+      debugTranscript: input.debugTranscript,
+      appendTrace: input.appendTrace,
+      audit,
+    });
+    if (batchOutcome.outcome === "paused")
+      return {
+        status: "paused",
+        pendingToolCall: batchOutcome.pendingToolCall,
+        pendingToolRequest: batchOutcome.pendingToolRequest,
+        remainingToolCalls: batchOutcome.remainingToolCalls,
+        executedObservations: batchOutcome.executedObservations,
+        conversation,
+        rollingSummary,
+        failedFoldAttempts,
+        usage,
+        turnIndex,
+        audit: {
+          changedFiles: [...audit.changedFiles],
+          commands: audit.commands,
+        },
+        sessionState: actionableSessionState,
+        activeWallClockMs: elapsedWallClockMs(),
+      };
+    for (const observation of batchOutcome.observations) {
+      conversation.push({
+        role: "tool",
+        toolCallId: observation.toolCallId,
+        content: JSON.stringify(observationForModel(observation)),
+      });
     }
   }
 };
@@ -791,6 +914,96 @@ export const groupToolCallsForExecution = (
     }
   }
   return groups;
+};
+
+export type ToolCallBatchOutcome =
+  | { outcome: "completed"; observations: ToolObservation[] }
+  | {
+      outcome: "paused";
+      pendingToolCall: ModelToolCall;
+      pendingToolRequest: ToolRequest;
+      remainingToolCalls: ModelToolCall[];
+      executedObservations: ToolObservation[];
+    };
+
+/** Executes one model turn's tool calls, respecting the same serial/parallel
+ * grouping as the main loop. Stops and reports "paused" the moment a serial
+ * call throws SessionPauseSignal, since the Effect Envelope only ever governs
+ * confirm-tier (serial) calls, never the parallel read-only group. Reused by
+ * both the initial run and the resume preamble so pausing can recur while a
+ * resumed batch's remaining calls are executed. */
+export const executeToolCallBatch = async (input: {
+  toolCalls: ModelToolCall[];
+  toolRegistry: ToolRegistry;
+  session: AgentSession;
+  workspaceRoot: string;
+  grantedCapabilities: Capability[];
+  readScope?: string[];
+  onLiveEvent?: SessionLiveEventSink;
+  turnIndex: number;
+  debugTranscript?: DebugTranscriptWriter;
+  appendTrace(
+    type: string,
+    payload: Record<string, unknown>,
+    ts?: string,
+  ): Promise<void>;
+  audit: RunAuditState;
+}): Promise<ToolCallBatchOutcome> => {
+  const executedObservations: ToolObservation[] = [];
+  for (const group of groupToolCallsForExecution(
+    input.toolCalls,
+    input.toolRegistry,
+  )) {
+    let observations: ToolObservation[];
+    if (group.kind === "serial") {
+      try {
+        observations = [
+          await executeToolCall({
+            toolCall: group.toolCall,
+            toolRegistry: input.toolRegistry,
+            session: input.session,
+            workspaceRoot: input.workspaceRoot,
+            grantedCapabilities: input.grantedCapabilities,
+            readScope: input.readScope,
+            onLiveEvent: input.onLiveEvent,
+            turnIndex: input.turnIndex,
+            debugTranscript: input.debugTranscript,
+            appendTrace: input.appendTrace,
+          }),
+        ];
+      } catch (error) {
+        if (!(error instanceof SessionPauseSignal)) throw error;
+        const pendingIndex = input.toolCalls.findIndex(
+          (toolCall) => toolCall.id === error.toolCall.id,
+        );
+        return {
+          outcome: "paused",
+          pendingToolCall: error.toolCall,
+          pendingToolRequest: error.toolRequest,
+          remainingToolCalls: input.toolCalls.slice(pendingIndex + 1),
+          executedObservations,
+        };
+      }
+    } else {
+      observations = await executeParallelReadToolCalls({
+        toolCalls: group.toolCalls,
+        toolRegistry: input.toolRegistry,
+        session: input.session,
+        workspaceRoot: input.workspaceRoot,
+        grantedCapabilities: input.grantedCapabilities,
+        readScope: input.readScope,
+        onLiveEvent: input.onLiveEvent,
+        turnIndex: input.turnIndex,
+        debugTranscript: input.debugTranscript,
+        appendTrace: input.appendTrace,
+      });
+    }
+    for (const observation of observations) {
+      recordAuditObservation(input.audit, observation);
+      executedObservations.push(observation);
+    }
+  }
+  return { outcome: "completed", observations: executedObservations };
 };
 
 /** Runs a concurrency-limited map over items, returning results in the
@@ -1117,15 +1330,16 @@ export const gitStatusPaths = (workspaceRoot: string): Promise<Set<string>> => {
 };
 
 const isInternalSessionTracePath = (path: string): boolean =>
-  path === ".forgelet/" ||
-  path === ".forgelet/sessions" ||
-  path.startsWith(".forgelet/sessions/");
+  path === ".forgelet" || path === ".forgelet/" || path.startsWith(".forgelet/");
 
 const budgetStopReason = (
   usage: BudgetUsage,
   limits: BudgetLimits,
+  elapsedWallClockMs: number,
 ): SessionStopReason | undefined => {
   if (usage.modelTurns >= limits.maxModelTurns) return "max_model_turns";
+  if (elapsedWallClockMs >= limits.maxWallClockMs)
+    return "wall_clock_limit_exceeded";
   return tokenOrCostBudgetStopReason(usage, limits);
 };
 
@@ -1148,6 +1362,7 @@ const BUDGET_WRAPUP_RESERVE_FRACTION = 0.9;
 const budgetWrapupStopReason = (
   usage: BudgetUsage,
   limits: BudgetLimits,
+  elapsedWallClockMs: number,
 ): SessionStopReason | undefined => {
   if (usage.inputTokens >= limits.maxInputTokens * BUDGET_WRAPUP_RESERVE_FRACTION)
     return "input_token_limit_exceeded";
@@ -1156,6 +1371,8 @@ const budgetWrapupStopReason = (
     limits.maxEstimatedCostUsd * BUDGET_WRAPUP_RESERVE_FRACTION
   )
     return "estimated_cost_budget_exceeded";
+  if (elapsedWallClockMs >= limits.maxWallClockMs * BUDGET_WRAPUP_RESERVE_FRACTION)
+    return "wall_clock_limit_exceeded";
   return undefined;
 };
 

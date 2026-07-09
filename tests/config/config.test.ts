@@ -5,7 +5,9 @@ import { tmpdir } from "os";
 import { loadConfig, setGlobalConfigValue } from "../../src/config/index.js";
 
 test("default actionable Sessions can run the repository typecheck", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-default-config-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-default-config-"),
+  );
 
   const config = await loadConfig({ workspaceRoot });
 
@@ -13,11 +15,13 @@ test("default actionable Sessions can run the repository typecheck", async () =>
 });
 
 test("defaults the active observation working-set target", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-active-context-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-active-context-"),
+  );
 
   const config = await loadConfig({ workspaceRoot });
 
-  expect(config.activeContext.maxConversationBytes).toBe(65_536);
+  expect(config.activeContext.maxConversationBytes).toBe(131_072);
   expect(config.activeContext.observationDigestPreviewBytes).toBe(2_048);
   expect(config.activeContext.protectedRecentTurns).toBe(3);
 });
@@ -39,9 +43,7 @@ test("rejects an invalid protected recent turns count", async () => {
 });
 
 test("hard-errors when setting the renamed observation byte key", async () => {
-  const homeDir = await mkdtemp(
-    join(tmpdir(), "forgelet-rename-error-"),
-  );
+  const homeDir = await mkdtemp(join(tmpdir(), "forgelet-rename-error-"));
 
   await expect(
     setGlobalConfigValue({
@@ -96,7 +98,9 @@ test("loads merged default, global, and project config", async () => {
 });
 
 test("rejects an invalid active observation working-set target", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-active-invalid-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-active-invalid-"),
+  );
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
   await writeFile(
     join(workspaceRoot, ".forgelet", "config.json"),
@@ -110,7 +114,9 @@ test("rejects an invalid active observation working-set target", async () => {
 });
 
 test("rejects an invalid observation digest preview cap", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-digest-invalid-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-digest-invalid-"),
+  );
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
   await writeFile(
     join(workspaceRoot, ".forgelet", "config.json"),

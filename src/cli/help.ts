@@ -11,6 +11,12 @@ Usage:
   forge code --context issue.md "<task>"
   forge code --with-browser "<task>"
   forge code --allow-read README.md --allow-read src/workflows "<task>"
+  forge code --write-scope src "<task>"
+  forge code --write-scope src --write-scope docs --allow-command "npm test" "<task>"
+  forge code --write-scope . --max-wall-clock-ms 1800000 --max-turns 20 "<task>"
+  forge queue
+  forge decide <sessionId>
+  forge decide
   forge write --preview --context draft.md "revise this"
   forge write --context draft.md "revise this"
   forge write --with-browser "turn this article into an outline"
@@ -62,6 +68,7 @@ Writing runs return Critique, Revision, and Notes, and model-backed writing Sess
 Learning runs require --context or --with-browser and return a source-linked Learning Pack with Summary, Key Concepts, Source Links, Open Questions, and Review Prompts. Learning Sessions record output and Trace evidence only; they do not write Knowledge Library notes during the Session.
 Knowledge Notes promote completed, source-backed Learning Sessions into project Markdown notes under .forgelet/knowledge/. Use notes create --scope project --from-session <sessionId> to accept a Learning Pack, and notes search --scope project "<query>" for local Markdown search. Personal scope and JSON output are not available yet.
 Session Continuation supports live Coding Workflow resume. Use plain resume for read-only continuation, or resume --act to request confirmed file edits and configured commands in the new child Session.
+Repeat --write-scope with workspace-relative path prefixes (or "." for the whole workspace) to declare a coding run's Effect Envelope; this is the only switch into background semantics, so no separate flag is needed. Within the envelope, confirm-tier actions auto-approve and are cited in the Trace; the command allowlist defaults to every configured safe command unless narrowed with --allow-command. An action outside the envelope pauses the Session in place instead of prompting and exits; use forge queue to list paused Sessions and forge decide <sessionId> (or forge decide with exactly one paused Session) to approve, deny, approve-and-widen, or stop it. Use --max-wall-clock-ms and --max-turns to override the wall-clock and model-turn ceilings for one run.
 Debug Transcripts are explicit local diagnostics. Use debug show for a structured preview, or debug show --full to expand the stored content.
 V1 config set supports memoryFile, activeContext config keys, and provider API key env vars.`;
 }

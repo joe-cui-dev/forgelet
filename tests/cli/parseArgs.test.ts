@@ -164,6 +164,94 @@ test("parses actionable coding runs", () => {
   });
 });
 
+test("parses a background coding run declaring an Effect Envelope write scope", () => {
+  expect(
+    parseArgs(["code", "--write-scope", "src", "--write-scope", "docs", "fix bug"]),
+  ).toEqual({
+    kind: "run",
+    workflow: "coding",
+    task: "fix bug",
+    contextFiles: [],
+    model: undefined,
+    budgetUsd: undefined,
+    preview: false,
+    act: true,
+    writeScopePrefixes: ["src", "docs"],
+  });
+});
+
+test("parses a write scope of '.' and a narrowed command allowlist", () => {
+  expect(
+    parseArgs([
+      "code",
+      "--write-scope",
+      ".",
+      "--allow-command",
+      "npm test",
+      "--allow-command",
+      "npm run build",
+      "fix bug",
+    ]),
+  ).toEqual({
+    kind: "run",
+    workflow: "coding",
+    task: "fix bug",
+    contextFiles: [],
+    model: undefined,
+    budgetUsd: undefined,
+    preview: false,
+    act: true,
+    writeScopePrefixes: ["."],
+    allowedCommands: ["npm test", "npm run build"],
+  });
+});
+
+test("parses wall-clock and turn ceiling overrides", () => {
+  expect(
+    parseArgs([
+      "code",
+      "--act",
+      "--max-wall-clock-ms",
+      "600000",
+      "--max-turns",
+      "20",
+      "fix bug",
+    ]),
+  ).toEqual({
+    kind: "run",
+    workflow: "coding",
+    task: "fix bug",
+    contextFiles: [],
+    model: undefined,
+    budgetUsd: undefined,
+    preview: false,
+    act: true,
+    maxWallClockMs: 600_000,
+    maxModelTurns: 20,
+  });
+});
+
+test("rejects --allow-command without a preceding --write-scope", () => {
+  expect(() => parseArgs(["code", "--allow-command", "npm test", "fix bug"])).toThrow(
+    /--allow-command requires --write-scope/,
+  );
+});
+
+test("rejects --write-scope and --allow-command for non-coding workflows", () => {
+  expect(() => parseArgs(["write", "--write-scope", "src", "revise this"])).toThrow(
+    /--write-scope is only available for the coding workflow/,
+  );
+});
+
+test("rejects invalid wall-clock and turn ceiling overrides", () => {
+  expect(() => parseArgs(["code", "--act", "--max-wall-clock-ms", "0", "fix bug"])).toThrow(
+    /--max-wall-clock-ms must be a positive integer/,
+  );
+  expect(() => parseArgs(["code", "--act", "--max-turns", "0", "fix bug"])).toThrow(
+    /--max-turns must be a positive integer/,
+  );
+});
+
 test("rejects the removed --live option", () => {
   expect(() => parseArgs(["code", "--live", "fix bug"])).toThrow(
     /Unknown option: --live/,
@@ -178,6 +266,28 @@ test("rejects bare coding tasks and top-level run options", () => {
   );
   expect(() => parseArgs(["--act", "fix bug"])).toThrow(
     /Unknown option: --act/,
+  );
+});
+
+test("parses the Decision Queue command", () => {
+  expect(parseArgs(["queue"])).toEqual({ kind: "queue" });
+});
+
+test("rejects extra Decision Queue arguments", () => {
+  expect(() => parseArgs(["queue", "extra"])).toThrow(/Usage: forge queue/);
+});
+
+test("parses a forge decide command with and without a session id", () => {
+  expect(parseArgs(["decide"])).toEqual({ kind: "decide" });
+  expect(parseArgs(["decide", "sess_abc"])).toEqual({
+    kind: "decide",
+    sessionId: "sess_abc",
+  });
+});
+
+test("rejects extra forge decide arguments", () => {
+  expect(() => parseArgs(["decide", "sess_abc", "extra"])).toThrow(
+    /Usage: forge decide \[sessionId\]/,
   );
 });
 

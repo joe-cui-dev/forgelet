@@ -1,11 +1,15 @@
 import { loadContextAttachments } from "../context/index.js";
-import { runKernelSession } from "../kernel/session.js";
+import { resumeKernelSession, runKernelSession } from "../kernel/session.js";
 import { kernelCommonPromptLines } from "../kernel/messages.js";
 import type {
   KernelSessionResult,
   RunKernelSessionInput,
   WorkflowDefinition,
 } from "../kernel/workflowDefinition.js";
+import type {
+  ResumeDecision,
+  ResumeKernelSessionInput,
+} from "../kernel/session.js";
 import { createActionableCodingTools } from "../tools/actionable.js";
 
 export type CodingSessionInput = Omit<
@@ -26,6 +30,8 @@ export function runCodingSession(
     browserSnapshot: input.browserSnapshot,
     model: input.model,
     budgetUsd: input.budgetUsd,
+    maxWallClockMs: input.maxWallClockMs,
+    maxModelTurns: input.maxModelTurns,
     homeDir: input.homeDir,
     workspaceRoot: input.workspaceRoot,
     modelClient: input.modelClient,
@@ -33,11 +39,35 @@ export function runCodingSession(
     debug: input.debug,
     continuationSourceSessionId: input.continuationSourceSessionId,
     approvalHandler: input.approvalHandler,
+    envelope: input.envelope,
+    now: input.now,
     onLiveEvent: input.onLiveEvent,
     readScopeRequest: input.allowedReadPaths,
     definition: createCodingWorkflowDefinition(),
   });
 }
+
+export type ResumeCodingSessionInput = Omit<
+  ResumeKernelSessionInput,
+  "definition"
+>;
+
+export function resumeCodingSession(
+  input: ResumeCodingSessionInput,
+): Promise<CodingSessionResult> {
+  return resumeKernelSession({
+    workspaceRoot: input.workspaceRoot,
+    sessionId: input.sessionId,
+    modelClient: input.modelClient,
+    decision: input.decision,
+    homeDir: input.homeDir,
+    now: input.now,
+    onLiveEvent: input.onLiveEvent,
+    definition: createCodingWorkflowDefinition(),
+  });
+}
+
+export type { ResumeDecision };
 
 export function createCodingWorkflowDefinition(): WorkflowDefinition {
   return {

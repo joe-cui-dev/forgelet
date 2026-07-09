@@ -1,4 +1,5 @@
 import type { LoadedBrowserSnapshot } from "../browser/index.js";
+import type { EffectEnvelope } from "../permissions/envelope.js";
 import type { SessionLiveEventSink } from "../sessionLiveView/index.js";
 import type { ApprovalHandler } from "../tools/toolRegistry.js";
 import type {
@@ -93,6 +94,8 @@ export interface RunKernelSessionInput<TCompletion = void> {
   readScopeRequest?: string[];
   model?: string;
   budgetUsd?: number;
+  maxWallClockMs?: number;
+  maxModelTurns?: number;
   homeDir?: string;
   workspaceRoot: string;
   modelClient?: ModelClient;
@@ -100,6 +103,9 @@ export interface RunKernelSessionInput<TCompletion = void> {
   debug?: boolean;
   continuationSourceSessionId?: string;
   approvalHandler?: ApprovalHandler;
+  envelope?: EffectEnvelope;
+  /** Injectable clock for deterministic wall-clock budget tests; defaults to Date.now. */
+  now?: () => number;
   onLiveEvent?: SessionLiveEventSink;
 }
 
@@ -108,4 +114,6 @@ export interface KernelSessionResult<TCompletion = void> {
   summary: string;
   tracePath: string;
   completion?: TCompletion;
+  status?: "paused";
+  snapshotPath?: string;
 }

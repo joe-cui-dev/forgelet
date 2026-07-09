@@ -34,6 +34,7 @@ export interface ForgeletConfig {
     maxModelTurns: number;
     maxInputTokens: number;
     maxEstimatedCostUsd: number;
+    maxWallClockMs: number;
   };
   activeContext: {
     maxConversationBytes: number;
@@ -86,6 +87,7 @@ export const defaultConfig: ForgeletConfig = {
     maxModelTurns: 12,
     maxInputTokens: 120000,
     maxEstimatedCostUsd: 1.0,
+    maxWallClockMs: 30 * 60 * 1000,
   },
   activeContext: {
     maxConversationBytes: 128 * 1024,

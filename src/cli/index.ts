@@ -11,6 +11,7 @@ import { loadCurrentBrowserSnapshot } from "../browser/index.js";
 import { installChromeNativeMessagingHost } from "../browser/nativeHostInstall.js";
 import { createKnowledgeNote, searchKnowledgeNotes } from "../knowledge/index.js";
 import { listSessions, showSession } from "../sessions/index.js";
+import { listPausedSessions } from "../sessions/queue.js";
 import {
   findWritingArtifactEntry,
   readWritingArtifactCatalog,
@@ -23,6 +24,7 @@ import type { ModelClient } from "../types.js";
 import type { ApprovalHandler } from "../tools/toolRegistry.js";
 import { runRunCommand } from "./commands/run.js";
 import { runResumeCommand } from "./commands/resume.js";
+import { runDecideCommand } from "./commands/decide.js";
 import {
   createInteractiveTerminalOutputController,
   type InteractiveTerminalOutputController,
@@ -34,6 +36,7 @@ import {
   formatCreatedWritingProject,
 } from "./present/writing.js";
 import { formatSessionList, formatSessionDetail } from "./present/sessions.js";
+import { formatQueue } from "./present/queue.js";
 import { formatSessionExplanation } from "./present/explain.js";
 import { formatCreatedKnowledgeNote, formatKnowledgeNoteSearch } from "./present/knowledge.js";
 import { formatMemorySuggestion, formatAcceptedMemory } from "./present/memory.js";
@@ -51,6 +54,7 @@ export interface RunCliOptions {
     input: CreateLiveModelClientInput,
   ) => Promise<ModelClient>;
   approvalHandler?: ApprovalHandler;
+  decidePrompt?: (prompt: string) => Promise<string>;
   onLiveEvent?: SessionLiveEventSink;
 }
 
@@ -75,6 +79,10 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
         return ok(await runRunCommand(command, { workspaceRoot, options }));
       case "resume":
         return ok(await runResumeCommand(command, { workspaceRoot, options }));
+      case "queue":
+        return ok(formatQueue(await listPausedSessions(workspaceRoot)));
+      case "decide":
+        return ok(await runDecideCommand(command, { workspaceRoot, options }));
       case "config-get":
         return ok(JSON.stringify(await loadConfig({ homeDir: options.homeDir, workspaceRoot }), null, 2));
       case "config-set":

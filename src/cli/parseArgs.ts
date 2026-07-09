@@ -27,6 +27,10 @@ export type ForgeCommand =
       preview: boolean;
       act: boolean;
       debug?: boolean;
+      writeScopePrefixes?: string[];
+      allowedCommands?: string[];
+      maxWallClockMs?: number;
+      maxModelTurns?: number;
     }
   | {
       kind: "resume";
@@ -39,6 +43,8 @@ export type ForgeCommand =
   | { kind: "config-set"; key: string; value: string }
   | { kind: "sessions-list" }
   | { kind: "sessions-show"; sessionId: string }
+  | { kind: "queue" }
+  | { kind: "decide"; sessionId?: string }
   | { kind: "explain"; sessionId: string }
   | {
       kind: "notes-create";
@@ -109,6 +115,16 @@ export function parseArgs(argv: string[]): ForgeCommand {
 
   if (first === "resume") {
     return parseResume(args.slice(1));
+  }
+
+  if (first === "queue") {
+    if (args.length > 1) throw new Error("Usage: forge queue");
+    return { kind: "queue" };
+  }
+
+  if (first === "decide") {
+    if (args.length > 2) throw new Error("Usage: forge decide [sessionId]");
+    return { kind: "decide", ...(args[1] ? { sessionId: args[1] } : {}) };
   }
 
   if (first === "code") {
@@ -383,6 +399,10 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
   let act = false;
   let debug = false;
   let withBrowser = false;
+  const writeScopePrefixes: string[] = [];
+  const allowedCommands: string[] = [];
+  let maxWallClockMs: number | undefined;
+  let maxModelTurns: number | undefined;
   const taskParts: string[] = [];
 
   for (let i = 0; i < args.length; i += 1) {
@@ -486,9 +506,51 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
       act = true;
       continue;
     }
+    if (arg === "--write-scope") {
+      rejectOptionAfterTask(taskParts, arg);
+      if (workflow !== "coding")
+        throw new Error("--write-scope is only available for the coding workflow.");
+      const value = args[++i];
+      if (!value) throw new Error("Missing value for --write-scope");
+      writeScopePrefixes.push(value);
+      act = true;
+      continue;
+    }
+    if (arg === "--allow-command") {
+      rejectOptionAfterTask(taskParts, arg);
+      if (workflow !== "coding")
+        throw new Error("--allow-command is only available for the coding workflow.");
+      const value = args[++i];
+      if (!value) throw new Error("Missing value for --allow-command");
+      allowedCommands.push(value);
+      continue;
+    }
+    if (arg === "--max-wall-clock-ms") {
+      rejectOptionAfterTask(taskParts, arg);
+      const value = args[++i];
+      if (!value) throw new Error("Missing value for --max-wall-clock-ms");
+      const parsed = Number(value);
+      if (!Number.isInteger(parsed) || parsed <= 0)
+        throw new Error("--max-wall-clock-ms must be a positive integer");
+      maxWallClockMs = parsed;
+      continue;
+    }
+    if (arg === "--max-turns") {
+      rejectOptionAfterTask(taskParts, arg);
+      const value = args[++i];
+      if (!value) throw new Error("Missing value for --max-turns");
+      const parsed = Number(value);
+      if (!Number.isInteger(parsed) || parsed <= 0)
+        throw new Error("--max-turns must be a positive integer");
+      maxModelTurns = parsed;
+      continue;
+    }
     if (arg?.startsWith("-")) throw new Error(`Unknown option: ${arg}`);
     taskParts.push(arg ?? "");
   }
+
+  if (allowedCommands.length > 0 && writeScopePrefixes.length === 0)
+    throw new Error("--allow-command requires --write-scope to be set.");
 
   const task = taskParts.join(" ").trim();
   if (!task)
@@ -540,6 +602,10 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
     preview,
     act,
     ...(debug ? { debug } : {}),
+    ...(writeScopePrefixes.length > 0 ? { writeScopePrefixes } : {}),
+    ...(allowedCommands.length > 0 ? { allowedCommands } : {}),
+    ...(maxWallClockMs !== undefined ? { maxWallClockMs } : {}),
+    ...(maxModelTurns !== undefined ? { maxModelTurns } : {}),
   };
 }
 
