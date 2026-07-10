@@ -152,6 +152,34 @@ _Avoid_: Durable Memory, automatic memory, extracted fact
 The deterministic user decision process for pending project-scope Memory Suggestions. It inspects provenance and records acceptance or rejection without starting a model-backed Workflow.
 _Avoid_: Memory Review Workflow, model review, automatic memory approval
 
+**Memory Decision**:
+The recorded user decision that accepted or rejected one Memory Suggestion. A Memory Decision is self-contained evidence: it carries the suggestion's identity, its source Session, the outcome, when it was decided, a hash and short preview of the suggestion text that was judged, the Trace Corroboration observed at decision time, and — for an acceptance — the Rendered Memory Block it intends to write and its destination.
+_Avoid_: Status flag, trace event, approval entry
+
+**Memory Decision Log**:
+The append-only project-scope record of Memory Decisions and Memory Write Records — the sole authority on whether a Memory Suggestion was decided and on whether an accepted suggestion's Rendered Memory Block was written. It is decision evidence in the spirit of a Trace but is not a Session Trace; suggestion status stored anywhere else is derived state.
+_Avoid_: Session Trace, suggestions file, current-state store
+
+**Rendered Memory Block**:
+The deterministic Markdown block rendered from a Memory Suggestion alone — the exact bytes Project Memory Review previews and an acceptance writes into Durable Memory. Its identity is its bytes; file-boundary normalization applied at write time is not part of the block.
+_Avoid_: Preview, template output, memory text, file content
+
+**Memory Write Record**:
+The recorded evidence in the Memory Decision Log that an accepted Memory Suggestion's Rendered Memory Block landed in Durable Memory, appended after the write completes or after a repair finds the block already present. It records what was actually written and where, which may honestly differ from what its Memory Decision intended.
+_Avoid_: Write confirmation flag, ack, status update, trace event
+
+**Memory Write Gap**:
+The derived state of an accepted Memory Suggestion whose Memory Decision has no corresponding Memory Write Record. It is computed at read time from the Memory Decision Log alone, never stored and never inferred from the user-editable Durable Memory file, and re-running the acceptance closes it.
+_Avoid_: Crash state, error flag, pending write, stored status
+
+**Provenance Snapshot**:
+The bounded source evidence written into a Memory Suggestion when it is proposed: the derivation inputs behind the suggestion text, a pointer to the source Trace with its hash and size at proposal time, and source Session metadata. It is written once, never rewritten, and lets Project Memory Review display and decide provenance without the source Trace being present.
+_Avoid_: Trace copy, live audit, full session history, preview
+
+**Trace Corroboration**:
+The derived status of a Memory Suggestion's source Trace measured against its Provenance Snapshot: verified, differs, missing, or unreadable. It is computed at read time, never stored, and never blocks a Memory Decision; the one recorded exception is the corroboration observed at decision time inside the Memory Decision.
+_Avoid_: Integrity gate, trace status flag, validation error, stored state
+
 **Memory Scope**:
 The layer a Durable Memory entry belongs to: project scope for guidance about one workspace, personal scope for cross-project preferences and habits. Scope determines where an entry lives and which Sessions may recall it.
 _Avoid_: Folder, config file, global settings
