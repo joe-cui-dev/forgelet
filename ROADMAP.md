@@ -34,7 +34,7 @@ Far-future and not committed: event-triggered Sessions, proactive suggestions, a
 
 ## Next Candidate Slices
 
-1. Project memory review workflow:
+1. Project Memory Review:
    Turn memory suggestions into a clearer review surface while keeping writes user-approved and traceable. This is the precursor to Memory Scope and Memory Recall work on the long-term ladder.
 
 2. Diagnose workflow:

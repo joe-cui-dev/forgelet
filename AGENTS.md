@@ -59,3 +59,17 @@ ADR filenames are self-describing (for example `0019-conversation-folds-into-rol
 - Delete completed execution plans instead of archiving them.
 - When adding a top-level `src/` directory, add it to the Source Map above in the same change.
 - Prefer source, tests, and `.forgelet/sessions/*.jsonl` traces over stale prose when behavior is in doubt.
+
+## Agent skills
+
+### Issue tracker
+
+Work items live in GitHub Issues for `joe-cui-dev/forgelet`; external PRs are not a triage request surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the canonical `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix` labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Forgelet is single-context: use the root `CONTEXT.md` and relevant ADRs under `docs/adr/`. See `docs/agents/domain.md`.

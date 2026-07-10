@@ -144,6 +144,14 @@ _Avoid_: Memory file, vector database, terminal-only output
 User-approved project or personal guidance that Forgelet may reuse in later Sessions. Durable Memory must be inspectable, editable, and traceable to its source.
 _Avoid_: Vector cache, session trace
 
+**Memory Suggestion**:
+A proposed Durable Memory entry with provenance to a source Session or Trace. It is not reusable guidance until the user accepts it.
+_Avoid_: Durable Memory, automatic memory, extracted fact
+
+**Project Memory Review**:
+The deterministic user decision process for pending project-scope Memory Suggestions. It inspects provenance and records acceptance or rejection without starting a model-backed Workflow.
+_Avoid_: Memory Review Workflow, model review, automatic memory approval
+
 **Memory Scope**:
 The layer a Durable Memory entry belongs to: project scope for guidance about one workspace, personal scope for cross-project preferences and habits. Scope determines where an entry lives and which Sessions may recall it.
 _Avoid_: Folder, config file, global settings
