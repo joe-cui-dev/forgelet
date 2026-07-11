@@ -1,0 +1,3 @@
+# Browser Workbench and CLI Share a Learning Session Launcher
+
+Browser Workbench will first expose one deep operation for summarizing the explicitly captured current page rather than a speculative multi-intent `run` interface. It resolves browser invocation provenance and Workspace Profile authority, then calls an internal Learning Session Launcher shared with the `forge learn` CLI Adapter; that launcher hides configuration, model routing, Context Attachment assembly, Trace ordering, execution policy, and result normalization behind authorized in-process inputs. Ask, Research, a generic Read Session Module, and additional Workflow launchers will not enter this Interface until a second real caller requires them.

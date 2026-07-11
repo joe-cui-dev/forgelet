@@ -191,3 +191,19 @@ _Avoid_: Memory dump, whole-file injection, RAG, hidden context
 **Browser Context Bridge**:
 The read-only browser integration where a user-approved extension sends page context into Forgelet as a browser Context Attachment.
 _Avoid_: Browser automation, cookie access, hidden page scraping
+
+**Browser Workbench**:
+The read-only browser surface that turns an explicit browser action into a permissioned Forgelet Session and presents its live outcome. It is a Session caller, not a Workflow or browser automation runtime.
+_Avoid_: Browser Workflow, browser agent, browser automation, Side Panel Workflow
+
+**Workspace Profile**:
+A user-approved binding between a non-CLI Forgelet surface and one local workspace, used to choose where a Session belongs without granting arbitrary workspace access.
+_Avoid_: Recent workspace, cwd, path argument, project selector
+
+**Public Web Query Scope**:
+The Session authority that limits what information may shape queries sent to public Web providers: task-only by default, or task-and-browser-context after separate explicit approval.
+_Avoid_: Web flag, prompt instruction, browser permission
+
+**Session Source Ledger**:
+The ordered, Session-owned collection of source material accepted into a Workflow, including initial Context Attachments and sources acquired during tool use. Each entry keeps stable source identity and provenance for Active Context, source-linked outputs, and Trace metadata.
+_Avoid_: Tool observation history, Trace, source-links section

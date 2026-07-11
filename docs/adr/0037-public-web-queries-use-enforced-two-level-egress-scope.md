@@ -1,0 +1,3 @@
+# Public Web Queries Use Enforced Two-Level Egress Scope
+
+When a Session combines public Web tools with Browser Context, prompt instructions alone cannot prove whether a public query was derived from private page content. Forgelet will therefore use a task-only Public Web Query Scope by default: public acquisition runs without Browser Context in its Active Context, then Web tools close before public evidence is combined with the browser attachment. A separately approved task-and-browser-context scope may expose both together; the granted scope and actual public queries are Trace evidence, while complete browser and Web source bodies remain outside the Trace.

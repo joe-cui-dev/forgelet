@@ -35,19 +35,25 @@ Far-future and not committed: event-triggered Sessions, proactive suggestions, a
 
 ## Next Candidate Slices
 
-1. Diagnose workflow:
+1. Browser Workbench one-gesture Learning summary:
+   Add CLI-managed Workspace Profiles, a toolbar-triggered bounded structured capture, a Side Panel, the shared Learning Session Launcher, one-turn Learning execution, long-lived Native Messaging streaming, and explicit Stop while preserving `current-page.json`, `forge browser read-current`, and `--with-browser`. This tracer excludes secondary browser entry points, Ask/Research, Public Web tools, dynamic Web sources, Readability, multi-page collections, retrieval, and caching. Initial measured targets are capture ready below 200 ms p95, Session identity and Trace ready below 500 ms p95 excluding model time, and local cancel acknowledgement below 200 ms p95; record first-token latency without assigning a target until dogfood establishes its distribution, and prove each action identity creates at most one Session.
+
+2. CLI-first Public Web Tool Provider for Learning:
+   Add the `read_public_web` Capability, `forge learn --web` and preview semantics, separate `web_search` and `web_read` tools proven first through deterministic fakes, one Brave Search Adapter, and one bounded public HTTP Adapter. Enforce the two Public Web Query Scopes structurally, append successful reads to the Session Source Ledger, reject forbidden schemes and private-address redirects, bound requests/bytes/content types/decompression/time, return typed errors and partial search success, and reuse the four-call parallel-read limit with deterministic observation and Trace order. Browser Workbench remains current-page-summary-only until this CLI path is dogfoodable.
+
+3. Diagnose workflow:
    Add a debugging workflow that follows reproduce, minimize, hypothesize, instrument, fix, and regression-test stages.
 
-2. Test discovery improvements:
+4. Test discovery improvements:
    Help Coding Sessions find the right verification command before editing.
 
-3. Model pricing and diagnostics:
+5. Model pricing and diagnostics:
    Make provider/model availability, routing, and estimated cost easier to inspect.
 
-4. Local review UI:
+6. Local review UI:
    Add an inspect-and-review web surface after the CLI workflows remain stable. Its primary long-term job is reviewing background Session outcomes and Decision Queue items.
 
-5. Shared types decomposition:
+7. Shared types decomposition:
    Split `src/types.ts` by owning module: model-client contract types move under `src/models`, session and audit types to their owning modules. Unblocked now that the CLI decomposition has landed.
 
 ## Non-Goals

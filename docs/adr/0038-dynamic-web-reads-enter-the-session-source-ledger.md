@@ -1,0 +1,3 @@
+# Dynamic Web Reads Enter the Session Source Ledger
+
+Public search results are candidates, not Session sources; each successful `web_read` becomes a Web-sourced Context Attachment in the Session Source Ledger. The tool observation returns a bounded receipt and source ID while Active Context obtains the complete source text from the ledger, avoiding duplicate injection and preserving stable identity for canonical-URL/content-hash deduplication and Learning Pack Source Links. Trace records source provenance, URL, hash, size, bounded preview, timing, and parent tool-call identity, but not the complete source body.
