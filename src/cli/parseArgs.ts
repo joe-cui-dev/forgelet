@@ -64,6 +64,7 @@ export type ForgeCommand =
   | { kind: "writing-projects-create"; slug: string }
   | { kind: "memory-suggest"; sessionId: string }
   | { kind: "memory-accept"; suggestionId: string }
+  | { kind: "memory-reject"; suggestionId: string }
   | { kind: "memory-list"; all: boolean }
   | { kind: "memory-show"; suggestionId: string }
   | { kind: "debug-show"; sessionId: string; full: boolean }
@@ -357,8 +358,11 @@ function parseMemory(args: string[]): ForgeCommand {
   if (args[0] === "accept" && args.length === 2) {
     return { kind: "memory-accept", suggestionId: args[1] ?? "" };
   }
+  if (args[0] === "reject" && args.length === 2) {
+    return { kind: "memory-reject", suggestionId: args[1] ?? "" };
+  }
   throw new Error(
-    "Usage: forge memory list [--all] | forge memory show <suggestionId> | forge memory suggest <sessionId> | forge memory accept <suggestionId>",
+    "Usage: forge memory list [--all] | forge memory show <suggestionId> | forge memory suggest <sessionId> | forge memory accept <suggestionId> | forge memory reject <suggestionId>",
   );
 }
 

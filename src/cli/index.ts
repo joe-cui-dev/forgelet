@@ -6,7 +6,7 @@ import { helpText } from "./help.js";
 import { loadConfig, setGlobalConfigValue } from "../config/index.js";
 import { explainSession } from "../explain/index.js";
 import { formatDebugTranscriptShow } from "../debugTranscript/index.js";
-import { acceptMemorySuggestion, suggestMemoryFromSession } from "../memory/index.js";
+import { suggestMemoryFromSession } from "../memory/index.js";
 import { loadCurrentBrowserSnapshot } from "../browser/index.js";
 import { installChromeNativeMessagingHost } from "../browser/nativeHostInstall.js";
 import { createKnowledgeNote, searchKnowledgeNotes } from "../knowledge/index.js";
@@ -39,8 +39,9 @@ import { formatSessionList, formatSessionDetail } from "./present/sessions.js";
 import { formatQueue } from "./present/queue.js";
 import { formatSessionExplanation } from "./present/explain.js";
 import { formatCreatedKnowledgeNote, formatKnowledgeNoteSearch } from "./present/knowledge.js";
-import { formatMemorySuggestion, formatAcceptedMemory, formatMemoryReviewList, formatMemoryReviewShow } from "./present/memory.js";
+import { formatMemorySuggestion, formatMemoryDecisionReceipt, formatMemoryReviewList, formatMemoryReviewShow } from "./present/memory.js";
 import { listMemoryReview, showMemoryReview } from "../memoryReview/index.js";
+import { acceptMemorySuggestion, rejectMemorySuggestion } from "../memoryReview/decide.js";
 import { formatBrowserSnapshot, formatInstalledChromeNativeHost } from "./present/browser.js";
 import type { CreateLiveModelClientInput } from "./wiring.js";
 
@@ -180,7 +181,9 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
       case "memory-suggest":
         return ok(formatMemorySuggestion(await suggestMemoryFromSession(workspaceRoot, command.sessionId)));
       case "memory-accept":
-        return ok(formatAcceptedMemory(await acceptMemorySuggestion(workspaceRoot, command.suggestionId)));
+        return ok(formatMemoryDecisionReceipt(await acceptMemorySuggestion(workspaceRoot, command.suggestionId)));
+      case "memory-reject":
+        return ok(formatMemoryDecisionReceipt(await rejectMemorySuggestion(workspaceRoot, command.suggestionId)));
       case "browser-read-current":
         return ok(
           formatBrowserSnapshot(

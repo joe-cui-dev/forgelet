@@ -5,6 +5,7 @@ import type {
   MemoryReviewShowResult,
   TraceCorroboration,
 } from "../../memoryReview/index.js";
+import type { MemoryDecisionResult } from "../../memoryReview/decide.js";
 
 /** Guided-review presentation: each item leads with the derived state in
  * plain language and ends with an explicit next command. */
@@ -65,11 +66,30 @@ export function formatMemorySuggestion(suggestion: MemorySuggestion): string {
   ].join("\n");
 }
 
-export function formatAcceptedMemory(suggestion: MemorySuggestion): string {
-  return [
-    `Memory accepted: ${suggestion.id}`,
-    `Source Session: ${suggestion.sourceSessionId}`,
-  ].join("\n");
+/** Concise, evidence-aware receipt for `forge memory accept|reject`: leads
+ * with the outcome, names the Durable Memory write when one happened, and
+ * always points at the Memory Decision Log as the evidence of record. */
+export function formatMemoryDecisionReceipt(result: MemoryDecisionResult): string {
+  const verb = result.action === "accepted" ? "Accepted" : "Rejected";
+  const lines = [`${verb}: ${result.suggestionId}`];
+  switch (result.outcome) {
+    case "decided":
+      lines.push(`Decided at ${result.decidedAt}.`);
+      break;
+    case "repeated":
+      lines.push(`Already decided at ${result.decidedAt}.`);
+      break;
+    case "repaired":
+      lines.push(`Decision recorded at ${result.decidedAt}; repaired the missing Durable Memory write.`);
+      break;
+  }
+  if (result.write) {
+    lines.push(
+      `Durable Memory: ${result.write.path} (${result.write.blockBytes} bytes, sha256 ${result.write.blockHash})`,
+    );
+  }
+  lines.push("Evidence: .forgelet/memory-decisions.jsonl");
+  return lines.join("\n");
 }
 
 /** Guided evidence view: the decision path stays readable while every stored
@@ -111,10 +131,13 @@ export function formatMemoryReviewShow(result: MemoryReviewShowResult): string {
     lines.push("No write evidence is available.");
   }
   lines.push("", "Your choice");
-  if (suggestion.legacyStatus === "proposed" && result.state === "proposed") {
-    lines.push(`Accept this suggestion: forge memory accept ${suggestion.id}`);
-  } else if (result.state === "proposed" || result.state === "accepted-unwritten") {
-    lines.push("This is an evidence-only view; Project Memory Review decisions are not available yet.");
+  if (result.state === "proposed") {
+    lines.push(
+      `Accept: forge memory accept ${suggestion.id}`,
+      `Reject: forge memory reject ${suggestion.id}`,
+    );
+  } else if (result.state === "accepted-unwritten") {
+    lines.push(`Repair the write: forge memory accept ${suggestion.id}`);
   } else {
     lines.push("This suggestion is already settled.");
   }

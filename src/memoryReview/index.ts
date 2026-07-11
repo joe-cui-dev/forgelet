@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { isAbsolute, join, relative } from "node:path";
-import { loadConfig } from "../config/index.js";
+import { isAbsolute, join } from "node:path";
 import { ensureCompatibilityImport } from "./compatibilityImport.js";
+import { resolveDurableMemoryDestination } from "./durableMemoryDestination.js";
 import {
   foldDecisionLog,
   readDecisionLogRecords,
@@ -148,15 +148,10 @@ export async function showMemoryReview(
 }
 
 async function resolveMemoryDestination(workspaceRoot: string): Promise<string> {
-  const configured = (await loadConfig({ workspaceRoot })).memoryFile;
-  const absolute = isAbsolute(configured) ? configured : join(workspaceRoot, configured);
-  const workspaceRelative = relative(workspaceRoot, absolute);
-  return workspaceRelative !== "" && !workspaceRelative.startsWith("..") && !isAbsolute(workspaceRelative)
-    ? workspaceRelative
-    : absolute;
+  return (await resolveDurableMemoryDestination(workspaceRoot)).displayPath;
 }
 
-async function corroborateTrace(
+export async function corroborateTrace(
   workspaceRoot: string,
   suggestion: SuggestionRecord,
 ): Promise<TraceCorroboration | undefined> {
@@ -182,7 +177,7 @@ function hasErrorCode(error: unknown, code: string): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
 
-function assertCompleteProvenance(suggestion: SuggestionRecord): void {
+export function assertCompleteProvenance(suggestion: SuggestionRecord): void {
   if (suggestion.legacyStatus !== undefined) return;
   const provenance = suggestion.provenance;
   if (
@@ -210,7 +205,7 @@ function isBoundedEvidence(value: unknown): boolean {
   return isRecord(value) && Array.isArray(value.items) && typeof value.total === "number";
 }
 
-function deriveState(
+export function deriveState(
   decision: "accepted" | "rejected" | undefined,
   written: boolean,
 ): MemoryReviewState {

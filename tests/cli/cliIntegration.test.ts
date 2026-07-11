@@ -497,16 +497,17 @@ test("CLI accepts a pending Memory Suggestion into Durable Memory", async () => 
     join(tmpdir(), "forgelet-cli-memory-accept-"),
   );
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  const suggestionLine = `${JSON.stringify({
+    id: "mem_accept",
+    sourceSessionId: "sess_memory",
+    text: "In this workspace, use npm test as verification.",
+    reason:
+      "Derived deterministically from actionable Session audit evidence.",
+    status: "proposed",
+  })}\n`;
   await writeFile(
     join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"),
-    `${JSON.stringify({
-      id: "mem_accept",
-      sourceSessionId: "sess_memory",
-      text: "In this workspace, use npm test as verification.",
-      reason:
-        "Derived deterministically from actionable Session audit evidence.",
-      status: "proposed",
-    })}\n`,
+    suggestionLine,
     "utf8",
   );
 
@@ -515,7 +516,9 @@ test("CLI accepts a pending Memory Suggestion into Durable Memory", async () => 
   });
 
   expect(result.exitCode).toBe(0);
-  expect(result.stdout).toMatch(/Memory accepted: mem_accept/);
+  expect(result.stdout).toMatch(/Accepted: mem_accept/);
+  expect(result.stdout).toMatch(/Durable Memory: \.forgelet\/memory\.md/);
+  expect(result.stdout).toMatch(/Evidence: \.forgelet\/memory-decisions\.jsonl/);
 
   const memory = await readFile(
     join(workspaceRoot, ".forgelet", "memory.md"),
@@ -524,14 +527,56 @@ test("CLI accepts a pending Memory Suggestion into Durable Memory", async () => 
   expect(memory).toMatch(/In this workspace, use npm test as verification\./);
   expect(memory).toMatch(/Source Session: sess_memory/);
 
+  // The suggestions file is append-only evidence and is never rewritten by
+  // acceptance; current state comes from the Memory Decision Log instead.
   const store = await readFile(
     join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"),
     "utf8",
   );
-  expect(JSON.parse(store.trim())).toMatchObject({
-    id: "mem_accept",
-    status: "accepted",
-  });
+  expect(store).toBe(suggestionLine);
+
+  const log = (
+    await readFile(join(workspaceRoot, ".forgelet", "memory-decisions.jsonl"), "utf8")
+  )
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(log).toEqual([
+    expect.objectContaining({ type: "decision", suggestionId: "mem_accept", decision: "accepted" }),
+    expect.objectContaining({ type: "write-record", suggestionId: "mem_accept", path: ".forgelet/memory.md" }),
+  ]);
+});
+
+test("CLI rejects a pending Memory Suggestion without writing Durable Memory", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-memory-reject-"));
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"),
+    `${JSON.stringify({
+      id: "mem_reject",
+      sourceSessionId: "sess_memory",
+      text: "Guidance nobody wants.",
+      reason: "Derived deterministically.",
+      status: "proposed",
+    })}\n`,
+    "utf8",
+  );
+
+  const result = await runCli(["memory", "reject", "mem_reject"], { workspaceRoot });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toMatch(/Rejected: mem_reject/);
+  await expect(
+    readFile(join(workspaceRoot, ".forgelet", "memory.md"), "utf8"),
+  ).rejects.toMatchObject({ code: "ENOENT" });
+
+  const repeat = await runCli(["memory", "reject", "mem_reject"], { workspaceRoot });
+  expect(repeat.exitCode).toBe(0);
+  expect(repeat.stdout).toMatch(/Already decided/);
+
+  const conflict = await runCli(["memory", "accept", "mem_reject"], { workspaceRoot });
+  expect(conflict.exitCode).toBe(1);
+  expect(conflict.stderr).toMatch(/already rejected/);
 });
 
 test("CLI lists actionable Project Memory Review items with guided next actions", async () => {
@@ -743,8 +788,8 @@ test("CLI memory show presents the guided evidence view without starting a Sessi
   expect(result.stdout).toContain("Exactly what acceptance will add");
   expect(result.stdout).toContain("--- begin rendered memory block ---");
   expect(result.stdout).toContain("Your choice");
-  expect(result.stdout).toContain("This is an evidence-only view");
-  expect(result.stdout).not.toContain("forge memory accept mem_show");
+  expect(result.stdout).toContain("Accept: forge memory accept mem_show");
+  expect(result.stdout).toContain("Reject: forge memory reject mem_show");
   expect(result.stdout).toContain("Id: mem_show   Status: proposed");
   await expect(readFile(join(workspaceRoot, ".forgelet", "sessions", "anything.jsonl"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
 

@@ -63,6 +63,7 @@ Usage:
   forge memory show <suggestionId>
   forge memory suggest <sessionId>
   forge memory accept <suggestionId>
+  forge memory reject <suggestionId>
 
 Use --preview to inspect the selected Workflow, route, budget, read scope, and capabilities without calling a model or creating a Session or Trace. Repeat --allow-read with workspace-relative file or directory paths to constrain workspace and Git reads for one Session. Add --with-browser to attach the current browser snapshot as read-only context. Add --act for coding runs that may request confirmed file edits and configured commands. Add --debug to model-backed Session commands to write a local Debug Transcript under .forgelet/debug/; it may contain full prompts, context, tool inputs, tool observations, and model output.
 

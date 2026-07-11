@@ -30,56 +30,66 @@ export async function ensureCompatibilityImport(
   const suggestions = await readSuggestionRecords(workspaceRoot);
   if (!suggestions.some(hasLegacyDecision)) return;
 
-  await withMemoryDecisionLock(workspaceRoot, async () => {
-    const records = await readSuggestionRecords(workspaceRoot);
-    const { firstDecisionById, writtenIds } = foldDecisionLog(
-      await readDecisionLogRecords(workspaceRoot),
-    );
+  await withMemoryDecisionLock(workspaceRoot, () =>
+    runCompatibilityImportLocked(workspaceRoot, options),
+  );
+}
 
-    const importedAt = (options.now?.() ?? new Date()).toISOString();
-    const appends: DecisionLogRecord[] = [];
-    for (const record of records) {
-      if (!hasLegacyDecision(record)) continue;
-      if (firstDecisionById.has(record.id)) continue;
-      const imported: MemoryDecisionRecord = {
-        type: "decision",
-        suggestionId: record.id,
-        decision: record.legacyStatus,
-        sourceSessionId: record.sourceSessionId,
-        textHash: createHash("sha256").update(record.text).digest("hex"),
-        textPreview: singleLinePreview(record.text),
-        origin: "legacy-status",
-        importedAt,
-      };
-      firstDecisionById.set(record.id, imported);
-      appends.push(imported);
-      // The old block is looked for only at the moment its legacy status is
-      // imported. Afterwards the log alone is authority: a block appearing
-      // later never closes a Memory Write Gap — idempotent re-accept does.
-      if (imported.decision === "accepted" && !writtenIds.has(record.id)) {
-        const observed = await observeExistingBlock(workspaceRoot, record.id);
-        if (observed) {
-          writtenIds.add(record.id);
-          appends.push({
-            type: "write-record",
-            suggestionId: record.id,
-            origin: "found-existing",
-            path: observed.path,
-            blockHash: observed.blockHash,
-            blockBytes: observed.blockBytes,
-            observedAt: importedAt,
-          });
-        }
+/** The Compatibility Import body, assuming the Memory Decision Lock is already
+ * held by the caller. Project Memory Review decisions run this inline before
+ * appending their own Memory Decision, since the lock is not reentrant. */
+export async function runCompatibilityImportLocked(
+  workspaceRoot: string,
+  options: CompatibilityImportOptions = {},
+): Promise<void> {
+  const records = await readSuggestionRecords(workspaceRoot);
+  const { firstDecisionById, writtenIds } = foldDecisionLog(
+    await readDecisionLogRecords(workspaceRoot),
+  );
+
+  const importedAt = (options.now?.() ?? new Date()).toISOString();
+  const appends: DecisionLogRecord[] = [];
+  for (const record of records) {
+    if (!hasLegacyDecision(record)) continue;
+    if (firstDecisionById.has(record.id)) continue;
+    const imported: MemoryDecisionRecord = {
+      type: "decision",
+      suggestionId: record.id,
+      decision: record.legacyStatus,
+      sourceSessionId: record.sourceSessionId,
+      textHash: createHash("sha256").update(record.text).digest("hex"),
+      textPreview: singleLinePreview(record.text),
+      origin: "legacy-status",
+      importedAt,
+    };
+    firstDecisionById.set(record.id, imported);
+    appends.push(imported);
+    // The old block is looked for only at the moment its legacy status is
+    // imported. Afterwards the log alone is authority: a block appearing
+    // later never closes a Memory Write Gap — idempotent re-accept does.
+    if (imported.decision === "accepted" && !writtenIds.has(record.id)) {
+      const observed = await observeExistingBlock(workspaceRoot, record.id);
+      if (observed) {
+        writtenIds.add(record.id);
+        appends.push({
+          type: "write-record",
+          suggestionId: record.id,
+          origin: "found-existing",
+          path: observed.path,
+          blockHash: observed.blockHash,
+          blockBytes: observed.blockBytes,
+          observedAt: importedAt,
+        });
       }
     }
+  }
 
-    if (appends.length === 0) return;
-    await appendFile(
-      join(workspaceRoot, MEMORY_DECISIONS_RELATIVE_PATH),
-      appends.map((record) => JSON.stringify(record)).join("\n") + "\n",
-      "utf8",
-    );
-  });
+  if (appends.length === 0) return;
+  await appendFile(
+    join(workspaceRoot, MEMORY_DECISIONS_RELATIVE_PATH),
+    appends.map((record) => JSON.stringify(record)).join("\n") + "\n",
+    "utf8",
+  );
 }
 
 function hasLegacyDecision(

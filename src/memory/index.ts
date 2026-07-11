@@ -1,9 +1,8 @@
 import { createHash } from "node:crypto";
-import { mkdir, appendFile, readFile, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join } from "node:path";
+import { mkdir, appendFile, readFile } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 import { explainSession } from "../explain/index.js";
 import { loadConfig } from "../config/index.js";
-import { renderMemoryBlock } from "../memoryReview/renderedMemoryBlock.js";
 import type { MemorySuggestion } from "../types.js";
 
 const MEMORY_SUGGESTIONS_FILE = "memory-suggestions.jsonl";
@@ -101,62 +100,6 @@ async function appendMemorySuggestion(
     `${JSON.stringify(suggestion)}\n`,
     "utf8",
   );
-}
-
-export async function acceptMemorySuggestion(
-  workspaceRoot: string,
-  suggestionId: string,
-): Promise<MemorySuggestion> {
-  const suggestions = await readMemorySuggestions(workspaceRoot);
-  const suggestion = suggestions.find((entry) => entry.id === suggestionId);
-  if (!suggestion)
-    throw new Error(`Memory suggestion not found: ${suggestionId}`);
-  if (suggestion.status !== "proposed")
-    throw new Error(`Memory suggestion is not proposed: ${suggestionId}`);
-
-  const accepted: MemorySuggestion = { ...suggestion, status: "accepted" };
-  await writeMemorySuggestions(
-    workspaceRoot,
-    suggestions.map((entry) => entry.id === suggestionId ? accepted : entry),
-  );
-  await appendDurableMemory(workspaceRoot, accepted);
-  return accepted;
-}
-
-async function readMemorySuggestions(
-  workspaceRoot: string,
-): Promise<MemorySuggestion[]> {
-  const path = memorySuggestionsPath(workspaceRoot);
-  const content = await readFile(path, "utf8");
-  return content
-    .split("\n")
-    .filter((line) => line.trim().length > 0)
-    .map((line) => JSON.parse(line) as MemorySuggestion);
-}
-
-async function writeMemorySuggestions(
-  workspaceRoot: string,
-  suggestions: MemorySuggestion[],
-): Promise<void> {
-  await writeFile(
-    memorySuggestionsPath(workspaceRoot),
-    suggestions.map((suggestion) => JSON.stringify(suggestion)).join("\n") + "\n",
-    "utf8",
-  );
-}
-
-async function appendDurableMemory(
-  workspaceRoot: string,
-  suggestion: MemorySuggestion,
-): Promise<void> {
-  const config = await loadConfig({ workspaceRoot });
-  const memoryPath = resolveMemoryFile(workspaceRoot, config.memoryFile);
-  await mkdir(dirname(memoryPath), { recursive: true });
-  await appendFile(memoryPath, renderMemoryBlock(suggestion).bytes, "utf8");
-}
-
-function memorySuggestionsPath(workspaceRoot: string): string {
-  return join(workspaceRoot, ".forgelet", MEMORY_SUGGESTIONS_FILE);
 }
 
 function resolveMemoryFile(workspaceRoot: string, memoryFile: string): string {
