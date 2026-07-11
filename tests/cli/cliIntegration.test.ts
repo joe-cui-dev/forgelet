@@ -534,6 +534,178 @@ test("CLI accepts a pending Memory Suggestion into Durable Memory", async () => 
   });
 });
 
+test("CLI lists actionable Project Memory Review items with guided next actions", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-memory-list-"),
+  );
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  const legacyAcceptedText = "In this workspace, use npm test as verification.";
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"),
+    [
+      JSON.stringify({
+        id: "mem_oldaccept",
+        sourceSessionId: "sess_old",
+        text: legacyAcceptedText,
+        reason: "Derived deterministically.",
+        status: "accepted",
+      }),
+      JSON.stringify({
+        id: "mem_oldgap",
+        sourceSessionId: "sess_gap",
+        text: "Legacy accepted whose block is gone.",
+        reason: "Derived deterministically.",
+        status: "accepted",
+      }),
+      JSON.stringify({
+        schemaVersion: 1,
+        id: "mem_ab12cd34ef56",
+        sourceSessionId: "sess_new",
+        text: "New guidance awaiting review.",
+        createdAt: "2026-07-10T09:00:00Z",
+        provenance: {
+          trace: {
+            path: ".forgelet/sessions/sess_missing.jsonl",
+            sha256: "00",
+            bytes: 1,
+          },
+        },
+      }),
+    ].join("\n") + "\n",
+    "utf8",
+  );
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "memory.md"),
+    `## mem_oldaccept\n\n${legacyAcceptedText}\n`,
+    "utf8",
+  );
+  const suggestionsBefore = await readFile(
+    join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"),
+    "utf8",
+  );
+
+  const list = await runCli(["memory", "list"], { workspaceRoot });
+  expect(list.exitCode).toBe(0);
+  expect(list.stderr).toBe("");
+  const gapIndex = list.stdout.indexOf(
+    "Accepted, but not written — re-accept to repair",
+  );
+  const proposedIndex = list.stdout.indexOf("Proposed — awaiting your review");
+  expect(gapIndex).toBeGreaterThanOrEqual(0);
+  expect(proposedIndex).toBeGreaterThan(gapIndex);
+  expect(list.stdout).toContain("Next: forge memory accept mem_oldgap");
+  expect(list.stdout).toContain("Next: forge memory show mem_ab12cd34ef56");
+  expect(list.stdout).toContain("Created: 2026-07-10T09:00:00Z");
+  expect(list.stdout).toContain("Created: -");
+  expect(list.stdout).not.toContain("mem_oldaccept");
+
+  const all = await runCli(["memory", "list", "--all"], { workspaceRoot });
+  expect(all.exitCode).toBe(0);
+  expect(all.stdout).toContain("Accepted and written");
+  expect(all.stdout).toContain("mem_oldaccept");
+  expect(all.stdout.indexOf("mem_oldaccept")).toBeLessThan(
+    all.stdout.indexOf("mem_oldgap"),
+  );
+
+  // Compatibility Import appended evidence without rewriting the suggestions file.
+  const suggestionsAfter = await readFile(
+    join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"),
+    "utf8",
+  );
+  expect(suggestionsAfter).toBe(suggestionsBefore);
+  const log = (
+    await readFile(
+      join(workspaceRoot, ".forgelet", "memory-decisions.jsonl"),
+      "utf8",
+    )
+  )
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(log).toEqual([
+    expect.objectContaining({
+      type: "decision",
+      suggestionId: "mem_oldaccept",
+      decision: "accepted",
+      origin: "legacy-status",
+    }),
+    expect.objectContaining({
+      type: "write-record",
+      suggestionId: "mem_oldaccept",
+      origin: "found-existing",
+    }),
+    expect.objectContaining({
+      type: "decision",
+      suggestionId: "mem_oldgap",
+      decision: "accepted",
+      origin: "legacy-status",
+    }),
+  ]);
+});
+
+test("CLI memory list shows the settled empty states", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-memory-empty-"),
+  );
+
+  const empty = await runCli(["memory", "list"], { workspaceRoot });
+  expect(empty.exitCode).toBe(0);
+  expect(empty.stdout).toBe("No pending memory suggestions.");
+
+  const emptyAll = await runCli(["memory", "list", "--all"], { workspaceRoot });
+  expect(emptyAll.exitCode).toBe(0);
+  expect(emptyAll.stdout).toBe("No memory suggestions.");
+
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"),
+    `${JSON.stringify({
+      id: "mem_done",
+      sourceSessionId: "sess_done",
+      text: "Already rejected.",
+      reason: "r",
+      status: "rejected",
+    })}\n`,
+    "utf8",
+  );
+  const decidedOnly = await runCli(["memory", "list"], { workspaceRoot });
+  expect(decidedOnly.exitCode).toBe(0);
+  expect(decidedOnly.stdout).toBe(
+    [
+      "No pending memory suggestions.",
+      "1 decided suggestion recorded. Run forge memory list --all to include it.",
+    ].join("\n"),
+  );
+});
+
+test("CLI memory list fails on corrupt evidence naming the file and line with no partial output", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-memory-corrupt-"),
+  );
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"),
+    [
+      JSON.stringify({
+        id: "mem_fine",
+        sourceSessionId: "sess_a",
+        text: "Fine.",
+        reason: "r",
+        status: "proposed",
+      }),
+      "{broken",
+    ].join("\n") + "\n",
+    "utf8",
+  );
+
+  const result = await runCli(["memory", "list"], { workspaceRoot });
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toMatch(
+    /forge: .*\.forgelet\/memory-suggestions\.jsonl at line 2/,
+  );
+});
+
 test("CLI entrypoint runs when invoked through an npm-link style symlink", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-link-"));
   const linkedBin = join(workspaceRoot, "forge");

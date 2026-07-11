@@ -773,6 +773,17 @@ test("parses memory commands", () => {
     kind: "memory-accept",
     suggestionId: "mem_123"
   });
+  expect(parseArgs(["memory", "list"])).toEqual({
+    kind: "memory-list",
+    all: false
+  });
+  expect(parseArgs(["memory", "list", "--all"])).toEqual({
+    kind: "memory-list",
+    all: true
+  });
+  expect(() => parseArgs(["memory", "list", "--json"])).toThrow(
+    /Usage: forge memory list/,
+  );
 });
 
 test("rejects missing task", () => {

@@ -59,6 +59,7 @@ Usage:
   forge browser read-current
   forge browser install-host --extension-id <chrome-extension-id>
   forge explain <sessionId>
+  forge memory list [--all]
   forge memory suggest <sessionId>
   forge memory accept <suggestionId>
 
