@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -41,6 +42,12 @@ test("a missing suggestions file reads as an empty list", async () => {
 
 test("legacy v0 and versioned v1 suggestion records parse in append order", async () => {
   const workspaceRoot = await makeWorkspace("forgelet-records-parse-");
+  const sourceSessionId = "sess_b";
+  const text = "Versioned guidance.";
+  const id = `mem_${createHash("sha256")
+    .update(`${sourceSessionId}\n${text}`)
+    .digest("hex")
+    .slice(0, 12)}`;
   await writeSuggestions(workspaceRoot, [
     JSON.stringify({
       id: "mem_legacy1",
@@ -51,10 +58,23 @@ test("legacy v0 and versioned v1 suggestion records parse in append order", asyn
     }),
     JSON.stringify({
       schemaVersion: 1,
-      id: "mem_abcdef012345",
-      sourceSessionId: "sess_b",
-      text: "Versioned guidance.",
+      id,
+      sourceSessionId,
+      text,
       createdAt: "2026-07-10T09:00:00Z",
+      provenance: {
+        derivation: {
+          changedFiles: { items: [], total: 0 },
+          successfulVerificationCommands: { items: [], total: 0 },
+        },
+        trace: { path: ".forgelet/sessions/sess_b.jsonl", sha256: "0".repeat(64), bytes: 0 },
+        session: {
+          workflow: "coding",
+          status: "completed",
+          startedAt: "2026-07-10T09:00:00Z",
+          finishedAt: "2026-07-10T09:00:00Z",
+        },
+      },
     }),
   ]);
 
@@ -68,7 +88,7 @@ test("legacy v0 and versioned v1 suggestion records parse in append order", asyn
   });
   expect(records[0]?.createdAt).toBeUndefined();
   expect(records[1]).toMatchObject({
-    id: "mem_abcdef012345",
+    id,
     sourceSessionId: "sess_b",
     text: "Versioned guidance.",
     createdAt: "2026-07-10T09:00:00Z",
@@ -118,6 +138,41 @@ test("an invalid versioned record fails naming the file and line", async () => {
 
   await expect(readSuggestionRecords(workspaceRoot)).rejects.toThrow(
     /\.forgelet\/memory-suggestions\.jsonl.*line 1/,
+  );
+});
+
+test("versioned records reject stored state and incomplete immutable evidence", async () => {
+  const workspaceRoot = await makeWorkspace("forgelet-records-invalid-evidence-");
+  await writeSuggestions(workspaceRoot, [
+    JSON.stringify({
+      schemaVersion: 1,
+      id: "mem_abcdef012345",
+      sourceSessionId: "sess_b",
+      text: "Bad evidence.",
+      createdAt: "2026-07-10T09:00:00Z",
+      status: "proposed",
+    }),
+  ]);
+
+  await expect(readSuggestionRecords(workspaceRoot)).rejects.toThrow(
+    /versioned records must not store status.*\.forgelet\/memory-suggestions\.jsonl at line 1/,
+  );
+});
+
+test("versioned records reject impossible ISO-looking UTC dates", async () => {
+  const workspaceRoot = await makeWorkspace("forgelet-records-invalid-date-");
+  await writeSuggestions(workspaceRoot, [
+    JSON.stringify({
+      schemaVersion: 1,
+      id: "mem_abcdef012345",
+      sourceSessionId: "sess_b",
+      text: "Bad date.",
+      createdAt: "2026-02-29T00:00:00Z",
+    }),
+  ]);
+
+  await expect(readSuggestionRecords(workspaceRoot)).rejects.toThrow(
+    /createdAt must be ISO-8601 UTC.*\.forgelet\/memory-suggestions\.jsonl at line 1/,
   );
 });
 

@@ -1,4 +1,4 @@
-import type { MemorySuggestion } from "../../types.js";
+import type { SuggestMemoryResult } from "../../memory/index.js";
 import type {
   MemoryReviewItem,
   MemoryReviewList,
@@ -57,12 +57,13 @@ function decidedHint(count: number): string {
     : `${count} decided suggestions recorded. Run forge memory list --all to include them.`;
 }
 
-export function formatMemorySuggestion(suggestion: MemorySuggestion): string {
+export function formatMemorySuggestion(result: SuggestMemoryResult): string {
+  const { suggestion } = result;
   return [
     `Memory suggestion: ${suggestion.id}`,
     `Source Session: ${suggestion.sourceSessionId}`,
-    `Status: ${suggestion.status}`,
-    `Reason: ${suggestion.reason}`,
+    `State: ${stateLabel(result.state)}`,
+    result.outcome === "created" ? "Recorded: new proposal." : "Recorded: existing proposal.",
     suggestion.text,
   ].join("\n");
 }

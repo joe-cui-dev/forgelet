@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { assertCompleteProvenance, corroborateTrace } from "./index.js";
+import { corroborateTrace } from "./index.js";
 import { runCompatibilityImportLocked } from "./compatibilityImport.js";
 import {
   findExistingMemoryBlock,
@@ -90,8 +90,6 @@ async function decideMemorySuggestion(
       if (!existing) throw new Error(`Memory suggestion not found: ${suggestionId}`);
       return resolveOrphanDecision(existing, log, action);
     }
-
-    assertCompleteProvenance(suggestion);
 
     if (existing) {
       if (existing.decision !== action) throw conflictError(suggestionId, existing, action);

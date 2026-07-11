@@ -8,7 +8,6 @@ import {
   readDecisionLogRecords,
   readSuggestionRecords,
   singleLinePreview,
-  MEMORY_SUGGESTIONS_RELATIVE_PATH,
   type MemoryDecisionRecord,
   type MemoryWriteRecord,
   type SuggestionRecord,
@@ -77,7 +76,7 @@ export async function listMemoryReview(
   const items: MemoryReviewItem[] = [];
   let hiddenDecidedCount = 0;
   for (const suggestion of suggestions) {
-    const state = deriveState(
+    const state = deriveMemoryReviewState(
       firstDecisionById.get(suggestion.id)?.decision,
       writtenIds.has(suggestion.id),
     );
@@ -119,10 +118,8 @@ export async function showMemoryReview(
         : {}),
     };
   }
-  assertCompleteProvenance(suggestion);
-
   const decision = log.firstDecisionById.get(suggestion.id);
-  const state = deriveState(decision?.decision, log.writtenIds.has(suggestion.id));
+  const state = deriveMemoryReviewState(decision?.decision, log.writtenIds.has(suggestion.id));
   const corroboration = await corroborateTrace(workspaceRoot, suggestion);
   if (state === "accepted" || state === "rejected") {
     return {
@@ -177,35 +174,7 @@ function hasErrorCode(error: unknown, code: string): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
 
-export function assertCompleteProvenance(suggestion: SuggestionRecord): void {
-  if (suggestion.legacyStatus !== undefined) return;
-  const provenance = suggestion.provenance;
-  if (
-    !isRecord(provenance) ||
-    !isRecord(provenance.derivation) ||
-    !isBoundedEvidence(provenance.derivation.changedFiles) ||
-    !isBoundedEvidence(provenance.derivation.successfulVerificationCommands) ||
-    !isRecord(provenance.trace) ||
-    typeof provenance.trace.path !== "string" ||
-    typeof provenance.trace.sha256 !== "string" ||
-    typeof provenance.trace.bytes !== "number" ||
-    !isRecord(provenance.session) ||
-    typeof provenance.session.workflow !== "string" ||
-    typeof provenance.session.status !== "string" ||
-    typeof provenance.session.startedAt !== "string" ||
-    typeof provenance.session.finishedAt !== "string"
-  ) {
-    throw new Error(
-      `Invalid memory suggestion record (missing complete Provenance Snapshot) in ${MEMORY_SUGGESTIONS_RELATIVE_PATH} at line ${suggestion.sourceLine}`,
-    );
-  }
-}
-
-function isBoundedEvidence(value: unknown): boolean {
-  return isRecord(value) && Array.isArray(value.items) && typeof value.total === "number";
-}
-
-function deriveState(
+export function deriveMemoryReviewState(
   decision: "accepted" | "rejected" | undefined,
   written: boolean,
 ): MemoryReviewState {

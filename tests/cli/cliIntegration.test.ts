@@ -11,6 +11,13 @@ import {
 } from "../../src/cli/index.js";
 import { FakeModelClient } from "../../src/models/testing/index.js";
 
+function memorySuggestionId(sourceSessionId: string, text: string): string {
+  return `mem_${createHash("sha256")
+    .update(`${sourceSessionId}\n${text}`)
+    .digest("hex")
+    .slice(0, 12)}`;
+}
+
 test("CLI lists and shows project sessions", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-"));
   const run = await runCodingSession({
@@ -486,10 +493,24 @@ test("CLI creates a pending Memory Suggestion from actionable Session audit evid
   );
   const suggestion = JSON.parse(store.trim());
   expect(suggestion).toMatchObject({
+    schemaVersion: 1,
     sourceSessionId: "sess_memory",
-    status: "proposed",
+    provenance: {
+      trace: expect.objectContaining({ path: ".forgelet/sessions/sess_memory.jsonl" }),
+    },
   });
+  expect(suggestion).not.toHaveProperty("status");
   expect(suggestion.text).toMatch(/npm test/);
+
+  const repeated = await runCli(["memory", "suggest", "sess_memory"], {
+    workspaceRoot,
+  });
+  expect(repeated.exitCode).toBe(0);
+  expect(repeated.stdout).toContain(`Memory suggestion: ${suggestion.id}`);
+  expect(repeated.stdout).toContain("State: proposed");
+  expect(repeated.stdout).toContain("Recorded: existing proposal.");
+  expect(await readFile(join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"), "utf8"))
+    .toBe(store);
 });
 
 test("CLI accepts a pending Memory Suggestion into Durable Memory", async () => {
@@ -585,6 +606,8 @@ test("CLI lists actionable Project Memory Review items with guided next actions"
   );
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
   const legacyAcceptedText = "In this workspace, use npm test as verification.";
+  const newText = "New guidance awaiting review.";
+  const newId = memorySuggestionId("sess_new", newText);
   await writeFile(
     join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"),
     [
@@ -604,15 +627,25 @@ test("CLI lists actionable Project Memory Review items with guided next actions"
       }),
       JSON.stringify({
         schemaVersion: 1,
-        id: "mem_ab12cd34ef56",
+        id: newId,
         sourceSessionId: "sess_new",
-        text: "New guidance awaiting review.",
+        text: newText,
         createdAt: "2026-07-10T09:00:00Z",
         provenance: {
+          derivation: {
+            changedFiles: { items: [], total: 0 },
+            successfulVerificationCommands: { items: [], total: 0 },
+          },
           trace: {
             path: ".forgelet/sessions/sess_missing.jsonl",
-            sha256: "00",
+            sha256: "0".repeat(64),
             bytes: 1,
+          },
+          session: {
+            workflow: "coding",
+            status: "completed",
+            startedAt: "2026-07-10T09:00:00Z",
+            finishedAt: "2026-07-10T09:00:00Z",
           },
         },
       }),
@@ -639,7 +672,7 @@ test("CLI lists actionable Project Memory Review items with guided next actions"
   expect(gapIndex).toBeGreaterThanOrEqual(0);
   expect(proposedIndex).toBeGreaterThan(gapIndex);
   expect(list.stdout).toContain("Next: forge memory accept mem_oldgap");
-  expect(list.stdout).toContain("Next: forge memory show mem_ab12cd34ef56");
+  expect(list.stdout).toContain(`Next: forge memory show ${newId}`);
   expect(list.stdout).toContain("Created: 2026-07-10T09:00:00Z");
   expect(list.stdout).toContain("Created: -");
   expect(list.stdout).not.toContain("mem_oldaccept");
@@ -754,20 +787,22 @@ test("CLI memory list fails on corrupt evidence naming the file and line with no
 test("CLI memory show presents the guided evidence view without starting a Session", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-memory-show-"));
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  const text = "Remember the verification command.";
+  const suggestionId = memorySuggestionId("sess_show", text);
   await writeFile(
     join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"),
     `${JSON.stringify({
       schemaVersion: 1,
-      id: "mem_show",
+      id: suggestionId,
       sourceSessionId: "sess_show",
-      text: "Remember the verification command.",
+      text,
       createdAt: "2026-07-10T09:00:00Z",
       provenance: {
         derivation: {
           changedFiles: { items: ["src/a.ts"], total: 1 },
           successfulVerificationCommands: { items: ["npm test"], total: 1 },
         },
-        trace: { path: ".forgelet/sessions/missing.jsonl", sha256: "00", bytes: 1 },
+        trace: { path: ".forgelet/sessions/missing.jsonl", sha256: "0".repeat(64), bytes: 1 },
         session: {
           workflow: "coding",
           status: "completed",
@@ -779,7 +814,7 @@ test("CLI memory show presents the guided evidence view without starting a Sessi
     "utf8",
   );
 
-  const result = await runCli(["memory", "show", "mem_show"], { workspaceRoot });
+  const result = await runCli(["memory", "show", suggestionId], { workspaceRoot });
 
   expect(result).toMatchObject({ exitCode: 0, stderr: "" });
   expect(result.stdout).toContain("What Forgelet wants to remember");
@@ -788,9 +823,9 @@ test("CLI memory show presents the guided evidence view without starting a Sessi
   expect(result.stdout).toContain("Exactly what acceptance will add");
   expect(result.stdout).toContain("--- begin rendered memory block ---");
   expect(result.stdout).toContain("Your choice");
-  expect(result.stdout).toContain("Accept: forge memory accept mem_show");
-  expect(result.stdout).toContain("Reject: forge memory reject mem_show");
-  expect(result.stdout).toContain("Id: mem_show   Status: proposed");
+  expect(result.stdout).toContain(`Accept: forge memory accept ${suggestionId}`);
+  expect(result.stdout).toContain(`Reject: forge memory reject ${suggestionId}`);
+  expect(result.stdout).toContain(`Id: ${suggestionId}   Status: proposed`);
   await expect(readFile(join(workspaceRoot, ".forgelet", "sessions", "anything.jsonl"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
 
   const missing = await runCli(["memory", "show", "mem_nope"], { workspaceRoot });

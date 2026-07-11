@@ -1,12 +1,29 @@
 import { createHash } from "node:crypto";
-import { mkdir, appendFile, readFile } from "node:fs/promises";
-import { isAbsolute, join } from "node:path";
-import { explainSession } from "../explain/index.js";
+import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { isAbsolute, join, relative } from "node:path";
 import { loadConfig } from "../config/index.js";
-import type { MemorySuggestion } from "../types.js";
+import { explainSession } from "../explain/index.js";
+import { runCompatibilityImportLocked } from "../memoryReview/compatibilityImport.js";
+import { deriveMemoryReviewState, type MemoryReviewState } from "../memoryReview/index.js";
+import { withMemoryDecisionLock } from "../memoryReview/lock.js";
+import {
+  foldDecisionLog,
+  readDecisionLogRecords,
+  readSuggestionRecords,
+  type SuggestionRecord,
+} from "../memoryReview/records.js";
+import { findSessionTracePath, readTraceFile } from "../trace/index.js";
+import type {
+  BoundedMemoryEvidence,
+  MemorySuggestionProvenance,
+  VersionedMemorySuggestion,
+} from "./types.js";
 
 const MEMORY_SUGGESTIONS_FILE = "memory-suggestions.jsonl";
 const DURABLE_MEMORY_PROMPT_LIMIT_BYTES = 20 * 1024;
+const PROVENANCE_ITEM_LIMIT = 20;
+const PROVENANCE_COMMAND_LIMIT = 10;
+const PROVENANCE_STRING_LIMIT = 200;
 
 export interface LoadedDurableMemory {
   path: string;
@@ -18,6 +35,16 @@ export interface LoadedDurableMemory {
   content: string;
 }
 
+export interface SuggestMemoryOptions {
+  now?: () => Date;
+}
+
+export interface SuggestMemoryResult {
+  suggestion: SuggestionRecord;
+  state: MemoryReviewState;
+  outcome: "created" | "existing";
+}
+
 export async function loadDurableMemory(
   workspaceRoot: string,
 ): Promise<LoadedDurableMemory | undefined> {
@@ -26,10 +53,7 @@ export async function loadDurableMemory(
   try {
     const content = await readFile(memoryPath, "utf8");
     const contentBytes = Buffer.byteLength(content, "utf8");
-    const returnedBytes = Math.min(
-      contentBytes,
-      DURABLE_MEMORY_PROMPT_LIMIT_BYTES,
-    );
+    const returnedBytes = Math.min(contentBytes, DURABLE_MEMORY_PROMPT_LIMIT_BYTES);
     const returnedContent = Buffer.from(content, "utf8")
       .subarray(0, returnedBytes)
       .toString("utf8");
@@ -48,10 +72,54 @@ export async function loadDurableMemory(
   }
 }
 
+/** Creates one immutable schema-v1 proposal, or returns the existing canonical
+ * proposal for the same source Session and derived text. The append happens
+ * under the shared memory lock so Compatibility Import and decision evidence
+ * cannot race proposal deduplication. */
 export async function suggestMemoryFromSession(
   workspaceRoot: string,
   sessionId: string,
-): Promise<MemorySuggestion> {
+  options: SuggestMemoryOptions = {},
+): Promise<SuggestMemoryResult> {
+  const now = options.now ?? (() => new Date());
+  const derived = await deriveSuggestion(workspaceRoot, sessionId, now);
+
+  return withMemoryDecisionLock(workspaceRoot, async () => {
+    const existingSuggestions = await readSuggestionRecords(workspaceRoot);
+    await readDecisionLogRecords(workspaceRoot);
+    await runCompatibilityImportLocked(workspaceRoot, { now });
+    const suggestions = await readSuggestionRecords(workspaceRoot);
+    const decisionLog = foldDecisionLog(await readDecisionLogRecords(workspaceRoot));
+    const existing = suggestions.find(
+      (record) =>
+        record.sourceSessionId === derived.sourceSessionId &&
+        record.text === derived.text,
+    );
+    if (existing) {
+      return {
+        suggestion: existing,
+        state: deriveMemoryReviewState(
+          decisionLog.firstDecisionById.get(existing.id)?.decision,
+          decisionLog.writtenIds.has(existing.id),
+        ),
+        outcome: "existing",
+      };
+    }
+
+    await appendMemorySuggestion(workspaceRoot, derived);
+    return {
+      suggestion: { ...derived, sourceLine: suggestions.length + 1 },
+      state: "proposed",
+      outcome: "created",
+    };
+  });
+}
+
+async function deriveSuggestion(
+  workspaceRoot: string,
+  sessionId: string,
+  now: () => Date,
+): Promise<VersionedMemorySuggestion> {
   const explanation = await explainSession(workspaceRoot, sessionId);
   if (!explanation.audit)
     throw new Error(`Session does not contain actionable audit evidence: ${sessionId}`);
@@ -63,17 +131,56 @@ export async function suggestMemoryFromSession(
   if (changedFiles.length === 0 && successfulCommands.length === 0)
     throw new Error(`Session did not produce a high-confidence memory suggestion: ${sessionId}`);
 
-  const suggestion: MemorySuggestion = {
-    id: `mem_${Date.now().toString(36)}`,
-    sourceSessionId: sessionId,
-    text: formatActionableAuditMemory(changedFiles, successfulCommands),
-    reason:
-      "Derived deterministically from actionable Session audit evidence.",
-    status: "proposed",
+  const text = formatActionableAuditMemory(changedFiles, successfulCommands);
+  const tracePath = await findSessionTracePath(workspaceRoot, sessionId);
+  const traceBytes = await readFile(tracePath);
+  const events = await readTraceFile(tracePath);
+  const started = events.find((event) => event.type === "session_started");
+  const finished = events.find((event) => event.type === "session_finished");
+  const startedAt = typeof started?.payload.startedAt === "string"
+    ? started.payload.startedAt
+    : started?.ts;
+  const finishedAt = typeof finished?.payload.finishedAt === "string"
+    ? finished.payload.finishedAt
+    : finished?.ts;
+  if (!startedAt || !finishedAt) {
+    throw new Error(
+      `Session does not contain complete timing evidence for Memory Suggestion provenance: ${sessionId}`,
+    );
+  }
+
+  const provenance: MemorySuggestionProvenance = {
+    derivation: {
+      changedFiles: boundEvidence(changedFiles, PROVENANCE_ITEM_LIMIT),
+      successfulVerificationCommands: boundEvidence(
+        successfulCommands,
+        PROVENANCE_COMMAND_LIMIT,
+      ),
+    },
+    trace: {
+      path: relative(workspaceRoot, tracePath).replaceAll("\\", "/"),
+      sha256: createHash("sha256").update(traceBytes).digest("hex"),
+      bytes: traceBytes.byteLength,
+    },
+    session: {
+      workflow: explanation.workflow,
+      status: explanation.status,
+      startedAt,
+      finishedAt,
+    },
   };
 
-  await appendMemorySuggestion(workspaceRoot, suggestion);
-  return suggestion;
+  return {
+    schemaVersion: 1,
+    id: `mem_${createHash("sha256")
+      .update(`${sessionId}\n${text}`)
+      .digest("hex")
+      .slice(0, 12)}`,
+    sourceSessionId: sessionId,
+    text,
+    createdAt: now().toISOString(),
+    provenance,
+  };
 }
 
 function formatActionableAuditMemory(
@@ -91,7 +198,7 @@ function formatActionableAuditMemory(
 
 async function appendMemorySuggestion(
   workspaceRoot: string,
-  suggestion: MemorySuggestion,
+  suggestion: VersionedMemorySuggestion,
 ): Promise<void> {
   const forgeletDir = join(workspaceRoot, ".forgelet");
   await mkdir(forgeletDir, { recursive: true });
@@ -100,6 +207,19 @@ async function appendMemorySuggestion(
     `${JSON.stringify(suggestion)}\n`,
     "utf8",
   );
+}
+
+function boundEvidence(items: string[], limit: number): BoundedMemoryEvidence {
+  return {
+    items: items.slice(0, limit).map(truncateProvenanceString),
+    total: items.length,
+  };
+}
+
+function truncateProvenanceString(value: string): string {
+  return value.length > PROVENANCE_STRING_LIMIT
+    ? `${value.slice(0, PROVENANCE_STRING_LIMIT - 3)}...`
+    : value;
 }
 
 function resolveMemoryFile(workspaceRoot: string, memoryFile: string): string {

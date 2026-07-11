@@ -1,5 +1,7 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { MemorySuggestionProvenance } from "../memory/types.js";
 
 export const MEMORY_SUGGESTIONS_RELATIVE_PATH =
   ".forgelet/memory-suggestions.jsonl";
@@ -12,6 +14,7 @@ export type LegacySuggestionStatus = "proposed" | "accepted" | "rejected";
  * only (v0 records); derived status always comes from the Memory Decision
  * Log. `createdAt` is absent when the record predates the versioned schema. */
 export interface SuggestionRecord {
+  schemaVersion?: 1;
   id: string;
   sourceSessionId: string;
   text: string;
@@ -19,7 +22,7 @@ export interface SuggestionRecord {
   legacyStatus?: LegacySuggestionStatus;
   /** Legacy reason and versioned provenance are immutable record evidence. */
   reason?: string;
-  provenance?: unknown;
+  provenance?: MemorySuggestionProvenance;
   /** Evidence location, retained so read-model errors identify corrupt input. */
   sourceLine: number;
 }
@@ -180,14 +183,100 @@ function validateSuggestionRecord(
   ) {
     return fail("missing required versioned fields");
   }
+  if ("status" in value) return fail("versioned records must not store status");
+  if (!isIsoUtc(value.createdAt)) return fail("createdAt must be ISO-8601 UTC");
+  const expectedId = `mem_${createHash("sha256")
+    .update(`${value.sourceSessionId}\n${value.text}`)
+    .digest("hex")
+    .slice(0, 12)}`;
+  if (value.id !== expectedId) return fail("id does not match sourceSessionId and text");
+  const provenance = parseProvenance(value.provenance, fail);
   return {
+    schemaVersion: 1,
     id: value.id,
     sourceSessionId: value.sourceSessionId,
     text: value.text,
     createdAt: value.createdAt,
-    ...("provenance" in value ? { provenance: value.provenance } : {}),
+    provenance,
     sourceLine: lineNumber,
   };
+}
+
+function parseProvenance(
+  value: unknown,
+  fail: (problem: string) => never,
+): MemorySuggestionProvenance {
+  if (!isRecord(value) || !isRecord(value.derivation) || !isRecord(value.trace) || !isRecord(value.session))
+    return fail("missing complete Provenance Snapshot");
+  const changedFiles = parseBoundedEvidence(value.derivation.changedFiles, 20, "changedFiles", fail);
+  const successfulVerificationCommands = parseBoundedEvidence(
+    value.derivation.successfulVerificationCommands,
+    10,
+    "successfulVerificationCommands",
+    fail,
+  );
+  if (
+    typeof value.trace.path !== "string" ||
+    value.trace.path.length === 0 ||
+    typeof value.trace.sha256 !== "string" ||
+    !/^[0-9a-f]{64}$/.test(value.trace.sha256) ||
+    !isNonNegativeInteger(value.trace.bytes)
+  ) {
+    return fail("invalid trace provenance");
+  }
+  if (
+    typeof value.session.workflow !== "string" ||
+    typeof value.session.status !== "string" ||
+    !isIsoUtc(value.session.startedAt) ||
+    !isIsoUtc(value.session.finishedAt)
+  ) {
+    return fail("invalid session provenance");
+  }
+  return {
+    derivation: { changedFiles, successfulVerificationCommands },
+    trace: {
+      path: value.trace.path,
+      sha256: value.trace.sha256,
+      bytes: value.trace.bytes,
+    },
+    session: {
+      workflow: value.session.workflow,
+      status: value.session.status,
+      startedAt: value.session.startedAt,
+      finishedAt: value.session.finishedAt,
+    },
+  };
+}
+
+function parseBoundedEvidence(
+  value: unknown,
+  limit: number,
+  label: string,
+  fail: (problem: string) => never,
+): MemorySuggestionProvenance["derivation"]["changedFiles"] {
+  if (!isRecord(value) || !Array.isArray(value.items) || !isNonNegativeInteger(value.total))
+    return fail(`invalid ${label} provenance`);
+  if (value.items.length > limit || value.total < value.items.length)
+    return fail(`${label} provenance exceeds its declared bound`);
+  if (value.items.some((item) => typeof item !== "string" || item.length > 200))
+    return fail(`${label} provenance contains an invalid item`);
+  return { items: value.items, total: value.total };
+}
+
+function isIsoUtc(value: unknown): value is string {
+  if (
+    typeof value !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)
+  ) {
+    return false;
+  }
+  const parsed = new Date(value);
+  const normalized = value.includes(".") ? value : value.replace("Z", ".000Z");
+  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === normalized;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }
 
 function validateDecisionLogRecord(

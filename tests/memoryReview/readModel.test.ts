@@ -4,6 +4,14 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { showMemoryReview, listMemoryReview } from "../../src/memoryReview/index.js";
 
+const ids = new Map<string, string>();
+
+function memoryId(name: string): string {
+  const id = ids.get(name);
+  if (!id) throw new Error(`Missing fixture id for ${name}`);
+  return id;
+}
+
 async function makeWorkspace(prefix: string): Promise<string> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), prefix));
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
@@ -11,18 +19,46 @@ async function makeWorkspace(prefix: string): Promise<string> {
 }
 
 function versionedRecord(
-  id: string,
+  name: string,
   text: string,
   createdAt: string,
   extra: Record<string, unknown> = {},
 ): string {
+  const sourceSessionId = `sess_${name}`;
+  const id = `mem_${createHash("sha256")
+    .update(`${sourceSessionId}\n${text}`)
+    .digest("hex")
+    .slice(0, 12)}`;
+  ids.set(name, id);
+  const { provenance: rawProvenance, ...otherExtra } = extra;
+  const suppliedProvenance = rawProvenance as Record<string, unknown> | undefined;
   return JSON.stringify({
     schemaVersion: 1,
     id,
-    sourceSessionId: `sess_${id}`,
+    sourceSessionId,
     text,
     createdAt,
-    ...extra,
+    provenance: {
+      derivation: {
+        changedFiles: { items: [], total: 0 },
+        successfulVerificationCommands: { items: [], total: 0 },
+        ...(suppliedProvenance?.derivation as Record<string, unknown> | undefined),
+      },
+      trace: {
+        path: ".forgelet/sessions/missing.jsonl",
+        sha256: "0".repeat(64),
+        bytes: 0,
+        ...(suppliedProvenance?.trace as Record<string, unknown> | undefined),
+      },
+      session: {
+        workflow: "coding",
+        status: "completed",
+        startedAt: createdAt,
+        finishedAt: createdAt,
+        ...(suppliedProvenance?.session as Record<string, unknown> | undefined),
+      },
+    },
+    ...otherExtra,
   });
 }
 
@@ -43,13 +79,13 @@ test("default scope lists only actionable items in append order; --all adds deci
     [
       JSON.stringify({
         type: "decision",
-        suggestionId: "mem_written",
+        suggestionId: memoryId("mem_written"),
         decision: "accepted",
         decidedAt: "2026-07-05T00:00:00Z",
       }),
       JSON.stringify({
         type: "write-record",
-        suggestionId: "mem_written",
+        suggestionId: memoryId("mem_written"),
         path: ".forgelet/memory.md",
         blockHash: "aa",
         blockBytes: 10,
@@ -57,13 +93,13 @@ test("default scope lists only actionable items in append order; --all adds deci
       }),
       JSON.stringify({
         type: "decision",
-        suggestionId: "mem_gap",
+        suggestionId: memoryId("mem_gap"),
         decision: "accepted",
         decidedAt: "2026-07-05T00:01:00Z",
       }),
       JSON.stringify({
         type: "decision",
-        suggestionId: "mem_rej",
+        suggestionId: memoryId("mem_rej"),
         decision: "rejected",
         decidedAt: "2026-07-05T00:02:00Z",
       }),
@@ -73,8 +109,8 @@ test("default scope lists only actionable items in append order; --all adds deci
 
   const actionable = await listMemoryReview(workspaceRoot, { all: false });
   expect(actionable.items.map((item) => [item.id, item.state])).toEqual([
-    ["mem_gap", "accepted-unwritten"],
-    ["mem_new", "proposed"],
+    [memoryId("mem_gap"), "accepted-unwritten"],
+    [memoryId("mem_new"), "proposed"],
   ]);
   expect(actionable.hiddenDecidedCount).toBe(2);
   expect(actionable.items[1]).toMatchObject({
@@ -84,10 +120,10 @@ test("default scope lists only actionable items in append order; --all adds deci
 
   const all = await listMemoryReview(workspaceRoot, { all: true });
   expect(all.items.map((item) => [item.id, item.state])).toEqual([
-    ["mem_written", "accepted"],
-    ["mem_gap", "accepted-unwritten"],
-    ["mem_rej", "rejected"],
-    ["mem_new", "proposed"],
+    [memoryId("mem_written"), "accepted"],
+    [memoryId("mem_gap"), "accepted-unwritten"],
+    [memoryId("mem_rej"), "rejected"],
+    [memoryId("mem_new"), "proposed"],
   ]);
   expect(all.hiddenDecidedCount).toBe(0);
 });
@@ -104,13 +140,13 @@ test("the first decision per suggestion wins", async () => {
     [
       JSON.stringify({
         type: "decision",
-        suggestionId: "mem_dup",
+        suggestionId: memoryId("mem_dup"),
         decision: "rejected",
         decidedAt: "2026-07-02T00:00:00Z",
       }),
       JSON.stringify({
         type: "decision",
-        suggestionId: "mem_dup",
+        suggestionId: memoryId("mem_dup"),
         decision: "accepted",
         decidedAt: "2026-07-03T00:00:00Z",
       }),
@@ -120,7 +156,7 @@ test("the first decision per suggestion wins", async () => {
 
   const all = await listMemoryReview(workspaceRoot, { all: true });
   expect(all.items).toEqual([
-    expect.objectContaining({ id: "mem_dup", state: "rejected" }),
+    expect.objectContaining({ id: memoryId("mem_dup"), state: "rejected" }),
   ]);
 });
 
@@ -192,7 +228,7 @@ test("show derives live Trace Corroboration and exact preview bytes for a propos
     "utf8",
   );
 
-  const shown = await showMemoryReview(workspaceRoot, "mem_show");
+  const shown = await showMemoryReview(workspaceRoot, memoryId("mem_show"));
 
   expect(shown).toMatchObject({
     kind: "suggestion",
@@ -201,11 +237,11 @@ test("show derives live Trace Corroboration and exact preview bytes for a propos
     destination: ".forgelet/memory.md",
   });
   expect(shown.kind === "suggestion" && shown.renderedBlock).toEqual({
-    bytes: "## mem_show\n\nKeep this guidance.\n\nSource Session: sess_mem_show\n",
+    bytes: `## ${memoryId("mem_show")}\n\nKeep this guidance.\n\nSource Session: sess_mem_show\n`,
     finalNewline: true,
-    byteCount: 64,
+    byteCount: Buffer.byteLength(`## ${memoryId("mem_show")}\n\nKeep this guidance.\n\nSource Session: sess_mem_show\n`),
     sha256: createHash("sha256")
-      .update("## mem_show\n\nKeep this guidance.\n\nSource Session: sess_mem_show\n")
+      .update(`## ${memoryId("mem_show")}\n\nKeep this guidance.\n\nSource Session: sess_mem_show\n`)
       .digest("hex"),
   });
 });
@@ -264,9 +300,9 @@ test("show distinguishes changed, missing, and unreadable Trace evidence", async
     "utf8",
   );
 
-  await expect(showMemoryReview(workspaceRoot, "mem_differs")).resolves.toMatchObject({ traceCorroboration: "differs" });
-  await expect(showMemoryReview(workspaceRoot, "mem_missing")).resolves.toMatchObject({ traceCorroboration: "missing" });
-  await expect(showMemoryReview(workspaceRoot, "mem_unreadable")).resolves.toMatchObject({ traceCorroboration: "unreadable" });
+  await expect(showMemoryReview(workspaceRoot, memoryId("mem_differs"))).resolves.toMatchObject({ traceCorroboration: "differs" });
+  await expect(showMemoryReview(workspaceRoot, memoryId("mem_missing"))).resolves.toMatchObject({ traceCorroboration: "missing" });
+  await expect(showMemoryReview(workspaceRoot, memoryId("mem_unreadable"))).resolves.toMatchObject({ traceCorroboration: "unreadable" });
 });
 
 test("show keeps settled decision evidence authoritative and resolves an external destination", async () => {
@@ -299,16 +335,16 @@ test("show keeps settled decision evidence authoritative and resolves an externa
   await writeFile(
     join(workspaceRoot, ".forgelet", "memory-decisions.jsonl"),
     [
-      JSON.stringify({ type: "decision", suggestionId: "mem_gap", decision: "accepted" }),
-      JSON.stringify({ type: "decision", suggestionId: "mem_written", decision: "accepted", intendedPath: ".forgelet/memory.md", intendedBlockHash: "abc", intendedBlockBytes: 12 }),
-      JSON.stringify({ type: "write-record", suggestionId: "mem_written", path: ".forgelet/memory.md", blockHash: "def", blockBytes: 13 }),
+      JSON.stringify({ type: "decision", suggestionId: memoryId("mem_gap"), decision: "accepted" }),
+      JSON.stringify({ type: "decision", suggestionId: memoryId("mem_written"), decision: "accepted", intendedPath: ".forgelet/memory.md", intendedBlockHash: "abc", intendedBlockBytes: 12 }),
+      JSON.stringify({ type: "write-record", suggestionId: memoryId("mem_written"), path: ".forgelet/memory.md", blockHash: "def", blockBytes: 13 }),
     ].join("\n") + "\n",
     "utf8",
   );
 
-  const gap = await showMemoryReview(workspaceRoot, "mem_gap");
+  const gap = await showMemoryReview(workspaceRoot, memoryId("mem_gap"));
   expect(gap).toMatchObject({ state: "accepted-unwritten", destination: externalMemory });
-  const written = await showMemoryReview(workspaceRoot, "mem_written");
+  const written = await showMemoryReview(workspaceRoot, memoryId("mem_written"));
   expect(written).toMatchObject({ state: "accepted", decision: expect.objectContaining({ intendedPath: ".forgelet/memory.md" }), writeRecord: expect.objectContaining({ blockHash: "def" }) });
   expect(written.kind === "suggestion" && written.renderedBlock).toBeUndefined();
 });
@@ -325,7 +361,7 @@ test("listing succeeds when a referenced Trace is absent or unreadable", async (
         provenance: {
           trace: {
             path: ".forgelet/sessions/sess_gone.jsonl",
-            sha256: "00",
+            sha256: "0".repeat(64),
             bytes: 1,
           },
         },
@@ -334,7 +370,7 @@ test("listing succeeds when a referenced Trace is absent or unreadable", async (
         provenance: {
           trace: {
             path: ".forgelet/unreadable-trace.jsonl",
-            sha256: "00",
+            sha256: "0".repeat(64),
             bytes: 1,
           },
         },
@@ -345,7 +381,7 @@ test("listing succeeds when a referenced Trace is absent or unreadable", async (
 
   const list = await listMemoryReview(workspaceRoot, { all: false });
   expect(list.items.map((item) => item.id)).toEqual([
-    "mem_absent",
-    "mem_unread",
+    memoryId("mem_absent"),
+    memoryId("mem_unread"),
   ]);
 });

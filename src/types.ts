@@ -135,16 +135,6 @@ export interface LoadedContextAttachment {
   content: string;
 }
 
-export type MemorySuggestionStatus = "proposed" | "accepted" | "rejected";
-
-export interface MemorySuggestion {
-  id: string;
-  sourceSessionId: string;
-  text: string;
-  reason: string;
-  status: MemorySuggestionStatus;
-}
-
 export interface ModelTurnInput {
   messages: ModelMessage[];
   tools: ToolSchema[];
