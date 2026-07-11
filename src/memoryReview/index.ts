@@ -205,7 +205,7 @@ function isBoundedEvidence(value: unknown): boolean {
   return isRecord(value) && Array.isArray(value.items) && typeof value.total === "number";
 }
 
-export function deriveState(
+function deriveState(
   decision: "accepted" | "rejected" | undefined,
   written: boolean,
 ): MemoryReviewState {

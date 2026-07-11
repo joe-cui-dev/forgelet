@@ -291,6 +291,55 @@ test("concurrent accept attempts on the same suggestion produce exactly one deci
   expect(memory.match(/## mem_race/g)).toHaveLength(1);
 });
 
+test("repeating a decision for an orphaned suggestion (no matching suggestion record) is idempotent", async () => {
+  const workspaceRoot = await makeWorkspace("forgelet-decide-orphan-repeat-");
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "memory-decisions.jsonl"),
+    JSON.stringify({
+      type: "decision",
+      suggestionId: "mem_orphan",
+      decision: "rejected",
+      decidedAt: "2026-07-11T09:00:00Z",
+    }) + "\n",
+    "utf8",
+  );
+
+  const result = await rejectMemorySuggestion(workspaceRoot, "mem_orphan");
+
+  expect(result).toEqual({
+    suggestionId: "mem_orphan",
+    action: "rejected",
+    outcome: "repeated",
+    decidedAt: "2026-07-11T09:00:00Z",
+  });
+  expect(await readLog(workspaceRoot)).toHaveLength(1);
+});
+
+test("a conflicting decision for an orphaned suggestion is refused", async () => {
+  const workspaceRoot = await makeWorkspace("forgelet-decide-orphan-conflict-");
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "memory-decisions.jsonl"),
+    JSON.stringify({
+      type: "decision",
+      suggestionId: "mem_orphan_c",
+      decision: "accepted",
+      decidedAt: "2026-07-11T09:00:00Z",
+    }) + "\n",
+    "utf8",
+  );
+
+  await expect(rejectMemorySuggestion(workspaceRoot, "mem_orphan_c")).rejects.toThrow(
+    /mem_orphan_c was already accepted at 2026-07-11T09:00:00Z; cannot reject it\./,
+  );
+});
+
+test("deciding a suggestion id with no suggestion record and no decision fails", async () => {
+  const workspaceRoot = await makeWorkspace("forgelet-decide-notfound-");
+  await expect(acceptMemorySuggestion(workspaceRoot, "mem_nope")).rejects.toThrow(
+    "Memory suggestion not found: mem_nope",
+  );
+});
+
 test("concurrent accept and reject on the same suggestion leave exactly one winning decision", async () => {
   const workspaceRoot = await makeWorkspace("forgelet-decide-race-mixed-");
   await writeSuggestions(workspaceRoot, [legacySuggestion("mem_mixed", "Racing decisions.")]);

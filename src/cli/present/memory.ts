@@ -6,6 +6,7 @@ import type {
   TraceCorroboration,
 } from "../../memoryReview/index.js";
 import type { MemoryDecisionResult } from "../../memoryReview/decide.js";
+import { MEMORY_DECISIONS_RELATIVE_PATH } from "../../memoryReview/records.js";
 
 /** Guided-review presentation: each item leads with the derived state in
  * plain language and ends with an explicit next command. */
@@ -88,7 +89,7 @@ export function formatMemoryDecisionReceipt(result: MemoryDecisionResult): strin
       `Durable Memory: ${result.write.path} (${result.write.blockBytes} bytes, sha256 ${result.write.blockHash})`,
     );
   }
-  lines.push("Evidence: .forgelet/memory-decisions.jsonl");
+  lines.push(`Evidence: ${MEMORY_DECISIONS_RELATIVE_PATH}`);
   return lines.join("\n");
 }
 

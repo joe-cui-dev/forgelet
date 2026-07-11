@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { appendFile, readFile } from "node:fs/promises";
-import { isAbsolute, join } from "node:path";
-import { loadConfig } from "../config/index.js";
+import { appendFile } from "node:fs/promises";
+import { join } from "node:path";
+import { findExistingMemoryBlock, resolveDurableMemoryDestination } from "./durableMemoryDestination.js";
 import { withMemoryDecisionLock } from "./lock.js";
 import {
   MEMORY_DECISIONS_RELATIVE_PATH,
@@ -105,39 +105,14 @@ interface ObservedBlock {
 }
 
 /** Looks for the exact legacy `## <suggestionId>` heading in the currently
- * configured Durable Memory target. A present-day observation only: the block
+ * configured Durable Memory target, reusing the same block-detection guard
+ * `accept` uses during repair. A present-day observation only: the block
  * bytes are hashed as found, and no historical write time is claimed. */
 async function observeExistingBlock(
   workspaceRoot: string,
   suggestionId: string,
 ): Promise<ObservedBlock | undefined> {
-  const config = await loadConfig({ workspaceRoot });
-  const memoryPath = isAbsolute(config.memoryFile)
-    ? config.memoryFile
-    : join(workspaceRoot, config.memoryFile);
-  let content: string;
-  try {
-    content = await readFile(memoryPath, "utf8");
-  } catch {
-    return undefined;
-  }
-  const lines = content.split("\n");
-  const headingIndex = lines.findIndex((line) => line === `## ${suggestionId}`);
-  if (headingIndex === -1) return undefined;
-  let endIndex = lines.length;
-  for (let index = headingIndex + 1; index < lines.length; index += 1) {
-    if (lines[index]?.startsWith("## ")) {
-      endIndex = index;
-      break;
-    }
-  }
-  const block =
-    endIndex === lines.length
-      ? lines.slice(headingIndex).join("\n")
-      : lines.slice(headingIndex, endIndex).join("\n") + "\n";
-  return {
-    path: config.memoryFile,
-    blockHash: createHash("sha256").update(block).digest("hex"),
-    blockBytes: Buffer.byteLength(block, "utf8"),
-  };
+  const destination = await resolveDurableMemoryDestination(workspaceRoot);
+  const observed = await findExistingMemoryBlock(destination.absolutePath, suggestionId);
+  return observed ? { path: destination.displayPath, ...observed } : undefined;
 }

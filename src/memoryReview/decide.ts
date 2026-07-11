@@ -239,9 +239,14 @@ function decidedAtOf(decision: MemoryDecisionRecord): string {
 }
 
 function writeEvidenceFrom(record: MemoryWriteRecord): MemoryDecisionWriteEvidence {
-  return {
-    path: typeof record.path === "string" ? record.path : "",
-    blockHash: typeof record.blockHash === "string" ? record.blockHash : "",
-    blockBytes: typeof record.blockBytes === "number" ? record.blockBytes : 0,
-  };
+  if (
+    typeof record.path !== "string" ||
+    typeof record.blockHash !== "string" ||
+    typeof record.blockBytes !== "number"
+  ) {
+    throw new Error(
+      `Invalid Memory Write Record (missing path/blockHash/blockBytes) for ${record.suggestionId} in ${MEMORY_DECISIONS_RELATIVE_PATH}`,
+    );
+  }
+  return { path: record.path, blockHash: record.blockHash, blockBytes: record.blockBytes };
 }
