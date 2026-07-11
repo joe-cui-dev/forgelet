@@ -22,6 +22,7 @@
     "smoke:writing-artifacts": "npm run build && node dist/smoke/writingArtifacts.js",
     "smoke:learning": "npm run build && node dist/smoke/learning.js",
     "smoke:knowledge-notes": "npm run build && node dist/smoke/knowledgeNotes.js",
+    "smoke:memory-review": "npm run build && node dist/smoke/memoryReview.js",
     "clean": "rm -rf dist dist-test"
   },
   "keywords": [

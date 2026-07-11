@@ -17,7 +17,7 @@ Do not default to reading deleted or historical planning docs from git history. 
 - Build: `npm run build` (tsc plus browser extension bundling)
 - Typecheck: `npm run typecheck` (uses `tsconfig.test.json`)
 - Test: `npm test` — do not run `npx jest` directly; the script sets `--experimental-vm-modules` for ESM and forces `--runInBand`
-- Smoke: `npm run smoke:writing`, `smoke:learning`, `smoke:knowledge-notes`, `smoke:writing-artifacts`, `smoke:deepseek` (each runs a build first)
+- Smoke: `npm run smoke:writing`, `smoke:learning`, `smoke:knowledge-notes`, `smoke:writing-artifacts`, `smoke:memory-review`, `smoke:deepseek` (each runs a build first)
 - Requires Node >= 24
 
 ## Source Map

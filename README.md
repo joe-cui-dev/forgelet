@@ -149,7 +149,7 @@ forge config set activeContext.maxObservationBytes 16384
 forge config set providers.deepseek.apiKeyEnv DEEPSEEK_API_KEY
 ```
 
-Project config lives at `.forgelet/config.json`. Durable Memory is user-approved; suggestions can be reviewed with `forge memory suggest <sessionId>` and accepted with `forge memory accept <suggestionId>`.
+Project config lives at `.forgelet/config.json`. Durable Memory is user-approved; see [Project Memory Review](#project-memory-review) below for the full review and decision surface.
 
 ## Project Memory Review
 
@@ -157,11 +157,17 @@ Project config lives at `.forgelet/config.json`. Durable Memory is user-approved
 forge memory list
 forge memory list --all
 forge memory show <suggestionId>
+forge memory accept <suggestionId>
+forge memory reject <suggestionId>
 ```
+
+Project Memory Review is guided, deterministic, and model-free: no command in this surface starts a model client, a Workflow, a Session, or a Session Trace. A Memory Suggestion only becomes Durable Memory when the user explicitly runs `accept`; nothing is written automatically.
 
 `forge memory list` is a deterministic, model-free review queue over project-scope Memory Suggestions: it shows only actionable items — `proposed` suggestions and `accepted (unwritten)` Memory Write Gaps — in append order, each with a plain-language state, a one-line preview, and the next command to run. `--all` adds accepted and rejected history in the same layout. Every displayed state is derived from the append-only `.forgelet/memory-suggestions.jsonl` and Memory Decision Log (`.forgelet/memory-decisions.jsonl`); before the first memory operation a Compatibility Import converts recoverable legacy suggestion status into decision evidence without rewriting existing records or Durable Memory blocks.
 
-`forge memory show <suggestionId>` is the deterministic, model-free evidence view: it presents the proposed guidance, its stored provenance, current Trace Corroboration, and — while a write remains possible — the exact Rendered Memory Block, hash, byte count, and currently resolved Durable Memory destination.
+`forge memory show <suggestionId>` is the deterministic, model-free evidence view: it presents the proposed guidance, its stored provenance, current Trace Corroboration, and — while a write remains possible — the exact Rendered Memory Block, hash, byte count, and currently resolved Durable Memory destination. It ends with the user's explicit next choice: accept or reject.
+
+`forge memory accept <suggestionId>` and `forge memory reject <suggestionId>` record the user's explicit decision as the commit point in the Memory Decision Log, then return a concise receipt naming the outcome (`decided`, `repeated`, or `repaired`) and, for an acceptance, the Durable Memory path, byte count, and hash actually written. Accepting an already-accepted suggestion whose write is missing (a Memory Write Gap) repairs it idempotently instead of duplicating the block; deciding an already-decided suggestion the same way reports `repeated` with no new evidence appended; deciding it the other way is a conflict error.
 
 ## Validation
 
@@ -174,9 +180,10 @@ npm run smoke:writing
 npm run smoke:writing-artifacts
 npm run smoke:learning
 npm run smoke:knowledge-notes
+npm run smoke:memory-review
 ```
 
-Use `npm run smoke:deepseek` as the cheapest real-provider check. The workflow smoke scripts validate public CLI behavior, Trace evidence, and saved artifacts without scoring model prose quality.
+Use `npm run smoke:deepseek` as the cheapest real-provider check. The workflow smoke scripts validate public CLI behavior, Trace evidence, and saved artifacts without scoring model prose quality. `npm run smoke:memory-review` is the exception: it drives `forge memory list/show/accept/reject` in a scratch workspace against a versioned suggestion and representative legacy evidence, and proves the path stays model-free by never providing a provider API key.
 
 ## Docs
 

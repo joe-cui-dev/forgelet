@@ -15,7 +15,8 @@ Current implemented surfaces:
 - `forge notes create/search` for project-scope Knowledge Notes promoted from completed Learning Sessions.
 - `forge browser read-current` and `forge browser install-host` for read-only browser snapshots.
 - `forge resume` for child Session Continuations.
-- `forge sessions` (with `running` and `paused` states), `forge explain`, `forge memory suggest/accept`, and config commands for review and operation.
+- `forge sessions` (with `running` and `paused` states), `forge explain`, and config commands for review and operation.
+- `forge memory suggest` for versioned, idempotent Memory Suggestions, and Project Memory Review (`forge memory list/show/accept/reject`) for a guided, deterministic, model-free decision queue over them, backed by the append-only Memory Decision Log (ADR 0035).
 
 ## Long-Term Direction
 
@@ -34,22 +35,19 @@ Far-future and not committed: event-triggered Sessions, proactive suggestions, a
 
 ## Next Candidate Slices
 
-1. Project Memory Review:
-   Turn memory suggestions into a clearer review surface while keeping writes user-approved and traceable. This is the precursor to Memory Scope and Memory Recall work on the long-term ladder.
-
-2. Diagnose workflow:
+1. Diagnose workflow:
    Add a debugging workflow that follows reproduce, minimize, hypothesize, instrument, fix, and regression-test stages.
 
-3. Test discovery improvements:
+2. Test discovery improvements:
    Help Coding Sessions find the right verification command before editing.
 
-4. Model pricing and diagnostics:
+3. Model pricing and diagnostics:
    Make provider/model availability, routing, and estimated cost easier to inspect.
 
-5. Local review UI:
+4. Local review UI:
    Add an inspect-and-review web surface after the CLI workflows remain stable. Its primary long-term job is reviewing background Session outcomes and Decision Queue items.
 
-6. Shared types decomposition:
+5. Shared types decomposition:
    Split `src/types.ts` by owning module: model-client contract types move under `src/models`, session and audit types to their owning modules. Unblocked now that the CLI decomposition has landed.
 
 ## Non-Goals
