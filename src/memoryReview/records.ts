@@ -17,6 +17,11 @@ export interface SuggestionRecord {
   text: string;
   createdAt?: string;
   legacyStatus?: LegacySuggestionStatus;
+  /** Legacy reason and versioned provenance are immutable record evidence. */
+  reason?: string;
+  provenance?: unknown;
+  /** Evidence location, retained so read-model errors identify corrupt input. */
+  sourceLine: number;
 }
 
 export interface MemoryDecisionRecord {
@@ -39,6 +44,8 @@ export interface FoldedDecisionLog {
   firstDecisionById: Map<string, MemoryDecisionRecord>;
   /** Suggestion ids with at least one Memory Write Record. */
   writtenIds: Set<string>;
+  /** First write evidence per suggestion id, retained for `show`. */
+  firstWriteById: Map<string, MemoryWriteRecord>;
 }
 
 /** Folds the append-only Memory Decision Log into the two lookups every
@@ -47,12 +54,17 @@ export interface FoldedDecisionLog {
 export function foldDecisionLog(log: DecisionLogRecord[]): FoldedDecisionLog {
   const firstDecisionById = new Map<string, MemoryDecisionRecord>();
   const writtenIds = new Set<string>();
+  const firstWriteById = new Map<string, MemoryWriteRecord>();
   for (const record of log) {
     if (record.type === "decision" && !firstDecisionById.has(record.suggestionId))
       firstDecisionById.set(record.suggestionId, record);
-    if (record.type === "write-record") writtenIds.add(record.suggestionId);
+    if (record.type === "write-record") {
+      writtenIds.add(record.suggestionId);
+      if (!firstWriteById.has(record.suggestionId))
+        firstWriteById.set(record.suggestionId, record);
+    }
   }
-  return { firstDecisionById, writtenIds };
+  return { firstDecisionById, writtenIds, firstWriteById };
 }
 
 const PREVIEW_MAX_CHARS = 160;
@@ -150,6 +162,8 @@ function validateSuggestionRecord(
       sourceSessionId: value.sourceSessionId,
       text: value.text,
       legacyStatus: value.status,
+      reason: value.reason,
+      sourceLine: lineNumber,
     };
   }
 
@@ -171,6 +185,8 @@ function validateSuggestionRecord(
     sourceSessionId: value.sourceSessionId,
     text: value.text,
     createdAt: value.createdAt,
+    ...("provenance" in value ? { provenance: value.provenance } : {}),
+    sourceLine: lineNumber,
   };
 }
 

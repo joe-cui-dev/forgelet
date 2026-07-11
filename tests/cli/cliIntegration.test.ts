@@ -706,6 +706,56 @@ test("CLI memory list fails on corrupt evidence naming the file and line with no
   );
 });
 
+test("CLI memory show presents the guided evidence view without starting a Session", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-memory-show-"));
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"),
+    `${JSON.stringify({
+      schemaVersion: 1,
+      id: "mem_show",
+      sourceSessionId: "sess_show",
+      text: "Remember the verification command.",
+      createdAt: "2026-07-10T09:00:00Z",
+      provenance: {
+        derivation: {
+          changedFiles: { items: ["src/a.ts"], total: 1 },
+          successfulVerificationCommands: { items: ["npm test"], total: 1 },
+        },
+        trace: { path: ".forgelet/sessions/missing.jsonl", sha256: "00", bytes: 1 },
+        session: {
+          workflow: "coding",
+          status: "completed",
+          startedAt: "2026-07-10T08:00:00Z",
+          finishedAt: "2026-07-10T08:01:00Z",
+        },
+      },
+    })}\n`,
+    "utf8",
+  );
+
+  const result = await runCli(["memory", "show", "mem_show"], { workspaceRoot });
+
+  expect(result).toMatchObject({ exitCode: 0, stderr: "" });
+  expect(result.stdout).toContain("What Forgelet wants to remember");
+  expect(result.stdout).toContain("Why it was suggested");
+  expect(result.stdout).toContain("Trace Corroboration: missing");
+  expect(result.stdout).toContain("Exactly what acceptance will add");
+  expect(result.stdout).toContain("--- begin rendered memory block ---");
+  expect(result.stdout).toContain("Your choice");
+  expect(result.stdout).toContain("This is an evidence-only view");
+  expect(result.stdout).not.toContain("forge memory accept mem_show");
+  expect(result.stdout).toContain("Id: mem_show   Status: proposed");
+  await expect(readFile(join(workspaceRoot, ".forgelet", "sessions", "anything.jsonl"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+
+  const missing = await runCli(["memory", "show", "mem_nope"], { workspaceRoot });
+  expect(missing).toEqual({
+    exitCode: 1,
+    stdout: "",
+    stderr: "forge: Memory suggestion not found: mem_nope",
+  });
+});
+
 test("CLI entrypoint runs when invoked through an npm-link style symlink", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-link-"));
   const linkedBin = join(workspaceRoot, "forge");

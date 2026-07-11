@@ -39,8 +39,8 @@ import { formatSessionList, formatSessionDetail } from "./present/sessions.js";
 import { formatQueue } from "./present/queue.js";
 import { formatSessionExplanation } from "./present/explain.js";
 import { formatCreatedKnowledgeNote, formatKnowledgeNoteSearch } from "./present/knowledge.js";
-import { formatMemorySuggestion, formatAcceptedMemory, formatMemoryReviewList } from "./present/memory.js";
-import { listMemoryReview } from "../memoryReview/index.js";
+import { formatMemorySuggestion, formatAcceptedMemory, formatMemoryReviewList, formatMemoryReviewShow } from "./present/memory.js";
+import { listMemoryReview, showMemoryReview } from "../memoryReview/index.js";
 import { formatBrowserSnapshot, formatInstalledChromeNativeHost } from "./present/browser.js";
 import type { CreateLiveModelClientInput } from "./wiring.js";
 
@@ -169,6 +169,12 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
           formatMemoryReviewList(
             await listMemoryReview(workspaceRoot, { all: command.all }),
             { all: command.all },
+          ),
+        );
+      case "memory-show":
+        return ok(
+          formatMemoryReviewShow(
+            await showMemoryReview(workspaceRoot, command.suggestionId),
           ),
         );
       case "memory-suggest":

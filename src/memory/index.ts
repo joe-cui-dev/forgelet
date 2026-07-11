@@ -3,6 +3,7 @@ import { mkdir, appendFile, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { explainSession } from "../explain/index.js";
 import { loadConfig } from "../config/index.js";
+import { renderMemoryBlock } from "../memoryReview/renderedMemoryBlock.js";
 import type { MemorySuggestion } from "../types.js";
 
 const MEMORY_SUGGESTIONS_FILE = "memory-suggestions.jsonl";
@@ -151,19 +152,7 @@ async function appendDurableMemory(
   const config = await loadConfig({ workspaceRoot });
   const memoryPath = resolveMemoryFile(workspaceRoot, config.memoryFile);
   await mkdir(dirname(memoryPath), { recursive: true });
-  await appendFile(
-    memoryPath,
-    [
-      `## ${suggestion.id}`,
-      "",
-      suggestion.text,
-      "",
-      `Source Session: ${suggestion.sourceSessionId}`,
-      `Reason: ${suggestion.reason}`,
-      "",
-    ].join("\n"),
-    "utf8",
-  );
+  await appendFile(memoryPath, renderMemoryBlock(suggestion).bytes, "utf8");
 }
 
 function memorySuggestionsPath(workspaceRoot: string): string {

@@ -156,9 +156,12 @@ Project config lives at `.forgelet/config.json`. Durable Memory is user-approved
 ```bash
 forge memory list
 forge memory list --all
+forge memory show <suggestionId>
 ```
 
 `forge memory list` is a deterministic, model-free review queue over project-scope Memory Suggestions: it shows only actionable items — `proposed` suggestions and `accepted (unwritten)` Memory Write Gaps — in append order, each with a plain-language state, a one-line preview, and the next command to run. `--all` adds accepted and rejected history in the same layout. Every displayed state is derived from the append-only `.forgelet/memory-suggestions.jsonl` and Memory Decision Log (`.forgelet/memory-decisions.jsonl`); before the first memory operation a Compatibility Import converts recoverable legacy suggestion status into decision evidence without rewriting existing records or Durable Memory blocks.
+
+`forge memory show <suggestionId>` is the deterministic, model-free evidence view: it presents the proposed guidance, its stored provenance, current Trace Corroboration, and — while a write remains possible — the exact Rendered Memory Block, hash, byte count, and currently resolved Durable Memory destination.
 
 ## Validation
 

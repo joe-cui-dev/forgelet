@@ -765,6 +765,10 @@ test("rejects config set for model defaults", () => {
 });
 
 test("parses memory commands", () => {
+  expect(parseArgs(["memory", "show", "mem_123"])).toEqual({
+    kind: "memory-show",
+    suggestionId: "mem_123"
+  });
   expect(parseArgs(["memory", "suggest", "sess_123"])).toEqual({
     kind: "memory-suggest",
     sessionId: "sess_123"
