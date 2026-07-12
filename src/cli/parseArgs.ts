@@ -70,6 +70,10 @@ export type ForgeCommand =
   | { kind: "debug-show"; sessionId: string; full: boolean }
   | { kind: "browser-read-current" }
   | { kind: "browser-install-host"; extensionId: string }
+  | { kind: "browser-profiles-approve"; name?: string }
+  | { kind: "browser-profiles-list" }
+  | { kind: "browser-profiles-set-default"; profileId: string }
+  | { kind: "browser-profiles-revoke"; profileId: string }
   | { kind: "help" }
   | { kind: "version" };
 
@@ -220,9 +224,38 @@ function parseBrowser(args: string[]): ForgeCommand {
   ) {
     return { kind: "browser-install-host", extensionId: args[2] ?? "" };
   }
+  if (args[0] === "profiles") {
+    return parseBrowserProfiles(args.slice(1));
+  }
   throw new Error(
-    "Usage: forge browser read-current | forge browser install-host --extension-id <chrome-extension-id>",
+    "Usage: forge browser read-current | forge browser install-host --extension-id <chrome-extension-id> | forge browser profiles approve|list|set-default|revoke",
   );
+}
+
+const BROWSER_PROFILES_USAGE =
+  "Usage: forge browser profiles approve [--name <name>] | forge browser profiles list | forge browser profiles set-default <profileId> | forge browser profiles revoke <profileId>";
+
+function parseBrowserProfiles(args: string[]): ForgeCommand {
+  if (args[0] === "approve") {
+    const remaining = args.slice(1);
+    if (remaining.length === 0) return { kind: "browser-profiles-approve" };
+    if (remaining[0] === "--name" && remaining.length === 2) {
+      const name = remaining[1] ?? "";
+      if (!name) throw new Error(BROWSER_PROFILES_USAGE);
+      return { kind: "browser-profiles-approve", name };
+    }
+    throw new Error(BROWSER_PROFILES_USAGE);
+  }
+  if (args[0] === "list" && args.length === 1) {
+    return { kind: "browser-profiles-list" };
+  }
+  if (args[0] === "set-default" && args.length === 2) {
+    return { kind: "browser-profiles-set-default", profileId: args[1] ?? "" };
+  }
+  if (args[0] === "revoke" && args.length === 2) {
+    return { kind: "browser-profiles-revoke", profileId: args[1] ?? "" };
+  }
+  throw new Error(BROWSER_PROFILES_USAGE);
 }
 
 function parseDebug(args: string[]): ForgeCommand {

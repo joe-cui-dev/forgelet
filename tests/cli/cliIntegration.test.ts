@@ -1184,6 +1184,86 @@ test("CLI installs the Chrome Native Messaging host manifest", async () => {
   });
 });
 
+test("CLI install-host does not auto-approve the workspace", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-browser-host-noapprove-"),
+  );
+  const homeDir = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-browser-host-noapprove-home-"),
+  );
+
+  const installResult = await runCli(
+    [
+      "browser",
+      "install-host",
+      "--extension-id",
+      "abcdefghijklmnopabcdefghijklmnop",
+    ],
+    { homeDir, workspaceRoot },
+  );
+  expect(installResult.exitCode).toBe(0);
+
+  const listResult = await runCli(["browser", "profiles", "list"], {
+    homeDir,
+    workspaceRoot,
+  });
+  expect(listResult.exitCode).toBe(0);
+  expect(listResult.stdout).toMatch(/No Workspace Profiles/);
+});
+
+test("CLI approves, lists, defaults, and revokes Workspace Profiles", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-wsprofile-"));
+  const homeDir = await mkdtemp(join(tmpdir(), "forgelet-cli-wsprofile-home-"));
+
+  const approveResult = await runCli(
+    ["browser", "profiles", "approve", "--name", "My Repo"],
+    { homeDir, workspaceRoot },
+  );
+  expect(approveResult.exitCode).toBe(0);
+  expect(approveResult.stderr).toBe("");
+  expect(approveResult.stdout).toMatch(/Workspace Profile approved/);
+  expect(approveResult.stdout).toMatch(/My Repo/);
+  const profileIdMatch = approveResult.stdout.match(/ID: (\S+)/);
+  expect(profileIdMatch).not.toBeNull();
+  const profileId = profileIdMatch?.[1] ?? "";
+
+  const listResult = await runCli(["browser", "profiles", "list"], {
+    homeDir,
+    workspaceRoot,
+  });
+  expect(listResult.exitCode).toBe(0);
+  expect(listResult.stdout).toMatch(/My Repo/);
+  expect(listResult.stdout).toMatch(new RegExp(profileId));
+  expect(listResult.stdout).not.toMatch(/default/i);
+
+  const setDefaultResult = await runCli(
+    ["browser", "profiles", "set-default", profileId],
+    { homeDir, workspaceRoot },
+  );
+  expect(setDefaultResult.exitCode).toBe(0);
+  expect(setDefaultResult.stdout).toMatch(/default/i);
+
+  const listAfterDefaultResult = await runCli(["browser", "profiles", "list"], {
+    homeDir,
+    workspaceRoot,
+  });
+  expect(listAfterDefaultResult.stdout).toMatch(/default/i);
+
+  const revokeResult = await runCli(
+    ["browser", "profiles", "revoke", profileId],
+    { homeDir, workspaceRoot },
+  );
+  expect(revokeResult.exitCode).toBe(0);
+  expect(revokeResult.stdout).toMatch(/revoked/i);
+
+  const setDefaultAfterRevokeResult = await runCli(
+    ["browser", "profiles", "set-default", profileId],
+    { homeDir, workspaceRoot },
+  );
+  expect(setDefaultAfterRevokeResult.exitCode).toBe(1);
+  expect(setDefaultAfterRevokeResult.stderr).toMatch(/revoked/i);
+});
+
 test("CLI preview with browser context shows the browser source before a Session", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-browser-preview-"));
   const homeDir = await mkdtemp(

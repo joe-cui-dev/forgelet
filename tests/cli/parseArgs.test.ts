@@ -111,6 +111,45 @@ test("parses browser context commands", () => {
   });
 });
 
+test("parses browser workspace profile commands", () => {
+  expect(parseArgs(["browser", "profiles", "approve"])).toEqual({
+    kind: "browser-profiles-approve",
+  });
+  expect(
+    parseArgs(["browser", "profiles", "approve", "--name", "My Repo"]),
+  ).toEqual({
+    kind: "browser-profiles-approve",
+    name: "My Repo",
+  });
+  expect(parseArgs(["browser", "profiles", "list"])).toEqual({
+    kind: "browser-profiles-list",
+  });
+  expect(
+    parseArgs(["browser", "profiles", "set-default", "profile_123"]),
+  ).toEqual({
+    kind: "browser-profiles-set-default",
+    profileId: "profile_123",
+  });
+  expect(
+    parseArgs(["browser", "profiles", "revoke", "profile_123"]),
+  ).toEqual({
+    kind: "browser-profiles-revoke",
+    profileId: "profile_123",
+  });
+});
+
+test("rejects malformed browser workspace profile commands", () => {
+  expect(() => parseArgs(["browser", "profiles"])).toThrow(
+    /Usage: forge browser profiles/,
+  );
+  expect(() => parseArgs(["browser", "profiles", "set-default"])).toThrow(
+    /Usage: forge browser profiles/,
+  );
+  expect(() =>
+    parseArgs(["browser", "profiles", "approve", "--bogus"]),
+  ).toThrow(/Usage: forge browser profiles/);
+});
+
 test("parses project Knowledge Note creation", () => {
   expect(
     parseArgs(["notes", "create", "--scope", "project", "--from-session", "sess_123"]),

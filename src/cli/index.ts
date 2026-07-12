@@ -9,6 +9,12 @@ import { formatDebugTranscriptShow } from "../debugTranscript/index.js";
 import { suggestMemoryFromSession } from "../memory/index.js";
 import { loadCurrentBrowserSnapshot } from "../browser/index.js";
 import { installChromeNativeMessagingHost } from "../browser/nativeHostInstall.js";
+import {
+  approveWorkspaceProfile,
+  listWorkspaceProfiles,
+  revokeWorkspaceProfile,
+  setDefaultWorkspaceProfile,
+} from "../browser/workspaceProfiles.js";
 import { createKnowledgeNote, searchKnowledgeNotes } from "../knowledge/index.js";
 import { listSessions, showSession } from "../sessions/index.js";
 import { listPausedSessions } from "../sessions/queue.js";
@@ -42,7 +48,14 @@ import { formatCreatedKnowledgeNote, formatKnowledgeNoteSearch } from "./present
 import { formatMemorySuggestion, formatMemoryDecisionReceipt, formatMemoryReviewList, formatMemoryReviewShow } from "./present/memory.js";
 import { listMemoryReview, showMemoryReview } from "../memoryReview/index.js";
 import { acceptMemorySuggestion, rejectMemorySuggestion } from "../memoryReview/decide.js";
-import { formatBrowserSnapshot, formatInstalledChromeNativeHost } from "./present/browser.js";
+import {
+  formatBrowserSnapshot,
+  formatInstalledChromeNativeHost,
+  formatApprovedWorkspaceProfile,
+  formatWorkspaceProfileList,
+  formatSetDefaultWorkspaceProfile,
+  formatRevokedWorkspaceProfile,
+} from "./present/browser.js";
 import type { CreateLiveModelClientInput } from "./wiring.js";
 
 export { createInteractiveTerminalOutputController };
@@ -200,6 +213,37 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
             }),
           ),
         );
+      case "browser-profiles-approve":
+        return ok(
+          formatApprovedWorkspaceProfile(
+            await approveWorkspaceProfile({
+              homeDir: options.homeDir,
+              cwd: workspaceRoot,
+              name: command.name,
+            }),
+          ),
+        );
+      case "browser-profiles-list":
+        return ok(
+          formatWorkspaceProfileList(
+            await listWorkspaceProfiles({ homeDir: options.homeDir }),
+          ),
+        );
+      case "browser-profiles-set-default":
+        return ok(
+          formatSetDefaultWorkspaceProfile(
+            await setDefaultWorkspaceProfile({
+              homeDir: options.homeDir,
+              profileId: command.profileId,
+            }),
+          ),
+        );
+      case "browser-profiles-revoke":
+        await revokeWorkspaceProfile({
+          homeDir: options.homeDir,
+          profileId: command.profileId,
+        });
+        return ok(formatRevokedWorkspaceProfile(command.profileId));
       default: {
         const exhaustive: never = command;
         throw new Error(`Unhandled command: ${JSON.stringify(exhaustive)}`);
