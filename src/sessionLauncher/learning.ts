@@ -1,3 +1,4 @@
+import { persistBrowserWorkbenchCapture } from "../browser/captures.js";
 import type { AuthorizedBrowserLearningLaunch, BrowserLearningLauncher } from "../browserWorkbench/index.js";
 import type { LearningSessionInput, LearningSessionResult } from "../workflows/learning.js";
 import { runLearningSession } from "../workflows/learning.js";
@@ -17,11 +18,26 @@ export function createBrowserLearningLauncher(input: {
 }): BrowserLearningLauncher {
   return {
     async startLearning(launch: AuthorizedBrowserLearningLaunch) {
+      // Persist the full capture before the Session exists: the Trace keeps
+      // only preview and hash, and this file is what makes the hash auditable.
+      const contentPath = await persistBrowserWorkbenchCapture({
+        workspaceRoot: launch.workspaceRoot,
+        capture: {
+          captureId: launch.trigger.captureId,
+          url: launch.browserSnapshot.url,
+          title: launch.browserSnapshot.title,
+          capturedAt: launch.browserSnapshot.capturedAt,
+          contentKind: launch.browserSnapshot.contentKind,
+          contentHash: launch.browserSnapshot.contentHash,
+          contentBytes: launch.browserSnapshot.contentBytes,
+          content: launch.browserSnapshot.content,
+        },
+      });
       let finish: { status: string; reason?: string } | undefined;
       const result = await launchLearningSession({
         task: launch.task,
         contextFiles: [],
-        browserSnapshot: launch.browserSnapshot,
+        browserSnapshot: { ...launch.browserSnapshot, contentPath },
         modelClient: input.modelClientForWorkspace(launch.workspaceRoot),
         workspaceRoot: launch.workspaceRoot,
         homeDir: input.homeDir,

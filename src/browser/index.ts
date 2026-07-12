@@ -27,6 +27,8 @@ export interface LoadedBrowserSnapshot {
   contentHash: string;
   preview: string;
   screenshotPath?: string;
+  /** Where the full capture content is persisted for audit, when it is. */
+  contentPath?: string;
 }
 
 export async function loadCurrentBrowserSnapshot(input: {
@@ -101,6 +103,8 @@ export function browserSnapshotToContextAttachment(
       contentBytes: snapshot.contentBytes,
       contentHash: snapshot.contentHash,
       preview: snapshot.preview,
+      capturedAt: snapshot.capturedAt,
+      ...(snapshot.contentPath ? { contentPath: snapshot.contentPath } : {}),
       trustLevel: "external",
     },
     content: snapshot.content,

@@ -108,6 +108,46 @@ test("Browser Workbench rejects paths, workflow/provider fields, and unknown pro
   ]);
 });
 
+test("Browser Workbench rejects a path-traversal captureId before a Session starts", async () => {
+  let launchCount = 0;
+  const workbench = createBrowserWorkbench({
+    async resolveProfile(profileId) {
+      return { id: profileId, label: "Forgelet", path: "/workspace/forgelet" };
+    },
+    async startLearning() {
+      launchCount += 1;
+      return { status: "completed", summary: "unexpected" };
+    },
+  });
+
+  const frames = await collect(runBrowserInvocation({
+    version: 1,
+    actionId: "action_traversal",
+    invocationId: "invocation_traversal",
+    payload: {
+      workspaceProfileId: "profile_1",
+      capture: {
+        url: "https://example.com/docs",
+        title: "Example Docs",
+        content: "# Example Docs\n\nUseful page content.",
+        contentKind: "mainText",
+        contentHash: "a".repeat(64),
+        contentBytes: 36,
+        captureId: "../../../etc/passwd",
+        capturedAt: "2026-07-12T00:00:00.000Z",
+        captureReadyMs: 12,
+      },
+    },
+  }, workbench, { homeDir: await makeHomeDir() }));
+
+  expect(launchCount).toBe(0);
+  expect(frames.map((frame) => frame.type)).toEqual([
+    "invocation_accepted",
+    "launch_rejected",
+  ]);
+  expect(frames.at(-1)).toMatchObject({ reason: expect.stringContaining("captureId") });
+});
+
 async function makeHomeDir(): Promise<string> {
   const { mkdtemp } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");

@@ -199,6 +199,7 @@ function formatLearningSourceLinks(
         `- ${sourceLabel}`,
         ...(attachment.title ? [`  title: ${attachment.title}`] : []),
         ...(attachment.uri ? [`  uri: ${attachment.uri}`] : []),
+        ...(attachment.capturedAt ? [`  capturedAt: ${attachment.capturedAt}`] : []),
         `  contentHash: ${attachment.contentHash}`,
         `  contentBytes: ${attachment.contentBytes}`,
       ].join("\n");

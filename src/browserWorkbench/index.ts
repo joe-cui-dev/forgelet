@@ -1,3 +1,4 @@
+import { isSafeCaptureId } from "../browser/captures.js";
 import type { LoadedBrowserSnapshot } from "../browser/index.js";
 import type { ProtocolLauncher, ProtocolLaunchResult } from "../browser/protocol.js";
 import type { ExecutionPolicy } from "../kernel/workflowDefinition.js";
@@ -95,6 +96,11 @@ function parseBrowserSummaryInvocation(
   if (contentKind !== "selectedText" && contentKind !== "mainText") {
     throw new Error("Browser capture has an invalid contentKind.");
   }
+  const captureId = requiredString(capture, "captureId", "Browser capture");
+  if (!isSafeCaptureId(captureId)) {
+    // The captureId keys the persisted capture file inside the workspace.
+    throw new Error("Browser capture has an unsafe captureId.");
+  }
   return {
     actionId,
     invocationId,
@@ -106,7 +112,7 @@ function parseBrowserSummaryInvocation(
       contentKind,
       contentHash: requiredString(capture, "contentHash", "Browser capture"),
       contentBytes: requiredNumber(capture, "contentBytes", "Browser capture"),
-      captureId: requiredString(capture, "captureId", "Browser capture"),
+      captureId,
       capturedAt: requiredString(capture, "capturedAt", "Browser capture"),
       captureReadyMs: requiredNumber(capture, "captureReadyMs", "Browser capture"),
       preview: makePreview(content),

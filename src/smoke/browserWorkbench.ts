@@ -96,6 +96,14 @@ export async function runBrowserWorkbenchSmoke(): Promise<{ tracePath: string; s
   if (trace.includes(pageBody)) {
     throw new Error("Browser Workbench smoke found the complete page body in Trace.");
   }
+  const capturePath = join(workspaceRoot, ".forgelet", "browser", "capture_smoke.json");
+  const persistedCapture = JSON.parse(await readFile(capturePath, "utf8"));
+  if (persistedCapture.content !== pageBody) {
+    throw new Error("Browser Workbench smoke expected the persisted capture to hold the full page body.");
+  }
+  if (!trace.includes(capturePath)) {
+    throw new Error("Browser Workbench smoke expected the Trace attachment to reference the persisted capture.");
+  }
   const traces = await readdir(join(workspaceRoot, ".forgelet", "sessions"));
   if (traces.filter((file) => file.endsWith(".jsonl")).length !== 1) {
     throw new Error("Browser Workbench smoke expected exactly one Learning Session Trace.");

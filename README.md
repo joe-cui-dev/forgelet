@@ -115,7 +115,7 @@ Learning Sessions require explicit source material from `--context` or `--with-b
 
 ## Chrome Browser Workbench
 
-The Browser Workbench summarizes the current page with one toolbar click. It opens a Side Panel and starts one answer-once Learning Session in an explicitly approved local workspace; it cannot run Coding or Writing Workflows, or select a model, path, or command from the browser.
+The Browser Workbench summarizes the current page with one toolbar click. It opens a Side Panel and starts one answer-once Learning Session in an explicitly approved local workspace; it cannot run Coding or Writing Workflows, or select a model, path, or command from the browser. The full captured page content is persisted to `.forgelet/browser/<captureId>.json` in the approved workspace, and the Session Trace's Context Attachment references that file, so the recorded content hash stays auditable after the Session.
 
 ### Install
 
@@ -231,7 +231,7 @@ npm run smoke:browser-workbench
 
 Use `npm run smoke:deepseek` as the cheapest real-provider check. The workflow smoke scripts validate public CLI behavior, Trace evidence, and saved artifacts without scoring model prose quality. `npm run smoke:memory-review` is the exception: it drives `forge memory list/show/accept/reject` in a scratch workspace against a versioned suggestion and representative legacy evidence, and proves the path stays model-free by never providing a provider API key.
 
-`npm run smoke:browser-workbench` drives the built Native Host protocol in a scratch workspace with a deterministic fake model. It validates approved-profile launch, Session-ready ordering, normalized Learning Pack completion, and Trace page-body privacy; it is not a substitute for manual unpacked-extension dogfood.
+`npm run smoke:browser-workbench` drives the built Native Host protocol in a scratch workspace with a deterministic fake model. It validates approved-profile launch, Session-ready ordering, normalized Learning Pack completion, Trace page-body privacy, and the persisted capture audit file; it is not a substitute for manual unpacked-extension dogfood.
 
 ## Docs
 

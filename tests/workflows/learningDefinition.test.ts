@@ -64,6 +64,33 @@ test("learning definition completion exposes a typed Learning Pack while preserv
   });
 });
 
+test("learning definition source links surface when a browser attachment was captured", () => {
+  const definition = createLearningWorkflowDefinition();
+
+  const normalized = definition.normalizeFinalContent?.("## Summary\nCore idea.", {
+    contextAttachments: [
+      {
+        attachment: {
+          id: "ctx_1",
+          source: "browser",
+          title: "Example Docs",
+          uri: "https://example.com/docs",
+          mimeType: "text/plain",
+          contentBytes: 36,
+          contentHash: "a".repeat(64),
+          preview: "# Example Docs Useful page content.",
+          capturedAt: "2026-07-12T00:00:00.000Z",
+          trustLevel: "external",
+        },
+        content: "# Example Docs\n\nUseful page content.",
+      },
+    ],
+  });
+
+  expect(normalized).toContain("- browser: Example Docs");
+  expect(normalized).toContain("  capturedAt: 2026-07-12T00:00:00.000Z");
+});
+
 test("learning definition normalizes unstructured content into a Learning Pack", () => {
   const definition = createLearningWorkflowDefinition();
 
