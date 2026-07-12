@@ -113,13 +113,58 @@ forge notes search --scope project --limit 5 "workflow graph design"
 
 Learning Sessions require explicit source material from `--context` or `--with-browser`. They return a Learning Pack with `Summary`, `Key Concepts`, `Source Links`, `Open Questions`, and `Review Prompts`. Knowledge Notes are explicit project-scope promotions from completed, source-backed Learning Sessions into `.forgelet/knowledge/`.
 
+## Chrome Browser Workbench
+
+The Browser Workbench summarizes the current page with one toolbar click. It opens a Side Panel and starts one answer-once Learning Session in an explicitly approved local workspace; it cannot run Coding or Writing Workflows, or select a model, path, or command from the browser.
+
+### Install
+
+Build Forgelet and make the checkout's CLI available. The following commands assume a macOS Chrome installation and are run from the Forgelet checkout:
+
+```bash
+npm install
+npm run build
+npm link
+```
+
+Approve the workspace where Browser Workbench Sessions should run (and where its `.env` contains `DEEPSEEK_API_KEY`), then make that profile the browser default:
+
+```bash
+cd /path/to/approved-workspace
+forge browser profiles approve --name "My workspace"
+forge browser profiles list
+forge browser profiles set-default <profile-id>
+```
+
+In Chrome, open `chrome://extensions`, enable **Developer mode**, select **Load unpacked**, and choose the built extension directory:
+
+```text
+/path/to/forgelet/dist/browser-extension
+```
+
+Copy the extension ID Chrome displays. Back in the Forgelet checkout, register the Native Messaging host for that ID:
+
+```bash
+cd /path/to/forgelet
+forge browser install-host --extension-id <chrome-extension-id>
+```
+
+`install-host` points Chrome at this checkout's built Native Host, so run it after `npm run build` and from the checkout. It does not approve a workspace. If Chrome assigns a new ID after you reload or reinstall the unpacked extension, run `install-host` again with the new ID.
+
+### Use
+
+Open a page Chrome allows extensions to inspect, then click the Forgelet toolbar icon. The Side Panel displays Session status, Session ID, Trace path, and the final Learning Pack summary. Use **Stop** to cancel an active Session; closing the Side Panel only detaches its presentation and does not cancel work.
+
+Chrome internal pages such as `chrome://extensions` and other browser-restricted pages cannot be captured. Open an ordinary HTTP(S) page instead. After a source update, run `npm run build` and press Chrome's reload button for the extension in `chrome://extensions`.
+
+The older read-only browser snapshot path remains available for CLI Sessions:
+
 ```bash
 forge browser read-current
-forge browser install-host --extension-id <chrome-extension-id>
 forge code --with-browser "summarize this page"
 ```
 
-Browser context is read-only and user-approved. The Chrome extension plus Native Messaging host writes a short-lived current-page snapshot; Forgelet consumes it as a browser-sourced Context Attachment and records metadata, hash, size, and preview instead of full page text.
+Browser context is read-only and user-approved. Both Browser Workbench and the compatibility snapshot path record source metadata, hash, size, and preview instead of complete page text in the Trace.
 
 ## Sessions
 
