@@ -39,6 +39,7 @@ export interface BrowserCaptureInput {
   selectionText?: string;
   primaryBlocks: CaptureBlock[];
   bodyBlocks: CaptureBlock[];
+  primaryRootText?: string;
   limits?: {
     maxBlockBytes?: number;
     maxTotalBytes?: number;
@@ -105,12 +106,13 @@ export function collectPageContext(): {
   selectionText: string;
   primaryBlocks: CaptureBlock[];
   bodyBlocks: CaptureBlock[];
+  primaryRootText: string;
 } {
+  const boilerplateSelectors =
+    "script,style,nav,header,footer,aside,[role='navigation'],[aria-hidden='true']";
   const isUsefulElement = (element: any): boolean => {
     if (element.hidden || element.getAttribute("aria-hidden") === "true") return false;
-    return !element.closest(
-      "script,style,nav,header,footer,aside,[role='navigation'],[aria-hidden='true']",
-    );
+    return !element.closest(boilerplateSelectors);
   };
   const blockFromElement = (element: any): CaptureBlock | undefined => {
     const tagName = String(element.tagName ?? "").toLowerCase();
@@ -129,11 +131,13 @@ export function collectPageContext(): {
   const collectBlocks = (root: any): CaptureBlock[] => {
     if (!root) return [];
     const blockSelectors = "h1,h2,h3,h4,h5,h6,p,li,pre,code,tr,a";
+    // An ancestor matching one of these already contributes this element's
+    // text through its own innerText, so capturing both would duplicate it
+    // (pre>code, inline code, nested li, anything inside a table row).
+    const textCapturingAncestors = "p,li,pre,code,h1,h2,h3,h4,h5,h6,tr";
     return Array.from(root.querySelectorAll(blockSelectors))
       .filter((element: any) => isUsefulElement(element))
-      .filter((element: any) =>
-        element.tagName !== "A" || !element.closest("p,li,pre,code,h1,h2,h3,h4,h5,h6"),
-      )
+      .filter((element: any) => !element.parentElement?.closest(textCapturingAncestors))
       .map((element: any) => blockFromElement(element))
       .filter((block: CaptureBlock | undefined): block is CaptureBlock => Boolean(block));
   };
@@ -150,11 +154,43 @@ export function collectPageContext(): {
   const primaryRoot = selectors
     .map((selector) => document.querySelector(selector))
     .find((element: any) => Boolean(element));
+  const collectPrimaryRootText = (): string => {
+    const maxBytes = 48 * 1024;
+    // Walks the live DOM (a detached clone's innerText degrades to
+    // textContent, losing block separators and hidden-element filtering):
+    // subtrees without boilerplate contribute their innerText whole,
+    // otherwise recurse so nested nav/header/footer/aside drop out.
+    const visibleText = (element: any): string => {
+      if (!element) return "";
+      if (element.matches?.(boilerplateSelectors) || element.hidden) return "";
+      if (element.getAttribute?.("aria-hidden") === "true") return "";
+      if (!element.querySelector?.(boilerplateSelectors)) {
+        return String(element.innerText ?? element.textContent ?? "");
+      }
+      return Array.from(element.children ?? [])
+        .map((child: any) => visibleText(child))
+        .filter(Boolean)
+        .join("\n");
+    };
+    const text = visibleText(primaryRoot ?? document.body);
+    const encoder = new TextEncoder();
+    if (encoder.encode(text).byteLength <= maxBytes) return text;
+    let capped = "";
+    let usedBytes = 0;
+    for (const character of text) {
+      const characterBytes = encoder.encode(character).byteLength;
+      if (usedBytes + characterBytes > maxBytes) break;
+      capped += character;
+      usedBytes += characterBytes;
+    }
+    return capped;
+  };
   return {
     title: document.title || window.location.href,
     selectionText: window.getSelection?.()?.toString() ?? "",
     primaryBlocks: collectBlocks(primaryRoot),
     bodyBlocks: collectBlocks(document.body),
+    primaryRootText: collectPrimaryRootText(),
   };
 }
 
@@ -169,12 +205,9 @@ export async function createBrowserCapture(input: BrowserCaptureInput): Promise<
   };
   const selectedText = normalizePreservingLineBreaks(input.selectionText);
   const contentKind = selectedText ? "selectedText" : "mainText";
-  const sourceBlocks = input.primaryBlocks.some(isIncludedBlock)
-    ? input.primaryBlocks
-    : input.bodyBlocks;
   const content = selectedText
     ? truncateUtf8(selectedText, limits.maxTotalBytes)
-    : serializeBlocks(sourceBlocks, limits);
+    : serializeMainText(input, limits);
 
   return {
     contentKind,
@@ -269,6 +302,25 @@ function normalizePreservingLineBreaks(value: string | undefined): string {
     result.push(line);
     return result;
   }, []).join("\n");
+}
+
+// When the block extractors miss most of the page copy (marketing pages keep
+// text in bare <div>s), the structured serialization is a misleadingly thin
+// source; fall back to the primary root's normalized innerText instead.
+const MAIN_TEXT_COVERAGE_RATIO = 0.6;
+
+function serializeMainText(
+  input: BrowserCaptureInput,
+  limits: { maxBlockBytes: number; maxTotalBytes: number },
+): string {
+  const sourceBlocks = input.primaryBlocks.some(isIncludedBlock)
+    ? input.primaryBlocks
+    : input.bodyBlocks;
+  const structured = serializeBlocks(sourceBlocks, limits);
+  const rootText = normalizePreservingLineBreaks(input.primaryRootText);
+  const coveredEnough =
+    utf8ByteLength(structured) >= MAIN_TEXT_COVERAGE_RATIO * utf8ByteLength(rootText);
+  return coveredEnough ? structured : truncateUtf8(rootText, limits.maxTotalBytes);
 }
 
 function serializeBlocks(

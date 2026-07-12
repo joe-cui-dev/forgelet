@@ -78,11 +78,15 @@ const browserWorkbench = createBrowserWorkbenchController({
         [WORKBENCH_LAST_INVOCATION_KEY]: state.invocationId,
       }),
     );
-    void Promise.resolve(
-      chrome.runtime.sendMessage({ type: "browserWorkbenchState", state }),
-    ).catch(() => undefined);
   },
+  broadcastState: (state) => sendToPanel({ type: "browserWorkbenchState", state }),
+  broadcastDelta: (delta) => sendToPanel({ type: "browserWorkbenchDelta", ...delta }),
 });
+
+// The Side Panel may be closed; a missing receiver is expected, not an error.
+function sendToPanel(message: Record<string, unknown>): void {
+  void Promise.resolve(chrome.runtime.sendMessage(message)).catch(() => undefined);
+}
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
@@ -185,6 +189,7 @@ async function captureActiveTab(): Promise<{
     selectionText: pageContext.selectionText,
     primaryBlocks: pageContext.primaryBlocks,
     bodyBlocks: pageContext.bodyBlocks,
+    primaryRootText: pageContext.primaryRootText,
   });
   return { tab, pageContext, capturedAt, capture };
 }
@@ -237,6 +242,7 @@ async function collectActiveTabPageContext(tabId: number): Promise<{
   selectionText: string;
   primaryBlocks: CaptureBlock[];
   bodyBlocks: CaptureBlock[];
+  primaryRootText: string;
 }> {
   const [result] = await chrome.scripting.executeScript({
     target: { tabId },
@@ -254,12 +260,14 @@ function isPageContext(value: unknown): value is {
   selectionText: string;
   primaryBlocks: CaptureBlock[];
   bodyBlocks: CaptureBlock[];
+  primaryRootText: string;
 } {
   if (typeof value !== "object" || value === null) return false;
   const record = value as Record<string, unknown>;
   return (
     typeof record.title === "string" &&
     typeof record.selectionText === "string" &&
+    typeof record.primaryRootText === "string" &&
     Array.isArray(record.primaryBlocks) &&
     record.primaryBlocks.every(isCaptureBlock) &&
     Array.isArray(record.bodyBlocks) &&

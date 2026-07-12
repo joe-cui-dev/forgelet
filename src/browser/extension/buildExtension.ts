@@ -47,43 +47,96 @@ export function browserExtensionManifest(): Record<string, unknown> {
   };
 }
 
-function sidePanelHtml(): string {
+export function sidePanelHtml(): string {
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
     <title>Forgelet Browser Workbench</title>
     <style>
+      :root {
+        --bg: #14181d;
+        --fg: #e6e9ed;
+        --muted: #9aa4b2;
+        --surface: #1c2229;
+        --border: #2b333d;
+        --accent: #6ea8fe;
+      }
       body {
         min-width: 320px;
         margin: 0;
         padding: 12px;
         font-family: system-ui, sans-serif;
-        color: #17202a;
-        background: #ffffff;
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--fg);
+        background: var(--bg);
       }
       button {
         width: 100%;
         padding: 8px 10px;
-        border: 1px solid #9aa4b2;
+        border: 1px solid var(--border);
         border-radius: 6px;
-        background: #f7f9fb;
-        color: #17202a;
+        background: var(--surface);
+        color: var(--fg);
         font: inherit;
         cursor: pointer;
+      }
+      button:hover {
+        border-color: var(--muted);
+      }
+      #workbench-root {
+        margin-top: 12px;
+      }
+      .status-line {
+        color: var(--muted);
+        font-size: 12px;
+        margin-bottom: 8px;
       }
       pre {
         white-space: pre-wrap;
         overflow-wrap: anywhere;
-        margin: 12px 0 0;
+        margin: 8px 0;
         font-size: 12px;
         line-height: 1.4;
+      }
+      pre.stream {
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--surface);
+        padding: 8px;
+        min-height: 2em;
+      }
+      h2 {
+        font-size: 13px;
+        margin: 14px 0 4px;
+      }
+      ul {
+        margin: 4px 0;
+        padding-left: 18px;
+      }
+      p {
+        margin: 4px 0;
+      }
+      a {
+        color: var(--accent);
+      }
+      details {
+        margin-top: 14px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 6px 8px;
+      }
+      summary {
+        color: var(--muted);
+        cursor: pointer;
+        font-size: 12px;
       }
     </style>
   </head>
   <body>
     <button id="stop" type="button">Stop</button>
-    <pre id="workbench-output"></pre>
+    <div id="workbench-root"></div>
     <script type="module" src="sidePanel.js"></script>
   </body>
 </html>
