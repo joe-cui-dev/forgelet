@@ -13,6 +13,10 @@ export async function buildBrowserExtension(): Promise<void> {
       resolve(outputDir, "serviceWorker.js"),
     ),
     copyFile(
+      resolve(compiledDir, "workbench.js"),
+      resolve(outputDir, "workbench.js"),
+    ),
+    copyFile(
       resolve(compiledDir, "sidePanel.js"),
       resolve(outputDir, "sidePanel.js"),
     ),

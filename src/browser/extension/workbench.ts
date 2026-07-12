@@ -55,11 +55,21 @@ export function createBrowserWorkbenchController(input: {
       // Chrome only permits sidePanel.open from the action gesture, so this
       // must occur before capture/profile/native work begins.
       await input.openSidePanel();
-      const capture = await input.captureCurrentPage();
-      const profiles = await input.bridge.listProfiles();
-      const profile = profiles.find((candidate) => candidate.isDefault);
       const actionId = input.createId();
       const invocationId = input.createId();
+      let capture: Record<string, unknown>;
+      try {
+        capture = await input.captureCurrentPage();
+      } catch (error) {
+        return save({
+          actionId,
+          invocationId,
+          status: "failed",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+      const profiles = await input.bridge.listProfiles();
+      const profile = profiles.find((candidate) => candidate.isDefault);
       if (!profile) {
         return save({
           actionId,

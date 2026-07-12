@@ -28,24 +28,50 @@ export function renderSidePanelState(
   ].join("\n\n");
 }
 
+export async function requestBrowserWorkbenchState(
+  sendMessage: (message: { type: "browserWorkbenchReattach" }) => Promise<unknown>,
+): Promise<BrowserPanelState | undefined> {
+  try {
+    const response = await sendMessage({ type: "browserWorkbenchReattach" });
+    if (!isRecord(response)) return undefined;
+    return response.state as BrowserPanelState | undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function initializeSidePanel(): Promise<void> {
   const output = document.getElementById("workbench-output");
   const stop = document.getElementById("stop");
   if (!output || !stop) return;
-  const response = await chrome.runtime.sendMessage({ type: "browserWorkbenchReattach" });
-  renderSidePanelState(output, response?.state);
+  renderSidePanelState(
+    output,
+    await requestBrowserWorkbenchState((message) => chrome.runtime.sendMessage(message)),
+  );
   chrome.runtime.onMessage.addListener((message: any) => {
     if (message?.type === "browserWorkbenchState") renderSidePanelState(output, message.state);
   });
   stop.addEventListener("click", async () => {
-    const state = await chrome.runtime.sendMessage({ type: "browserWorkbenchReattach" });
-    if (state?.state?.invocationId) {
-      await chrome.runtime.sendMessage({
-        type: "browserWorkbenchStop",
-        invocationId: state.state.invocationId,
-      });
+    const state = await requestBrowserWorkbenchState((message) => chrome.runtime.sendMessage(message));
+    if (state?.invocationId) {
+      try {
+        await chrome.runtime.sendMessage({
+          type: "browserWorkbenchStop",
+          invocationId: state.invocationId,
+        });
+      } catch {
+        renderSidePanelState(output, {
+          ...state,
+          status: "failed",
+          message: "Unable to contact the Forgelet Service Worker. Reload the extension and reopen the Side Panel.",
+        });
+      }
     }
   });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 if (typeof document !== "undefined" && typeof chrome !== "undefined") {

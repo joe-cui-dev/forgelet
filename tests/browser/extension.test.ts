@@ -1,16 +1,27 @@
 import { expect, test } from "@jest/globals";
+import { mkdtemp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
+  collectPageContext,
   createBrowserCapture,
   createShareCurrentPagePayload,
   extractMainTextFromPage,
+  isBrowserPageCaptureSupported,
   renderShareSummary,
 } from "../../src/browser/extension/snapshotProducer.js";
-import { browserExtensionManifest } from "../../src/browser/extension/buildExtension.js";
+import {
+  browserExtensionManifest,
+  buildBrowserExtension,
+} from "../../src/browser/extension/buildExtension.js";
 import {
   createBrowserWorkbenchController,
   type BrowserWorkbenchBridge,
 } from "../../src/browser/extension/workbench.js";
-import { renderSidePanelState } from "../../src/browser/extension/sidePanel.js";
+import {
+  renderSidePanelState,
+  requestBrowserWorkbenchState,
+} from "../../src/browser/extension/sidePanel.js";
 
 test("browser extension selected-text share builds a minimal snapshot payload", () => {
   const payload = createShareCurrentPagePayload({
@@ -55,6 +66,44 @@ test("browser extension whole-page share falls back to normalized body text", ()
   });
 
   expect(mainText).toBe("Docs Use the current API page as context. Footer");
+});
+
+test("browser capture supports normal web pages but not Chrome internal pages", () => {
+  expect(isBrowserPageCaptureSupported("https://example.com/docs")).toBe(true);
+  expect(isBrowserPageCaptureSupported("http://localhost:3000")).toBe(true);
+  expect(isBrowserPageCaptureSupported("chrome://extensions")).toBe(false);
+  expect(isBrowserPageCaptureSupported("chrome-extension://abcdefghijklmnop/page.html")).toBe(false);
+});
+
+test("injected page capture is self-contained when Chrome serializes only its function body", () => {
+  const executeInjectedCapture = new Function(
+    "document",
+    "window",
+    `return (${collectPageContext.toString()})();`,
+  ) as (
+    document: { title: string; body: unknown; querySelector(selector: string): unknown },
+    window: { location: { href: string }; getSelection(): { toString(): string } },
+  ) => unknown;
+  const emptyRoot = { querySelectorAll: () => [] };
+
+  expect(
+    executeInjectedCapture(
+      {
+        title: "Documentation",
+        body: emptyRoot,
+        querySelector: () => emptyRoot,
+      },
+      {
+        location: { href: "https://example.com/docs" },
+        getSelection: () => ({ toString: () => "Selected text" }),
+      },
+    ),
+  ).toEqual({
+    title: "Documentation",
+    selectionText: "Selected text",
+    primaryBlocks: [],
+    bodyBlocks: [],
+  });
 });
 
 test("browser extension share summary suggests CLI follow-up without page content", () => {
@@ -164,6 +213,37 @@ test("Browser Workbench manifest uses a Side Panel and a clear toolbar action wi
   expect(JSON.stringify(manifest)).not.toContain("default_popup");
 });
 
+test("browser extension build includes every local Service Worker dependency", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-extension-build-"));
+  const previousCwd = process.cwd();
+  try {
+    const compiledDir = join(workspaceRoot, "dist", "browser", "extension");
+    await mkdir(compiledDir, { recursive: true });
+    await Promise.all(
+      ["serviceWorker.js", "workbench.js", "sidePanel.js", "snapshotProducer.js"].map(
+        (fileName) => writeFile(join(compiledDir, fileName), `// ${fileName}\n`, "utf8"),
+      ),
+    );
+
+    process.chdir(workspaceRoot);
+    await buildBrowserExtension();
+
+    expect(
+      await readdir(join(workspaceRoot, "dist", "browser-extension")),
+    ).toEqual(
+      expect.arrayContaining([
+        "serviceWorker.js",
+        "workbench.js",
+        "sidePanel.js",
+        "snapshotProducer.js",
+      ]),
+    );
+  } finally {
+    process.chdir(previousCwd);
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
 test("toolbar summary opens the Side Panel before capture, keeps its invocation after close, and sends one Stop", async () => {
   const operations: string[] = [];
   let receivedFrame: ((frame: Record<string, unknown>) => void) | undefined;
@@ -224,6 +304,41 @@ test("toolbar summary opens the Side Panel before capture, keeps its invocation 
   expect(controller.reattach(started.invocationId)).toMatchObject({ status: "failed" });
 });
 
+test("toolbar summary reports an unsupported browser page in the Side Panel without starting a Session", async () => {
+  const operations: string[] = [];
+  const bridge: BrowserWorkbenchBridge = {
+    async listProfiles() {
+      return [{ id: "profile_default", label: "Forgelet", isDefault: true }];
+    },
+    start() {
+      operations.push("start");
+      throw new Error("Browser Workbench must not start a Session for an unsupported page.");
+    },
+  };
+  const controller = createBrowserWorkbenchController({
+    bridge,
+    openSidePanel: async () => {
+      operations.push("open");
+    },
+    captureCurrentPage: async () => {
+      operations.push("capture");
+      throw new Error("Cannot access a chrome:// URL");
+    },
+    createId: (() => {
+      let count = 0;
+      return () => `id_${++count}`;
+    })(),
+  });
+
+  await expect(controller.summarizeCurrentPage()).resolves.toMatchObject({
+    actionId: "id_1",
+    invocationId: "id_2",
+    status: "failed",
+    message: "Cannot access a chrome:// URL",
+  });
+  expect(operations).toEqual(["open", "capture"]);
+});
+
 test("Side Panel status is rendered as text, never model/page HTML", () => {
   const target = { textContent: "" };
   renderSidePanelState(target, {
@@ -233,4 +348,12 @@ test("Side Panel status is rendered as text, never model/page HTML", () => {
   });
 
   expect(target.textContent).toContain("<img src=x onerror=alert(1)>");
+});
+
+test("Side Panel tolerates a reattach request when no Service Worker receiver exists", async () => {
+  await expect(
+    requestBrowserWorkbenchState(async () => {
+      throw new Error("Could not establish connection. Receiving end does not exist.");
+    }),
+  ).resolves.toBeUndefined();
 });

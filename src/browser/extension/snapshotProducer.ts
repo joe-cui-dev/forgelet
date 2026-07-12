@@ -1,5 +1,8 @@
 export type ShareMode = "selection" | "page";
 
+declare const document: any;
+declare const window: any;
+
 export type CaptureBlockKind =
   | "heading"
   | "paragraph"
@@ -85,6 +88,75 @@ export type ShareSummaryInput =
 
 const DEFAULT_MAX_BLOCK_BYTES = 6 * 1024;
 const DEFAULT_MAX_TOTAL_BYTES = 48 * 1024;
+
+export function isBrowserPageCaptureSupported(url: string): boolean {
+  try {
+    const protocol = new URL(url).protocol;
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** This function is passed directly to chrome.scripting.executeScript(), so
+ * every runtime dependency intentionally remains inside its function body. */
+export function collectPageContext(): {
+  title: string;
+  selectionText: string;
+  primaryBlocks: CaptureBlock[];
+  bodyBlocks: CaptureBlock[];
+} {
+  const isUsefulElement = (element: any): boolean => {
+    if (element.hidden || element.getAttribute("aria-hidden") === "true") return false;
+    return !element.closest(
+      "script,style,nav,header,footer,aside,[role='navigation'],[aria-hidden='true']",
+    );
+  };
+  const blockFromElement = (element: any): CaptureBlock | undefined => {
+    const tagName = String(element.tagName ?? "").toLowerCase();
+    const text = element.innerText ?? element.textContent ?? "";
+    if (/^h[1-6]$/.test(tagName)) return { kind: "heading", text };
+    if (tagName === "li") return { kind: "list_item", text };
+    if (tagName === "pre" || tagName === "code") return { kind: "code", text };
+    if (tagName === "a") return { kind: "link", text, href: element.href ?? "" };
+    if (tagName === "tr") {
+      const cells = Array.from(element.querySelectorAll("th,td"))
+        .map((cell: any) => cell.innerText ?? cell.textContent ?? "");
+      return { kind: "table_row", cells };
+    }
+    return { kind: "paragraph", text };
+  };
+  const collectBlocks = (root: any): CaptureBlock[] => {
+    if (!root) return [];
+    const blockSelectors = "h1,h2,h3,h4,h5,h6,p,li,pre,code,tr,a";
+    return Array.from(root.querySelectorAll(blockSelectors))
+      .filter((element: any) => isUsefulElement(element))
+      .filter((element: any) =>
+        element.tagName !== "A" || !element.closest("p,li,pre,code,h1,h2,h3,h4,h5,h6"),
+      )
+      .map((element: any) => blockFromElement(element))
+      .filter((block: CaptureBlock | undefined): block is CaptureBlock => Boolean(block));
+  };
+  const selectors = [
+    "main",
+    "article",
+    "[role='main']",
+    ".markdown-body",
+    ".js-issue-title",
+    ".js-comment-body",
+    ".documentation",
+    ".docs-content",
+  ];
+  const primaryRoot = selectors
+    .map((selector) => document.querySelector(selector))
+    .find((element: any) => Boolean(element));
+  return {
+    title: document.title || window.location.href,
+    selectionText: window.getSelection?.()?.toString() ?? "",
+    primaryBlocks: collectBlocks(primaryRoot),
+    bodyBlocks: collectBlocks(document.body),
+  };
+}
 
 /**
  * Converts the small DOM-independent block IR collected by the injected page

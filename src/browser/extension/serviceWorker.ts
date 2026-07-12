@@ -1,6 +1,8 @@
 import {
+  collectPageContext,
   createBrowserCapture,
   createShareCurrentPagePayload,
+  isBrowserPageCaptureSupported,
   renderShareSummary,
   type CaptureBlock,
 } from "./snapshotProducer.js";
@@ -10,8 +12,6 @@ import {
 } from "./workbench.js";
 
 declare const chrome: any;
-declare const document: any;
-declare const window: any;
 
 const NATIVE_HOST_NAME = "com.forgelet.browser_context";
 const SELECTION_CONTEXT_MENU_ID = "forgelet-share-selection";
@@ -70,7 +70,9 @@ const browserWorkbench = createBrowserWorkbenchController({
         [WORKBENCH_LAST_INVOCATION_KEY]: state.invocationId,
       }),
     );
-    void chrome.runtime.sendMessage({ type: "browserWorkbenchState", state });
+    void Promise.resolve(
+      chrome.runtime.sendMessage({ type: "browserWorkbenchState", state }),
+    ).catch(() => undefined);
   },
 });
 
@@ -162,6 +164,9 @@ async function captureActiveTab(): Promise<{
 }> {
   const tab = await getActiveTab();
   if (!tab?.id || !tab.url) throw new Error("No active tab is available.");
+  if (!isBrowserPageCaptureSupported(tab.url)) {
+    throw new Error("Forgelet can summarize only normal HTTP(S) pages, not Chrome internal pages.");
+  }
   const captureStartedAt = Date.now();
   const pageContext = await collectActiveTabPageContext(tab.id);
   const capturedAt = new Date().toISOString();
@@ -229,66 +234,44 @@ async function collectActiveTabPageContext(tabId: number): Promise<{
     target: { tabId },
     func: collectPageContext,
   });
-  return result.result;
+  const pageContext = result?.result;
+  if (!isPageContext(pageContext)) {
+    throw new Error("Browser page capture returned no usable document context.");
+  }
+  return pageContext;
 }
 
-function collectPageContext(): {
+function isPageContext(value: unknown): value is {
   title: string;
   selectionText: string;
   primaryBlocks: CaptureBlock[];
   bodyBlocks: CaptureBlock[];
 } {
-  const selectors = [
-    "main",
-    "article",
-    "[role='main']",
-    ".markdown-body",
-    ".js-issue-title",
-    ".js-comment-body",
-    ".documentation",
-    ".docs-content",
-  ];
-  const primaryRoot = selectors
-    .map((selector) => document.querySelector(selector))
-    .find((element: any) => Boolean(element));
-  return {
-    title: document.title || window.location.href,
-    selectionText: window.getSelection?.()?.toString() ?? "",
-    primaryBlocks: collectBlocks(primaryRoot),
-    bodyBlocks: collectBlocks(document.body),
-  };
-}
-
-function collectBlocks(root: any): CaptureBlock[] {
-  if (!root) return [];
-  const blockSelectors = "h1,h2,h3,h4,h5,h6,p,li,pre,code,tr,a";
-  return Array.from(root.querySelectorAll(blockSelectors))
-    .filter((element: any) => isUsefulElement(element))
-    .filter((element: any) =>
-      element.tagName !== "A" || !element.closest("p,li,pre,code,h1,h2,h3,h4,h5,h6"),
-    )
-    .map((element: any) => blockFromElement(element))
-    .filter((block: CaptureBlock | undefined): block is CaptureBlock => Boolean(block));
-}
-
-function isUsefulElement(element: any): boolean {
-  if (element.hidden || element.getAttribute("aria-hidden") === "true") return false;
-  return !element.closest(
-    "script,style,nav,header,footer,aside,[role='navigation'],[aria-hidden='true']",
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.title === "string" &&
+    typeof record.selectionText === "string" &&
+    Array.isArray(record.primaryBlocks) &&
+    record.primaryBlocks.every(isCaptureBlock) &&
+    Array.isArray(record.bodyBlocks) &&
+    record.bodyBlocks.every(isCaptureBlock)
   );
 }
 
-function blockFromElement(element: any): CaptureBlock | undefined {
-  const tagName = String(element.tagName ?? "").toLowerCase();
-  const text = element.innerText ?? element.textContent ?? "";
-  if (/^h[1-6]$/.test(tagName)) return { kind: "heading", text };
-  if (tagName === "li") return { kind: "list_item", text };
-  if (tagName === "pre" || tagName === "code") return { kind: "code", text };
-  if (tagName === "a") return { kind: "link", text, href: element.href ?? "" };
-  if (tagName === "tr") {
-    const cells = Array.from(element.querySelectorAll("th,td"))
-      .map((cell: any) => cell.innerText ?? cell.textContent ?? "");
-    return { kind: "table_row", cells };
-  }
-  return { kind: "paragraph", text };
+function isCaptureBlock(value: unknown): value is CaptureBlock {
+  if (typeof value !== "object" || value === null) return false;
+  const kind = (value as Record<string, unknown>).kind;
+  return (
+    kind === "heading" ||
+    kind === "paragraph" ||
+    kind === "list_item" ||
+    kind === "code" ||
+    kind === "link" ||
+    kind === "table_row" ||
+    kind === "navigation" ||
+    kind === "script" ||
+    kind === "style" ||
+    kind === "hidden"
+  );
 }
