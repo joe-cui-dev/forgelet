@@ -115,7 +115,7 @@ Learning Sessions require explicit source material from `--context` or `--with-b
 
 ## Chrome Browser Workbench
 
-The Browser Workbench summarizes the current page with one toolbar click. It opens a Side Panel and starts one answer-once Learning Session in an explicitly approved local workspace; it cannot run Coding or Writing Workflows, or select a model, path, or command from the browser. The full captured page content is persisted to `.forgelet/browser/<captureId>.json` in the approved workspace, and the Session Trace's Context Attachment references that file, so the recorded content hash stays auditable after the Session.
+The Browser Workbench summarizes the current page with one toolbar click. It opens a Side Panel and starts one answer-once Learning Session in an explicitly approved local workspace; it cannot run Coding or Writing Workflows, or select a model, path, or command from the browser. The Learning Pack body follows the browser's UI language (headings stay English); a Chinese-language Chrome gets a Chinese Learning Pack. The full captured page content is persisted to `.forgelet/browser/<captureId>.json` in the approved workspace, and the Session Trace's Context Attachment references that file, so the recorded content hash stays auditable after the Session.
 
 ### Install
 

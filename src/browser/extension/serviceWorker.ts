@@ -41,6 +41,7 @@ const browserWorkbench = createBrowserWorkbenchController({
           invocationId: input.invocationId,
           payload: {
             workspaceProfileId: input.workspaceProfileId,
+            ...(input.uiLanguage ? { uiLanguage: input.uiLanguage } : {}),
             capture: input.capture,
           },
         },
@@ -58,6 +59,13 @@ const browserWorkbench = createBrowserWorkbenchController({
   },
   captureCurrentPage: async () => captureCurrentPageForWorkbench(),
   createId: () => crypto.randomUUID(),
+  detectUiLanguage: () => {
+    try {
+      return chrome.i18n?.getUILanguage?.() ?? (globalThis as any).navigator?.language;
+    } catch {
+      return undefined;
+    }
+  },
   persistState: (state) => {
     void chrome.storage.session.get(WORKBENCH_STATES_KEY).then((stored: {
       forgeletBrowserWorkbenchStates?: Record<string, BrowserPanelState>;
