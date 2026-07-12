@@ -1,5 +1,47 @@
 export type ShareMode = "selection" | "page";
 
+export type CaptureBlockKind =
+  | "heading"
+  | "paragraph"
+  | "list_item"
+  | "code"
+  | "link"
+  | "table_row"
+  | "navigation"
+  | "script"
+  | "style"
+  | "hidden";
+
+export interface CaptureBlock {
+  kind: CaptureBlockKind;
+  text?: string;
+  href?: string;
+  cells?: string[];
+}
+
+export interface BrowserCapture {
+  contentKind: "selectedText" | "mainText";
+  content: string;
+  contentBytes: number;
+  contentHash: string;
+  captureId: string;
+  capturedAt: string;
+  captureReadyMs: number;
+}
+
+export interface BrowserCaptureInput {
+  capturedAt: string;
+  captureId: string;
+  captureReadyMs: number;
+  selectionText?: string;
+  primaryBlocks: CaptureBlock[];
+  bodyBlocks: CaptureBlock[];
+  limits?: {
+    maxBlockBytes?: number;
+    maxTotalBytes?: number;
+  };
+}
+
 export interface ShareCurrentPageInput {
   mode: ShareMode;
   url: string;
@@ -7,6 +49,7 @@ export interface ShareCurrentPageInput {
   capturedAt: string;
   selectedText?: string;
   pageText?: string;
+  capture?: BrowserCapture;
 }
 
 export interface ShareCurrentPageMessage {
@@ -15,6 +58,8 @@ export interface ShareCurrentPageMessage {
     url: string;
     title: string;
     capturedAt: string;
+    captureId?: string;
+    captureReadyMs?: number;
     selectedText?: string;
     mainText?: string;
   };
@@ -37,6 +82,38 @@ export type ShareSummaryInput =
       snapshotPath: string;
     }
   | { ok: false; error: string };
+
+const DEFAULT_MAX_BLOCK_BYTES = 6 * 1024;
+const DEFAULT_MAX_TOTAL_BYTES = 48 * 1024;
+
+/**
+ * Converts the small DOM-independent block IR collected by the injected page
+ * function into a bounded Markdown-like browser attachment.
+ */
+export async function createBrowserCapture(input: BrowserCaptureInput): Promise<BrowserCapture> {
+  const limits = {
+    maxBlockBytes: input.limits?.maxBlockBytes ?? DEFAULT_MAX_BLOCK_BYTES,
+    maxTotalBytes: input.limits?.maxTotalBytes ?? DEFAULT_MAX_TOTAL_BYTES,
+  };
+  const selectedText = normalizePreservingLineBreaks(input.selectionText);
+  const contentKind = selectedText ? "selectedText" : "mainText";
+  const sourceBlocks = input.primaryBlocks.some(isIncludedBlock)
+    ? input.primaryBlocks
+    : input.bodyBlocks;
+  const content = selectedText
+    ? truncateUtf8(selectedText, limits.maxTotalBytes)
+    : serializeBlocks(sourceBlocks, limits);
+
+  return {
+    contentKind,
+    content,
+    contentBytes: utf8ByteLength(content),
+    contentHash: await sha256Hex(content),
+    captureId: input.captureId,
+    capturedAt: input.capturedAt,
+    captureReadyMs: input.captureReadyMs,
+  };
+}
 
 export function renderShareSummary(input: ShareSummaryInput): string {
   if (!input.ok) return `Share failed: ${input.error}`;
@@ -71,12 +148,27 @@ export function createShareCurrentPagePayload(
     title: input.title,
     capturedAt: input.capturedAt,
   };
+  if (input.capture) {
+    const metadata = {
+      captureId: input.capture.captureId,
+      captureReadyMs: input.capture.captureReadyMs,
+    };
+    return input.capture.contentKind === "selectedText"
+      ? {
+          type: "shareCurrentPage",
+          payload: { ...base, ...metadata, selectedText: input.capture.content },
+        }
+      : {
+          type: "shareCurrentPage",
+          payload: { ...base, ...metadata, mainText: input.capture.content },
+        };
+  }
   if (input.mode === "selection") {
     return {
       type: "shareCurrentPage",
       payload: {
         ...base,
-        selectedText: normalizeText(input.selectedText),
+        selectedText: normalizePreservingLineBreaks(input.selectedText),
       },
     };
   }
@@ -91,4 +183,91 @@ export function createShareCurrentPagePayload(
 
 function normalizeText(value: string | undefined): string {
   return (value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function normalizePreservingLineBreaks(value: string | undefined): string {
+  const lines = (value ?? "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/\s+/g, " ").trim());
+  while (lines[0] === "") lines.shift();
+  while (lines.at(-1) === "") lines.pop();
+  return lines.reduce<string[]>((result, line) => {
+    if (line === "" && result.at(-1) === "") return result;
+    result.push(line);
+    return result;
+  }, []).join("\n");
+}
+
+function serializeBlocks(
+  blocks: CaptureBlock[],
+  limits: { maxBlockBytes: number; maxTotalBytes: number },
+): string {
+  const serialized: string[] = [];
+  let totalBytes = 0;
+  for (const block of blocks) {
+    if (!isIncludedBlock(block)) continue;
+    const text = truncateUtf8(serializeBlock(block), limits.maxBlockBytes);
+    if (!text) continue;
+    const separator = serialized.length === 0 ? "" : "\n\n";
+    const remainingBytes = limits.maxTotalBytes - totalBytes - utf8ByteLength(separator);
+    if (remainingBytes <= 0) break;
+    if (utf8ByteLength(text) > remainingBytes) break;
+    serialized.push(text);
+    totalBytes += utf8ByteLength(separator) + utf8ByteLength(text);
+  }
+  return serialized.join("\n\n");
+}
+
+function isIncludedBlock(block: CaptureBlock): boolean {
+  return !["navigation", "script", "style", "hidden"].includes(block.kind);
+}
+
+function serializeBlock(block: CaptureBlock): string {
+  const text = block.kind === "code"
+    ? normalizeCode(block.text)
+    : normalizeText(block.text);
+  if (block.kind === "heading") return text ? `# ${text}` : "";
+  if (block.kind === "list_item") return text ? `- ${text}` : "";
+  if (block.kind === "code") return text ? `\`\`\`\n${text}\n\`\`\`` : "";
+  if (block.kind === "link") {
+    const href = normalizeText(block.href);
+    return text && href ? `[${text}](${href})` : text;
+  }
+  if (block.kind === "table_row") {
+    const cells = (block.cells ?? []).map(normalizeText).filter(Boolean);
+    return cells.length > 0 ? `| ${cells.join(" | ")} |` : "";
+  }
+  return text;
+}
+
+function normalizeCode(value: string | undefined): string {
+  return (value ?? "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .trim();
+}
+
+function truncateUtf8(value: string, maxBytes: number): string {
+  if (maxBytes <= 0) return "";
+  let result = "";
+  let usedBytes = 0;
+  for (const character of value) {
+    const characterBytes = utf8ByteLength(character);
+    if (usedBytes + characterBytes > maxBytes) break;
+    result += character;
+    usedBytes += characterBytes;
+  }
+  return result;
+}
+
+function utf8ByteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }

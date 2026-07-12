@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { PassThrough, Writable } from "node:stream";
 import { loadCurrentBrowserSnapshot } from "../../src/browser/index.js";
 import {
+  NativeMessageDecoder,
+  encodeNativeHostMessage,
   handleNativeHostBuffer,
   handleNativeHostMessage,
   runNativeHostStdio,
@@ -127,6 +129,74 @@ test("Native Messaging host responds after one framed message without waiting fo
   stdin.end();
   await runPromise;
 });
+
+test("Native Messaging decoder handles split headers, split payloads, and multiple frames", () => {
+  const first = encodeNativeHostMessage({ type: "first", invocationId: "one" });
+  const second = encodeNativeHostMessage({ type: "second", invocationId: "two" });
+  const decoder = new NativeMessageDecoder();
+
+  expect(decoder.push(first.subarray(0, 2))).toEqual([]);
+  expect(decoder.push(first.subarray(2, first.byteLength - 3))).toEqual([]);
+  expect(decoder.push(Buffer.concat([first.subarray(first.byteLength - 3), second.subarray(0, 3)]))).toEqual([
+    { type: "first", invocationId: "one" },
+  ]);
+  expect(decoder.push(second.subarray(3))).toEqual([
+    { type: "second", invocationId: "two" },
+  ]);
+});
+
+test("Native Messaging host streams multiple application responses and forwards cancel frames by invocation identity", async () => {
+  const stdin = new PassThrough();
+  const outputChunks: Buffer[] = [];
+  const stdout = new Writable({
+    write(chunk, _encoding, callback) {
+      outputChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      callback();
+    },
+  });
+  const delivered: Array<{ type: string; invocationId: string }> = [];
+  const runPromise = runNativeHostStdio({
+    stdin,
+    stdout,
+    application: {
+      async handle(message, response) {
+        const frame = message as { type: string; invocationId: string };
+        delivered.push(frame);
+        await response.send({
+          type: `${frame.type}_received`,
+          invocationId: frame.invocationId,
+        });
+      },
+    },
+  });
+
+  stdin.write(
+    Buffer.concat([
+      encodeNativeHostMessage({ type: "invoke", invocationId: "first" }),
+      encodeNativeHostMessage({ type: "invoke", invocationId: "second" }),
+      encodeNativeHostMessage({ type: "cancel", invocationId: "second" }),
+    ]),
+  );
+  await waitFor(() => outputChunks.length >= 3);
+
+  expect(delivered).toEqual([
+    { type: "invoke", invocationId: "first" },
+    { type: "invoke", invocationId: "second" },
+    { type: "cancel", invocationId: "second" },
+  ]);
+  expect(decodeFrames(Buffer.concat(outputChunks))).toEqual([
+    { type: "invoke_received", invocationId: "first" },
+    { type: "invoke_received", invocationId: "second" },
+    { type: "cancel_received", invocationId: "second" },
+  ]);
+  stdin.end();
+  await runPromise;
+});
+
+function decodeFrames(buffer: Buffer): unknown[] {
+  const decoder = new NativeMessageDecoder();
+  return decoder.push(buffer);
+}
 
 async function waitFor(predicate: () => boolean): Promise<void> {
   const startedAt = Date.now();

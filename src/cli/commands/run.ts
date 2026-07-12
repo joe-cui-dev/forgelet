@@ -1,8 +1,8 @@
 import {
   runCodingSession,
-  runLearningSession,
   runWritingSession,
 } from "../../workflows/index.js";
+import { launchLearningSession } from "../../sessionLauncher/index.js";
 import { loadConfig } from "../../config/index.js";
 import { loadCurrentBrowserSnapshot } from "../../browser/index.js";
 import type { EffectEnvelope } from "../../permissions/envelope.js";
@@ -101,7 +101,7 @@ export async function runRunCommand(
           onLiveEvent: options.onLiveEvent,
         })
       : command.workflow === "learning"
-        ? await runLearningSession({
+        ? await launchLearningSession({
             task: command.task,
             contextFiles: command.contextFiles,
             browserSnapshot,

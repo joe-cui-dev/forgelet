@@ -4,6 +4,21 @@ import { dirname, resolve } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { currentBrowserSnapshotPath } from "../browser/index.js";
+import {
+  listWorkspaceProfiles,
+  resolveWorkspaceProfile,
+  toExtensionWorkspaceProfileProjection,
+} from "../browser/workspaceProfiles.js";
+import {
+  runBrowserInvocation,
+  validateBrowserInvocationRequest,
+} from "../browser/protocol.js";
+import { createBrowserWorkbench } from "../browserWorkbench/index.js";
+import { createDeferredLiveModelClient, createDeepSeekLiveModelClient } from "../cli/wiring.js";
+import { createBrowserLearningLauncher } from "../sessionLauncher/index.js";
+import type { ModelClient } from "../types.js";
+
+const MAX_NATIVE_MESSAGE_BYTES = 1024 * 1024;
 
 export type NativeHostMessage =
   | {
@@ -31,6 +46,58 @@ export type NativeHostResponse =
       capturedAt: string;
     }
   | { ok: false; error: string };
+
+/** Raw Native Messaging framing only. Browser Workbench owns its application
+ * protocol separately, so the host can carry more than the legacy snapshot
+ * command without conflating a protocol frame with stdio bytes. */
+export class NativeMessageDecoder {
+  private buffered = Buffer.alloc(0);
+
+  push(chunk: Buffer): unknown[] {
+    this.buffered = Buffer.concat([this.buffered, chunk]);
+    const messages: unknown[] = [];
+    while (this.buffered.byteLength >= 4) {
+      const length = this.buffered.readUInt32LE(0);
+      if (length > MAX_NATIVE_MESSAGE_BYTES) {
+        this.buffered = Buffer.alloc(0);
+        throw new Error(`Native Messaging frame exceeds ${MAX_NATIVE_MESSAGE_BYTES} bytes.`);
+      }
+      if (this.buffered.byteLength < length + 4) break;
+      const payload = this.buffered.subarray(4, 4 + length);
+      this.buffered = this.buffered.subarray(4 + length);
+      try {
+        messages.push(JSON.parse(payload.toString("utf8")));
+      } catch {
+        throw new Error("Native Messaging input is not valid JSON.");
+      }
+    }
+    return messages;
+  }
+
+  hasIncompleteFrame(): boolean {
+    return this.buffered.byteLength > 0;
+  }
+}
+
+export function encodeNativeHostMessage(message: unknown): Buffer {
+  const payload = Buffer.from(JSON.stringify(message), "utf8");
+  const output = Buffer.alloc(4 + payload.byteLength);
+  output.writeUInt32LE(payload.byteLength, 0);
+  payload.copy(output, 4);
+  return output;
+}
+
+export interface NativeHostResponseWriter {
+  send(message: unknown): Promise<void>;
+}
+
+export interface NativeHostApplication {
+  handle(
+    message: unknown,
+    response: NativeHostResponseWriter,
+    context: { homeDir?: string },
+  ): Promise<void>;
+}
 
 export async function handleNativeHostMessage(
   message: NativeHostMessage,
@@ -82,7 +149,7 @@ export async function handleNativeHostBuffer(
   input: { homeDir?: string } = {},
 ): Promise<Buffer> {
   if (buffer.byteLength < 4) {
-    return encodeNativeHostResponse({
+    return encodeNativeHostMessage({
       ok: false,
       error: "Native Messaging input is missing the message length prefix.",
     });
@@ -90,7 +157,7 @@ export async function handleNativeHostBuffer(
   const messageLength = buffer.readUInt32LE(0);
   const messageBytes = buffer.subarray(4);
   if (messageBytes.byteLength !== messageLength) {
-    return encodeNativeHostResponse({
+    return encodeNativeHostMessage({
       ok: false,
       error: "Native Messaging input length does not match the payload.",
     });
@@ -99,22 +166,14 @@ export async function handleNativeHostBuffer(
   try {
     message = JSON.parse(messageBytes.toString("utf8"));
   } catch {
-    return encodeNativeHostResponse({
+    return encodeNativeHostMessage({
       ok: false,
       error: "Native Messaging input is not valid JSON.",
     });
   }
-  return encodeNativeHostResponse(
+  return encodeNativeHostMessage(
     await handleNativeHostMessage(message as NativeHostMessage, input),
   );
-}
-
-function encodeNativeHostResponse(response: NativeHostResponse): Buffer {
-  const payload = Buffer.from(JSON.stringify(response), "utf8");
-  const output = Buffer.alloc(4 + payload.byteLength);
-  output.writeUInt32LE(payload.byteLength, 0);
-  payload.copy(output, 4);
-  return output;
 }
 
 async function writeSnapshotAtomically(
@@ -183,33 +242,115 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+export function createNativeHostApplication(input: {
+  homeDir?: string;
+  modelClientForWorkspace?: (workspaceRoot: string) => ModelClient | undefined;
+}): NativeHostApplication {
+  const { homeDir } = input;
+  const controllers = new Map<string, AbortController>();
+  const learningLauncher = createBrowserLearningLauncher({
+    homeDir,
+    modelClientForWorkspace: (workspaceRoot) =>
+      input.modelClientForWorkspace?.(workspaceRoot) ??
+      createDeferredLiveModelClient(
+        {
+          workflow: "learning",
+          homeDir,
+          workspaceRoot,
+          env: process.env,
+        },
+        createDeepSeekLiveModelClient,
+      ),
+  });
+  const workbench = createBrowserWorkbench({
+    resolveProfile: (profileId) => resolveWorkspaceProfile({ homeDir, profileId }),
+    startLearning: learningLauncher.startLearning,
+  });
+
+  return {
+    async handle(message, response, context) {
+      if (!isRecord(message)) {
+        await response.send({ ok: false, error: "Native Messaging command must be an object." });
+        return;
+      }
+      if (message.type === "listWorkspaceProfiles") {
+        const listing = await listWorkspaceProfiles({ homeDir: context.homeDir });
+        await response.send({ profiles: toExtensionWorkspaceProfileProjection(listing) });
+        return;
+      }
+      if (message.type === "cancel") {
+        const invocationId = typeof message.invocationId === "string" ? message.invocationId : "";
+        controllers.get(invocationId)?.abort();
+        return;
+      }
+      if (message.type === "browserInvocation") {
+        const request = validateBrowserInvocationRequest(message.request);
+        const controller = new AbortController();
+        controllers.set(request.invocationId, controller);
+        try {
+          for await (const frame of runBrowserInvocation(request, workbench, {
+            homeDir: context.homeDir,
+            signal: controller.signal,
+          })) {
+            await response.send(frame);
+          }
+        } finally {
+          controllers.delete(request.invocationId);
+        }
+        return;
+      }
+      await response.send(await handleNativeHostMessage(message as NativeHostMessage, context));
+    },
+  };
+}
+
 export async function runNativeHostStdio(input: {
   stdin: Readable;
   stdout: Writable;
   homeDir?: string;
+  application?: NativeHostApplication;
 }): Promise<void> {
-  const chunks: Buffer[] = [];
-  let totalBytes = 0;
-  let expectedBytes: number | undefined;
-  for await (const chunk of input.stdin) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    totalBytes += chunks[chunks.length - 1]?.byteLength ?? 0;
-    if (expectedBytes === undefined && totalBytes >= 4) {
-      expectedBytes = Buffer.concat(chunks, totalBytes).readUInt32LE(0) + 4;
-    }
-    if (expectedBytes !== undefined && totalBytes >= expectedBytes) break;
-  }
-  const request = Buffer.concat(chunks, totalBytes);
-  const response = await handleNativeHostBuffer(trimToFirstMessage(request), {
-    homeDir: input.homeDir,
-  });
-  input.stdout.write(response);
-}
+  const decoder = new NativeMessageDecoder();
+  const application = input.application ?? createNativeHostApplication({ homeDir: input.homeDir });
+  const active = new Set<Promise<void>>();
+  const response: NativeHostResponseWriter = {
+    send: async (message) => {
+      input.stdout.write(encodeNativeHostMessage(message));
+    },
+  };
 
-function trimToFirstMessage(buffer: Buffer): Buffer {
-  if (buffer.byteLength < 4) return buffer;
-  const expectedBytes = buffer.readUInt32LE(0) + 4;
-  return buffer.subarray(0, expectedBytes);
+  for await (const chunk of input.stdin) {
+    let messages: unknown[];
+    try {
+      messages = decoder.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    } catch (error) {
+      await response.send({
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+    for (const message of messages) {
+      const task = application
+        .handle(message, response, { homeDir: input.homeDir })
+        .catch(async (error: unknown) => {
+          await response.send({
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      active.add(task);
+      void task.finally(() => active.delete(task));
+    }
+  }
+
+  if (decoder.hasIncompleteFrame()) {
+    await response.send({
+      ok: false,
+      error: "Native Messaging transport ended with an incomplete frame.",
+    });
+  }
+  await Promise.all([...active]);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
@@ -219,10 +360,6 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
     homeDir: process.env.HOME,
   }).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
-    const payload = Buffer.from(JSON.stringify({ ok: false, error: message }), "utf8");
-    const response = Buffer.alloc(4 + payload.byteLength);
-    response.writeUInt32LE(payload.byteLength, 0);
-    payload.copy(response, 4);
-    process.stdout.write(response);
+    process.stdout.write(encodeNativeHostMessage({ ok: false, error: message }));
   });
 }

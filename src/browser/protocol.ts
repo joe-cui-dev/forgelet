@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { SessionLiveEvent, SessionLiveEventSink } from "../sessionLiveView/index.js";
+import type { LearningPack } from "../workflows/learning.js";
 import {
   claimInvocation,
   recordInvocationOutcome,
@@ -90,13 +91,19 @@ export type BrowserRunFrame =
       tracePath: string;
     }
   | { type: "live_event"; invocationId: string; seq: number; event: SessionLiveEvent }
-  | { type: "completed"; invocationId: string; seq: number; summary: string }
+  | {
+      type: "completed";
+      invocationId: string;
+      seq: number;
+      summary: string;
+      learningPack?: LearningPack;
+    }
   | { type: "stopped"; invocationId: string; seq: number; reason: string }
   | { type: "failed"; invocationId: string; seq: number; message: string }
   | { type: "action_conflict"; invocationId: string; seq: number };
 
 export type ProtocolLaunchResult =
-  | { status: "completed"; summary: string }
+  | { status: "completed"; summary: string; learningPack?: LearningPack }
   | { status: "stopped"; reason: string }
   | { status: "failed"; message: string };
 
@@ -105,6 +112,8 @@ export type ProtocolLaunchResult =
  * (no Trace/Session ever existed), matching `runKernelSession` (ADR 0036). */
 export interface ProtocolLauncher {
   launch(input: {
+    actionId: string;
+    invocationId: string;
     payload: Record<string, unknown>;
     signal?: AbortSignal;
     onLiveEvent: SessionLiveEventSink;
@@ -166,6 +175,8 @@ async function driveInvocation(
 
   try {
     const result = await launcher.launch({
+      actionId: request.actionId,
+      invocationId: request.invocationId,
       payload: request.payload,
       signal: options.signal,
       onLiveEvent: async (event) => {
@@ -202,7 +213,11 @@ async function driveInvocation(
     });
     emit(
       result.status === "completed"
-        ? { type: "completed", summary: result.summary }
+        ? {
+            type: "completed",
+            summary: result.summary,
+            ...(result.learningPack ? { learningPack: result.learningPack } : {}),
+          }
         : result.status === "stopped"
           ? { type: "stopped", reason: result.reason }
           : { type: "failed", message: result.message },

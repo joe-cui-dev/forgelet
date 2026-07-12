@@ -13,6 +13,7 @@ export type LearningSessionInput = Omit<
   "definition" | "readScopeRequest" | "act" | "continuationSourceSessionId"
 > & {
   allowedReadPaths?: string[];
+  startTraceExtras?: Record<string, unknown>;
 };
 
 export type LearningSessionResult = KernelSessionResult<LearningPack>;
@@ -43,13 +44,16 @@ export function runLearningSession(
     signal: input.signal,
     readScopeRequest: input.allowedReadPaths,
     executionPolicy: input.executionPolicy,
-    definition: createLearningWorkflowDefinition(),
+    definition: createLearningWorkflowDefinition(input.startTraceExtras),
   });
 }
 
-export function createLearningWorkflowDefinition(): WorkflowDefinition<LearningPack> {
+export function createLearningWorkflowDefinition(
+  startTraceExtras?: Record<string, unknown>,
+): WorkflowDefinition<LearningPack> {
   return {
     kind: "learning",
+    ...(startTraceExtras ? { sessionTraits: { startTraceExtras } } : {}),
     async loadAttachments({ workspaceRoot, contextFiles }) {
       return {
         contextAttachments: await loadContextAttachments(

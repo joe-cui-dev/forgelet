@@ -32,6 +32,8 @@ Do not default to reading deleted or historical planning docs from git history. 
 - Trace, Sessions, and explain: `src/trace/`, `src/sessions/`, `src/explain/`
 - Debug transcripts (separate from traces): `src/debugTranscript/`
 - Browser context bridge: `src/browser/`, `src/native-host/`
+- Browser Workbench application Module: `src/browserWorkbench/`
+- Shared Learning Session Launcher: `src/sessionLauncher/`
 - Writing artifacts: `src/writingArtifacts/`
 - Writing project manifests, continuation heads, and project run preparation rules: `src/writingProjects/`
 - Creative style presets: `src/creativeStylePresets/`

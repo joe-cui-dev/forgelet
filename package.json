@@ -23,6 +23,7 @@
     "smoke:learning": "npm run build && node dist/smoke/learning.js",
     "smoke:knowledge-notes": "npm run build && node dist/smoke/knowledgeNotes.js",
     "smoke:memory-review": "npm run build && node dist/smoke/memoryReview.js",
+    "smoke:browser-workbench": "npm run build && node dist/smoke/browserWorkbench.js",
     "clean": "rm -rf dist dist-test"
   },
   "keywords": [

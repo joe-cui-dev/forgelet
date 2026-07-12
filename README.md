@@ -181,9 +181,12 @@ npm run smoke:writing-artifacts
 npm run smoke:learning
 npm run smoke:knowledge-notes
 npm run smoke:memory-review
+npm run smoke:browser-workbench
 ```
 
 Use `npm run smoke:deepseek` as the cheapest real-provider check. The workflow smoke scripts validate public CLI behavior, Trace evidence, and saved artifacts without scoring model prose quality. `npm run smoke:memory-review` is the exception: it drives `forge memory list/show/accept/reject` in a scratch workspace against a versioned suggestion and representative legacy evidence, and proves the path stays model-free by never providing a provider API key.
+
+`npm run smoke:browser-workbench` drives the built Native Host protocol in a scratch workspace with a deterministic fake model. It validates approved-profile launch, Session-ready ordering, normalized Learning Pack completion, and Trace page-body privacy; it is not a substitute for manual unpacked-extension dogfood.
 
 ## Docs
 
