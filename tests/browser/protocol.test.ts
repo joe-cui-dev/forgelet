@@ -175,6 +175,13 @@ test("a ready run emits identity before live model events and exactly one termin
 
 test("the same invocation identity with the same payload never starts a second Session and replays terminal state", async () => {
   const homeDir = await makeHomeDir();
+  const pack = {
+    summary: "A concise page summary.",
+    keyConcepts: "- First concept",
+    sourceLinks: "- browser: Example Docs",
+    openQuestions: "- None",
+    reviewPrompts: "- Recall the first concept",
+  };
   let launchCount = 0;
   const launcher: ProtocolLauncher = {
     async launch({ onLiveEvent }) {
@@ -184,7 +191,11 @@ test("the same invocation identity with the same payload never starts a second S
         sessionId: "sess_1",
         tracePath: "/tmp/work/.forgelet/sessions/sess_1.jsonl",
       });
-      return { status: "completed", summary: "Forgelet session completed: sess_1" };
+      return {
+        status: "completed",
+        summary: "Forgelet session completed: sess_1",
+        learningPack: pack,
+      };
     },
   };
 
@@ -204,6 +215,13 @@ test("the same invocation identity with the same payload never starts a second S
   ]);
   const secondReady = second.find((frame) => frame.type === "session_ready");
   expect(secondReady).toMatchObject({ sessionId: "sess_1" });
+  // The replayed terminal frame carries the persisted Learning Pack, so the
+  // panel renders the same styled sections as the original run.
+  const secondCompleted = second.find((frame) => frame.type === "completed");
+  expect(secondCompleted).toMatchObject({
+    summary: "Forgelet session completed: sess_1",
+    learningPack: pack,
+  });
 });
 
 test("the same invocation identity with a different payload returns action_conflict", async () => {

@@ -207,6 +207,9 @@ async function driveInvocation(
       invocationId: request.invocationId,
       state: result.status,
       ...(result.status === "completed" ? { summary: result.summary } : {}),
+      ...(result.status === "completed" && result.learningPack
+        ? { learningPack: result.learningPack }
+        : {}),
       ...(result.status === "stopped" ? { reason: result.reason } : {}),
       ...(result.status === "failed" ? { reason: result.message } : {}),
       now: options.now,
@@ -247,7 +250,11 @@ function replayReceipt(
       tracePath: receipt.tracePath,
     });
   if (receipt.state === "completed")
-    emit({ type: "completed", summary: receipt.summary ?? "" });
+    emit({
+      type: "completed",
+      summary: receipt.summary ?? "",
+      ...(receipt.learningPack ? { learningPack: receipt.learningPack } : {}),
+    });
   else if (receipt.state === "stopped")
     emit({ type: "stopped", reason: receipt.reason ?? "" });
   else if (receipt.state === "failed")

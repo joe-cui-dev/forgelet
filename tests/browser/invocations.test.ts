@@ -27,6 +27,13 @@ test("claiming a new invocation identity succeeds exactly once", async () => {
 
 test("re-claiming the same identity with the same payload replays instead of starting a second Session", async () => {
   const homeDir = await makeHomeDir();
+  const pack = {
+    summary: "A concise page summary.",
+    keyConcepts: "- First concept",
+    sourceLinks: "- browser: Example Docs",
+    openQuestions: "- None",
+    reviewPrompts: "- Recall the first concept",
+  };
   await claimInvocation({
     homeDir,
     actionId: "summarizeCurrentPage",
@@ -41,6 +48,7 @@ test("re-claiming the same identity with the same payload replays instead of sta
     sessionId: "sess_1",
     tracePath: "/tmp/work/.forgelet/sessions/sess_1.jsonl",
     summary: "Forgelet session completed: sess_1",
+    learningPack: pack,
   });
 
   const second = await claimInvocation({
@@ -57,6 +65,7 @@ test("re-claiming the same identity with the same payload replays instead of sta
     sessionId: "sess_1",
     tracePath: "/tmp/work/.forgelet/sessions/sess_1.jsonl",
     summary: "Forgelet session completed: sess_1",
+    learningPack: pack,
   });
 });
 
@@ -79,7 +88,7 @@ test("claiming the same identity with a different payload returns a conflict", a
   expect(conflicting.outcome).toBe("conflict");
 });
 
-test("the receipt store contains no page body, only IDs, payload hash, state, and Session/Trace handles", async () => {
+test("the receipt store contains no page body, only IDs, payload hash, state, Session/Trace handles, and the session's own outputs", async () => {
   const homeDir = await makeHomeDir();
   await claimInvocation({
     homeDir,
@@ -95,6 +104,13 @@ test("the receipt store contains no page body, only IDs, payload hash, state, an
     sessionId: "sess_1",
     tracePath: "/tmp/work/.forgelet/sessions/sess_1.jsonl",
     summary: "Forgelet session completed: sess_1",
+    learningPack: {
+      summary: "A concise page summary.",
+      keyConcepts: "- First concept",
+      sourceLinks: "- browser: Example Docs",
+      openQuestions: "- None",
+      reviewPrompts: "- Recall the first concept",
+    },
   });
 
   const replay = await claimInvocation({
@@ -109,6 +125,7 @@ test("the receipt store contains no page body, only IDs, payload hash, state, an
       "actionId",
       "createdAt",
       "invocationId",
+      "learningPack",
       "payloadHash",
       "sessionId",
       "state",
