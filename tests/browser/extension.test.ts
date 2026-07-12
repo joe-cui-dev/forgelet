@@ -651,7 +651,40 @@ test("completion replaces the streamed text with the structured Learning Pack", 
   expect(completed.activity).toBeUndefined();
 });
 
-test("a replayed completion without a Learning Pack degrades to the plain summary", () => {
+test("a replayed completion carries the persisted Learning Pack and renders the styled sections", () => {
+  const pack = {
+    summary: "A concise page summary.",
+    keyConcepts: "- First concept",
+    sourceLinks: "- browser: Example Docs",
+    openQuestions: "- None",
+    reviewPrompts: "- Recall the first concept",
+  };
+
+  // A replayed run re-emits the identical completed frame from the receipt,
+  // so the panel state and view are indistinguishable from the original run.
+  const replayed = applyBrowserFrame(
+    { invocationId: "inv_1", status: "running" },
+    {
+      type: "completed",
+      summary: "## Summary\nA concise page summary.",
+      learningPack: pack,
+    },
+  );
+
+  expect(replayed).toMatchObject({ status: "completed", learningPack: pack });
+  const view = buildSidePanelViewModel(replayed);
+  expect(view.packSections?.map((section) => section.title)).toEqual([
+    "Summary",
+    "Key Concepts",
+    "Source Links",
+    "Open Questions",
+    "Review Prompts",
+  ]);
+  expect(view.messageText).toBeUndefined();
+});
+
+test("a completion without a usable Learning Pack degrades to the plain summary", () => {
+  // Receipts recorded before Learning Pack persistence replay without a pack.
   const completed = applyBrowserFrame(
     { invocationId: "inv_1", status: "running" },
     { type: "completed", summary: "Plain replay summary" },
