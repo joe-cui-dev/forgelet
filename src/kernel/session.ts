@@ -77,6 +77,9 @@ export async function runKernelSession<TCompletion = void>(
   const sessionId = `sess_${startedAt.getTime().toString(36)}`;
   const taskHash = hashTask(input.task);
 
+  if (input.signal?.aborted)
+    throw new Error("Session launch cancelled before Session creation.");
+
   // Launch preflight: every step below must complete before any Trace file,
   // PID marker, or live event is created, so a rejected launch leaves no
   // Session evidence behind (ADR 0036/WP2).
@@ -312,6 +315,7 @@ export async function runKernelSession<TCompletion = void>(
         tracePath: traceWriter.tracePath,
         continuationContext,
         executionPolicy: input.executionPolicy,
+        signal: input.signal,
         definition: input.definition,
         approvalHandler: input.envelope
           ? createEnvelopeApprovalHandler(input.envelope)

@@ -73,6 +73,9 @@ export interface ReactNodeInput {
   tracePath: string;
   continuationContext?: ContinuationContext;
   executionPolicy?: ExecutionPolicy;
+  /** The only user cancellation path; only this owned signal converts to
+   * `user_stopped`, never an arbitrary provider/transport abort. */
+  signal?: AbortSignal;
   approvalHandler?: ApprovalHandler;
   envelope?: EffectEnvelope;
   resume?: ReactNodeResumeState;
@@ -581,6 +584,8 @@ export const runReactNode = async (
       wrapupOnly,
       finalToolTurn,
     );
+    if (input.signal?.aborted) return cancelledStopResult(input, usage);
+
     let output: ModelTurnOutput;
     for (let attempt = 1; ; attempt += 1) {
       try {
@@ -605,6 +610,7 @@ export const runReactNode = async (
         output = await input.modelClient.createTurn({
           messages,
           tools: wrapupOnly ? [] : tools,
+          signal: input.signal,
           onOutputDelta: input.onLiveEvent
             ? async (delta) => {
                 await emitLiveEvent(input.onLiveEvent, {
@@ -631,6 +637,7 @@ export const runReactNode = async (
         });
         break;
       } catch (error) {
+        if (input.signal?.aborted) return cancelledStopResult(input, usage);
         if (
           attempt <= MODEL_TURN_MAX_RETRIES &&
           isRetryableModelTurnError(error)
@@ -810,6 +817,10 @@ export const runReactNode = async (
     // No tool calls is the loop exit condition: model content becomes the
     // Session's final answer.
     if (output.toolCalls.length === 0) {
+      // Checked before completion effects (onCompleted may have durable side
+      // effects such as saving a Writing Artifact) so a Stop pressed the
+      // instant the model finished still discards the completion honestly.
+      if (input.signal?.aborted) return cancelledStopResult(input, usage);
       finalContent = input.definition.normalizeFinalContent?.(
         output.content ?? "",
         { contextAttachments: input.contextAttachments },
@@ -1511,6 +1522,27 @@ const formatStoppedSummary = (
         ]
       : []),
   ].join("\n");
+};
+
+/** Only the owned `input.signal` reaching this point converts to
+ * `user_stopped` — arbitrary provider/transport aborts are never
+ * pattern-matched here, so a real network failure keeps its honest reason. */
+const cancelledStopResult = (
+  input: ReactNodeInput,
+  usage: BudgetUsage,
+): ReactNodeFinishResult => {
+  input.session.stage = "final";
+  return {
+    status: "stopped",
+    reason: "user_stopped",
+    summary: formatStoppedSummary(
+      input.session,
+      input.route,
+      usage,
+      "user_stopped",
+      input.limits,
+    ),
+  };
 };
 
 const formatBudgetWrapupSummary = (

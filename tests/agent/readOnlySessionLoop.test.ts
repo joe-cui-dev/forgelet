@@ -9,6 +9,8 @@ import { runWritingSession } from "../../src/workflows/writing.js";
 import { readDebugTranscript } from "../../src/debugTranscript/index.js";
 import { FakeModelClient } from "../../src/models/testing/index.js";
 import type { SessionLiveEvent } from "../../src/sessionLiveView/index.js";
+import { runKernelSession } from "../../src/kernel/session.js";
+import type { WorkflowDefinition } from "../../src/kernel/workflowDefinition.js";
 
 test("a coding Session can search, read, and finish through read-only tools", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-readonly-"));
@@ -1951,6 +1953,144 @@ test("answer_once blocks tool calls returned on the single turn and finishes hon
   expect(
     events.some((event) => event.type === "budget_blocked_tool_calls"),
   ).toBe(true);
+});
+
+test("cancellation before Session creation rejects the launch with no Trace, and repeated cancellation is idempotent", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cancel-preflight-"));
+  const controller = new AbortController();
+  controller.abort();
+  controller.abort();
+
+  await expect(
+    runCodingSession({
+      task: "find the answer",
+      contextFiles: [],
+      workspaceRoot,
+      modelClient: new FakeModelClient([{ content: "unused", toolCalls: [] }]),
+      signal: controller.signal,
+    }),
+  ).rejects.toThrow(/cancel/i);
+
+  const sessionDirExists = await readdir(join(workspaceRoot, ".forgelet", "sessions")).then(
+    (entries) => entries.length > 0,
+    () => false,
+  );
+  expect(sessionDirExists).toBe(false);
+});
+
+test("cancellation reaches an in-flight model call, stops the Session with Trace evidence, and is not retried", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cancel-inflight-"));
+  const controller = new AbortController();
+  let createTurnCalls = 0;
+  let markStarted: () => void;
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve;
+  });
+  const modelClient = {
+    async createTurn(input: { signal?: AbortSignal }): Promise<never> {
+      createTurnCalls += 1;
+      markStarted();
+      return new Promise<never>((_resolve, reject) => {
+        input.signal?.addEventListener("abort", () => {
+          reject(
+            Object.assign(new Error("The operation was aborted."), {
+              name: "AbortError",
+            }),
+          );
+        });
+      });
+    },
+  };
+
+  const resultPromise = runCodingSession({
+    task: "find the answer",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+    signal: controller.signal,
+  });
+  await started;
+  controller.abort();
+  controller.abort();
+  const result = await resultPromise;
+
+  expect(createTurnCalls).toBe(1);
+  expect(result.summary).toMatch(/Reason: user_stopped/);
+
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const finished = events.find((event) => event.type === "session_finished");
+  expect(finished?.payload).toMatchObject({
+    status: "stopped",
+    reason: "user_stopped",
+  });
+});
+
+test("a transport failure unrelated to the owned cancellation signal is not converted to user_stopped", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cancel-unrelated-"));
+  const controller = new AbortController();
+  const modelClient = {
+    async createTurn() {
+      throw Object.assign(new Error("Connection reset by peer."), {
+        name: "AbortError",
+      });
+    },
+  };
+
+  await expect(
+    runCodingSession({
+      task: "find the answer",
+      contextFiles: [],
+      workspaceRoot,
+      modelClient,
+      signal: controller.signal,
+    }),
+  ).rejects.toThrow("Connection reset by peer.");
+
+  expect(controller.signal.aborted).toBe(false);
+});
+
+test("cancellation before completion effects stops the Session instead of running onCompleted side effects", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cancel-completion-"));
+  const controller = new AbortController();
+  let onCompletedCalled = false;
+  const definition: WorkflowDefinition = {
+    kind: "coding",
+    async loadAttachments() {
+      return { contextAttachments: [] };
+    },
+    capabilities() {
+      return ["update_plan", "model_generate_text"];
+    },
+    systemPrompt() {
+      return "test system prompt";
+    },
+    async onCompleted() {
+      onCompletedCalled = true;
+      return {};
+    },
+  };
+  const modelClient = {
+    async createTurn() {
+      controller.abort();
+      return { content: "Final answer.", toolCalls: [] };
+    },
+  };
+
+  const result = await runKernelSession({
+    task: "find the answer",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+    definition,
+    signal: controller.signal,
+  });
+
+  expect(onCompletedCalled).toBe(false);
+  expect(result.summary).toMatch(/Reason: user_stopped/);
 });
 
 test("an actionable coding Session can patch, run a configured command, inspect diff, and finish", async () => {

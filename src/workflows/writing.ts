@@ -81,6 +81,7 @@ export async function runWritingSession(
     debug: input.debug,
     approvalHandler: input.approvalHandler,
     onLiveEvent: input.onLiveEvent,
+    signal: input.signal,
     readScopeRequest:
       input.projectReadScopeMembers ??
       input.project?.members ??

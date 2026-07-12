@@ -42,6 +42,7 @@ export function runCodingSession(
     envelope: input.envelope,
     now: input.now,
     onLiveEvent: input.onLiveEvent,
+    signal: input.signal,
     readScopeRequest: input.allowedReadPaths,
     definition: createCodingWorkflowDefinition(),
   });

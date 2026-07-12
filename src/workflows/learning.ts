@@ -40,6 +40,7 @@ export function runLearningSession(
     debug: input.debug,
     approvalHandler: input.approvalHandler,
     onLiveEvent: input.onLiveEvent,
+    signal: input.signal,
     readScopeRequest: input.allowedReadPaths,
     executionPolicy: input.executionPolicy,
     definition: createLearningWorkflowDefinition(),

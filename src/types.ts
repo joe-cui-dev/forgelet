@@ -140,6 +140,7 @@ export interface ModelTurnInput {
   messages: ModelMessage[];
   tools: ToolSchema[];
   onOutputDelta?: (delta: ModelOutputDelta) => void | Promise<void>;
+  signal?: AbortSignal;
 }
 
 export interface ModelOutputDelta {

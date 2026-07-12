@@ -95,6 +95,27 @@ test("DeepSeekModelClient converts Forgelet turns to chat completions with tools
   });
 });
 
+test("DeepSeekModelClient forwards a caller AbortSignal to the fetch adapter", async () => {
+  let observedSignal: AbortSignal | undefined;
+  const controller = new AbortController();
+  const client = new DeepSeekModelClient({
+    apiKey: "test-key",
+    model: "deepseek-v4-pro",
+    postJson: async (_url, _body, _headers, options) => {
+      observedSignal = options?.signal;
+      return { choices: [{ message: { content: "Done." } }] };
+    },
+  });
+
+  await client.createTurn({
+    messages: [{ role: "user", content: "Hello" }],
+    tools: [],
+    signal: controller.signal,
+  });
+
+  expect(observedSignal).toBe(controller.signal);
+});
+
 test("DeepSeekModelClient estimates cost when the API returns token usage without cost", async () => {
   const client = new DeepSeekModelClient({
     apiKey: "test-key",

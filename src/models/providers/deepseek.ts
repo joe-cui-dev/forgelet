@@ -49,6 +49,7 @@ export type PostJson = (
 export interface PostJsonOptions {
   onOutputDelta?: (delta: ModelOutputDelta) => void | Promise<void>;
   model: string;
+  signal?: AbortSignal;
 }
 
 export class DeepSeekResponseError extends Error {
@@ -122,7 +123,7 @@ export class DeepSeekModelClient implements ModelClient {
         "Content-Type": "application/json",
         Authorization: `Bearer ${this.apiKey}`,
       },
-      { onOutputDelta: input.onOutputDelta, model: this.model },
+      { onOutputDelta: input.onOutputDelta, model: this.model, signal: input.signal },
     );
     return fromDeepSeekResponse(response, this.model);
   }
@@ -312,6 +313,7 @@ async function postJsonWithHttps(
           ...headers,
           "Content-Length": Buffer.byteLength(payload).toString(),
         },
+        ...(options.signal ? { signal: options.signal } : {}),
       },
       (res) => {
         readDeepSeekResponse(res, {

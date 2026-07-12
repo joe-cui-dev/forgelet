@@ -113,6 +113,10 @@ export interface RunKernelSessionInput<TCompletion = void> {
   /** Injectable clock for deterministic wall-clock budget tests; defaults to Date.now. */
   now?: () => number;
   onLiveEvent?: SessionLiveEventSink;
+  /** The only user cancellation path. Checked before Session creation, before
+   * each model attempt, before retries, and before completion effects; only
+   * this owned signal converts to `user_stopped` (ADR 0039 WP4). */
+  signal?: AbortSignal;
 }
 
 export interface KernelSessionResult<TCompletion = void> {
