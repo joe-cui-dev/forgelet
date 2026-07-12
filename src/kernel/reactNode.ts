@@ -42,7 +42,7 @@ import {
   type ToolRegistry,
 } from "../tools/toolRegistry.js";
 import { buildMessages } from "./messages.js";
-import type { WorkflowDefinition } from "./workflowDefinition.js";
+import type { ExecutionPolicy, WorkflowDefinition } from "./workflowDefinition.js";
 
 export interface ActLoopRoute {
   workflow: WorkflowKind;
@@ -72,6 +72,7 @@ export interface ReactNodeInput {
   baselineDirtyPaths: Set<string>;
   tracePath: string;
   continuationContext?: ContinuationContext;
+  executionPolicy?: ExecutionPolicy;
   approvalHandler?: ApprovalHandler;
   envelope?: EffectEnvelope;
   resume?: ReactNodeResumeState;
@@ -441,9 +442,10 @@ export const runReactNode = async (
       return { status: "stopped", reason: stopReason, summary };
     }
 
+    const isAnswerOnce = input.executionPolicy === "answer_once";
     const remainingModelTurns = input.limits.maxModelTurns - usage.modelTurns;
-    const finalOnly = remainingModelTurns === 1;
-    const finalToolTurn = remainingModelTurns === 2;
+    const finalOnly = isAnswerOnce || remainingModelTurns === 1;
+    const finalToolTurn = !isAnswerOnce && remainingModelTurns === 2;
     const budgetWrapupReason = finalOnly
       ? undefined
       : (forcedStopReason ??
@@ -733,7 +735,9 @@ export const runReactNode = async (
     }
 
     if (wrapupOnly && output.toolCalls.length > 0) {
-      const reason = budgetWrapupReason ?? "max_model_turns";
+      const reason =
+        budgetWrapupReason ??
+        (isAnswerOnce ? "answer_once_tool_calls_blocked" : "max_model_turns");
       await input.appendTrace("budget_blocked_tool_calls", {
         reason,
         skippedCount: output.toolCalls.length,

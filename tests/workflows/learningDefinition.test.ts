@@ -25,6 +25,45 @@ test("learning definition renders the Learning Workflow system prompt", () => {
   );
 });
 
+test("learning definition completion exposes a typed Learning Pack while preserving the existing Trace summary contract", async () => {
+  const definition = createLearningWorkflowDefinition();
+  const normalizedMarkdown = definition.normalizeFinalContent?.(
+    "## Summary\nCore idea.\n\n## Open Questions\nWhy does it work?",
+    { contextAttachments: [] },
+  ) ?? "";
+
+  const effects = await definition.onCompleted?.({
+    workspaceRoot: "/tmp/unused",
+    session: {
+      id: "sess_test",
+      workflow: "learning",
+      task: "teach me the core ideas",
+      taskHash: "abcdef00",
+      stage: "final",
+      plan: { items: [] },
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+    finalContent: normalizedMarkdown,
+    contextAttachments: [],
+    appendTrace: async () => {},
+  });
+
+  // Existing Trace/CLI contract: the full normalized markdown is still
+  // attached to the final_summary Trace event under finalContent.
+  expect(effects?.finalSummaryTraceExtras).toEqual({
+    finalContent: normalizedMarkdown,
+  });
+
+  // New: the same content is also available as a typed Learning Pack.
+  expect(effects?.completion).toEqual({
+    summary: "Core idea.",
+    keyConcepts: "No separate key concepts were provided by the model.",
+    sourceLinks: "- No explicit source attachment was loaded.",
+    openQuestions: "Why does it work?",
+    reviewPrompts: "No review prompts were provided by the model.",
+  });
+});
+
 test("learning definition normalizes unstructured content into a Learning Pack", () => {
   const definition = createLearningWorkflowDefinition();
 

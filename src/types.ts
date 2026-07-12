@@ -71,7 +71,8 @@ export type SessionStopReason =
   | "max_model_turns"
   | "active_context_exhausted"
   | "user_stopped"
-  | "wall_clock_limit_exceeded";
+  | "wall_clock_limit_exceeded"
+  | "answer_once_tool_calls_blocked";
 
 export interface SessionAudit {
   changeGroups: AuditChangeGroups;

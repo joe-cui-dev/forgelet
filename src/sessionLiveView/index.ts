@@ -7,6 +7,7 @@ export type SessionLiveEvent =
       task: string;
     }
   | { type: "trace_path"; tracePath: string }
+  | { type: "session_ready"; sessionId: string; tracePath: string }
   | { type: "model_turn_started"; turnIndex: number; model: string }
   | {
       type: "model_output_delta";
@@ -52,6 +53,8 @@ export const formatSessionLiveEvent = (event: SessionLiveEvent): string => {
       return `Session started: ${event.workflow} - ${event.task}`;
     case "trace_path":
       return `Trace: ${event.tracePath}`;
+    case "session_ready":
+      return `Session ready: ${event.sessionId}`;
     case "model_turn_started":
       return `Model turn ${event.turnIndex + 1} started: ${event.model}`;
     case "model_output_delta":

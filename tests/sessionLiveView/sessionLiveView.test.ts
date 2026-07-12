@@ -22,6 +22,14 @@ test("formats concise terminal Session Live View events", () => {
 
   expect(
     formatSessionLiveEvent({
+      type: "session_ready",
+      sessionId: "sess_abc123",
+      tracePath: "/tmp/work/.forgelet/sessions/sess_abc123.jsonl",
+    }),
+  ).toBe("Session ready: sess_abc123");
+
+  expect(
+    formatSessionLiveEvent({
       type: "model_turn_finished",
       turnIndex: 1,
       model: "deepseek-v4-flash",

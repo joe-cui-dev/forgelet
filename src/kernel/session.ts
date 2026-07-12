@@ -75,8 +75,11 @@ export async function runKernelSession<TCompletion = void>(
   const startedAt = new Date();
   const now = startedAt.toISOString();
   const sessionId = `sess_${startedAt.getTime().toString(36)}`;
-  await writePidMarker(input.workspaceRoot, sessionId);
   const taskHash = hashTask(input.task);
+
+  // Launch preflight: every step below must complete before any Trace file,
+  // PID marker, or live event is created, so a rejected launch leaves no
+  // Session evidence behind (ADR 0036/WP2).
   const continuationContext = input.continuationSourceSessionId
     ? await buildContinuationContext(
         input.workspaceRoot,
@@ -87,18 +90,6 @@ export async function runKernelSession<TCompletion = void>(
     input.workspaceRoot,
     input.readScopeRequest ?? continuationContext?.inheritedReadScope,
   );
-  const traceWriter = await createTraceWriter(input.workspaceRoot, sessionId, {
-    createdAt: startedAt,
-  });
-  await emitLiveEvent(input.onLiveEvent, {
-    type: "session_started",
-    workflow: input.definition.kind,
-    task: input.task,
-  });
-  await emitLiveEvent(input.onLiveEvent, {
-    type: "trace_path",
-    tracePath: traceWriter.tracePath,
-  });
   const config = await loadConfig({
     homeDir: input.homeDir,
     workspaceRoot: input.workspaceRoot,
@@ -163,6 +154,12 @@ export async function runKernelSession<TCompletion = void>(
     createdAt: now,
   };
 
+  // Preflight complete; the launch is authorized. Create identity evidence.
+  await writePidMarker(input.workspaceRoot, sessionId);
+  const traceWriter = await createTraceWriter(input.workspaceRoot, sessionId, {
+    createdAt: startedAt,
+  });
+
   await traceWriter.append(
     createTraceEvent(sessionId, "session_started", now, {
       workflow: input.definition.kind,
@@ -178,6 +175,7 @@ export async function runKernelSession<TCompletion = void>(
       ...(input.definition.sessionTraits?.startTraceExtras ?? {}),
       startedAt: now,
       taskHash,
+      executionPolicy: input.executionPolicy ?? "iterative",
       ...(readScope ? { readScope } : {}),
       ...(input.envelope ? { envelope: input.envelope } : {}),
       ...(continuationContext
@@ -192,6 +190,15 @@ export async function runKernelSession<TCompletion = void>(
         : {}),
     }),
   );
+  await emitLiveEvent(input.onLiveEvent, {
+    type: "session_started",
+    workflow: input.definition.kind,
+    task: input.task,
+  });
+  await emitLiveEvent(input.onLiveEvent, {
+    type: "trace_path",
+    tracePath: traceWriter.tracePath,
+  });
   await traceWriter.append(
     createTraceEvent(sessionId, "user_task", now, { task: input.task }),
   );
@@ -259,6 +266,14 @@ export async function runKernelSession<TCompletion = void>(
       }),
     );
 
+  // Session identity is now stable and Trace-backed; publish it before any
+  // model-turn live event so callers never infer identity from a filename.
+  await emitLiveEvent(input.onLiveEvent, {
+    type: "session_ready",
+    sessionId,
+    tracePath: traceWriter.tracePath,
+  });
+
   const limits = {
     ...config.budgets,
     maxEstimatedCostUsd: input.budgetUsd ?? config.budgets.maxEstimatedCostUsd,
@@ -296,6 +311,7 @@ export async function runKernelSession<TCompletion = void>(
         baselineDirtyPaths,
         tracePath: traceWriter.tracePath,
         continuationContext,
+        executionPolicy: input.executionPolicy,
         definition: input.definition,
         approvalHandler: input.envelope
           ? createEnvelopeApprovalHandler(input.envelope)

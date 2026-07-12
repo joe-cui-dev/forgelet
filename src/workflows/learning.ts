@@ -15,12 +15,20 @@ export type LearningSessionInput = Omit<
   allowedReadPaths?: string[];
 };
 
-export type LearningSessionResult = KernelSessionResult;
+export type LearningSessionResult = KernelSessionResult<LearningPack>;
+
+export interface LearningPack {
+  summary: string;
+  keyConcepts: string;
+  sourceLinks: string;
+  openQuestions: string;
+  reviewPrompts: string;
+}
 
 export function runLearningSession(
   input: LearningSessionInput,
 ): Promise<LearningSessionResult> {
-  return runKernelSession({
+  return runKernelSession<LearningPack>({
     task: input.task,
     contextFiles: input.contextFiles,
     browserSnapshot: input.browserSnapshot,
@@ -33,11 +41,12 @@ export function runLearningSession(
     approvalHandler: input.approvalHandler,
     onLiveEvent: input.onLiveEvent,
     readScopeRequest: input.allowedReadPaths,
+    executionPolicy: input.executionPolicy,
     definition: createLearningWorkflowDefinition(),
   });
 }
 
-export function createLearningWorkflowDefinition(): WorkflowDefinition {
+export function createLearningWorkflowDefinition(): WorkflowDefinition<LearningPack> {
   return {
     kind: "learning",
     async loadAttachments({ workspaceRoot, contextFiles }) {
@@ -67,7 +76,10 @@ export function createLearningWorkflowDefinition(): WorkflowDefinition {
       return normalizeLearningPack(content, [...contextAttachments]);
     },
     async onCompleted({ finalContent }) {
-      return { finalSummaryTraceExtras: { finalContent } };
+      return {
+        finalSummaryTraceExtras: { finalContent },
+        completion: learningPackFromNormalizedMarkdown(finalContent),
+      };
     },
   };
 }
@@ -111,6 +123,17 @@ function normalizeLearningPack(
   return LEARNING_PACK_HEADINGS.map(
     (heading) => `## ${heading}\n${bodies[heading].trim() || "(empty)"}`,
   ).join("\n\n");
+}
+
+function learningPackFromNormalizedMarkdown(markdown: string): LearningPack {
+  const { sections } = parseLearningSections(markdown);
+  return {
+    summary: sections.get("Summary") ?? "",
+    keyConcepts: sections.get("Key Concepts") ?? "",
+    sourceLinks: sections.get("Source Links") ?? "",
+    openQuestions: sections.get("Open Questions") ?? "",
+    reviewPrompts: sections.get("Review Prompts") ?? "",
+  };
 }
 
 function parseLearningSections(content: string): {

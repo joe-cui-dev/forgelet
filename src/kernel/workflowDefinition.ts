@@ -14,6 +14,11 @@ import type {
   WorkflowVariant,
 } from "../types.js";
 
+/** A closed execution policy the launcher/Kernel owns, not a caller-supplied
+ * budget trick. "answer_once" runs exactly one model turn with no tool
+ * schemas offered, distinct from `maxModelTurns` happening to equal 1. */
+export type ExecutionPolicy = "iterative" | "answer_once";
+
 export interface AttachmentLoadPlan {
   continuationAttachment?: LoadedContextAttachment;
   contextAttachments: LoadedContextAttachment[];
@@ -101,6 +106,7 @@ export interface RunKernelSessionInput<TCompletion = void> {
   modelClient?: ModelClient;
   act?: boolean;
   debug?: boolean;
+  executionPolicy?: ExecutionPolicy;
   continuationSourceSessionId?: string;
   approvalHandler?: ApprovalHandler;
   envelope?: EffectEnvelope;

@@ -127,6 +127,11 @@ test("a model-backed coding Session emits Session Live View events without writi
     },
     { type: "trace_path", tracePath: result.tracePath },
     {
+      type: "session_ready",
+      sessionId: result.session.id,
+      tracePath: result.tracePath,
+    },
+    {
       type: "model_turn_started",
       turnIndex: 0,
       model: "deepseek-v4-flash",
@@ -173,6 +178,143 @@ test("a model-backed coding Session emits Session Live View events without writi
     .split("\n")
     .map((line) => JSON.parse(line).type);
   expect(eventTypes).not.toContain("session_live_event");
+});
+
+test("a missing context attachment fails launch preflight before any Trace file or live event exists", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-preflight-attachment-"));
+  const liveEvents: SessionLiveEvent[] = [];
+
+  await expect(
+    runCodingSession({
+      task: "find the answer",
+      contextFiles: ["missing-context.md"],
+      workspaceRoot,
+      modelClient: new FakeModelClient([{ content: "unused", toolCalls: [] }]),
+      onLiveEvent: (event) => {
+        liveEvents.push(event);
+      },
+    }),
+  ).rejects.toThrow();
+
+  expect(liveEvents).toEqual([]);
+  const sessionDirExists = await readdir(join(workspaceRoot, ".forgelet", "sessions")).then(
+    (entries) => entries.length > 0,
+    () => false,
+  );
+  expect(sessionDirExists).toBe(false);
+});
+
+test("corrupt project config fails launch preflight before any Trace file or live event exists", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-preflight-config-"));
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "config.json"),
+    "{ not valid json",
+    "utf8",
+  );
+  const liveEvents: SessionLiveEvent[] = [];
+
+  await expect(
+    runCodingSession({
+      task: "find the answer",
+      contextFiles: [],
+      workspaceRoot,
+      modelClient: new FakeModelClient([{ content: "unused", toolCalls: [] }]),
+      onLiveEvent: (event) => {
+        liveEvents.push(event);
+      },
+    }),
+  ).rejects.toThrow(/Invalid JSON config/);
+
+  expect(liveEvents).toEqual([]);
+  const sessionDirExists = await readdir(join(workspaceRoot, ".forgelet", "sessions")).then(
+    (entries) => entries.length > 0,
+    () => false,
+  );
+  expect(sessionDirExists).toBe(false);
+});
+
+test("an invalid read scope fails launch preflight before any Trace file or live event exists", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-preflight-readscope-"));
+  const liveEvents: SessionLiveEvent[] = [];
+
+  await expect(
+    runCodingSession({
+      task: "find the answer",
+      contextFiles: [],
+      workspaceRoot,
+      allowedReadPaths: ["does-not-exist"],
+      modelClient: new FakeModelClient([{ content: "unused", toolCalls: [] }]),
+      onLiveEvent: (event) => {
+        liveEvents.push(event);
+      },
+    }),
+  ).rejects.toThrow();
+
+  expect(liveEvents).toEqual([]);
+  const sessionDirExists = await readdir(join(workspaceRoot, ".forgelet", "sessions")).then(
+    (entries) => entries.length > 0,
+    () => false,
+  );
+  expect(sessionDirExists).toBe(false);
+});
+
+test("successful preflight appends the real session_started Trace event before the session_ready live event", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-preflight-ready-order-"));
+  const modelClient = new FakeModelClient([
+    { content: "Inspected the repo.", toolCalls: [] },
+  ]);
+  let traceContentWhenReady: string | undefined;
+
+  const result = await runCodingSession({
+    task: "inspect the repo",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+    onLiveEvent: async (event) => {
+      if (event.type !== "session_ready") return;
+      traceContentWhenReady = await readFile(event.tracePath, "utf8");
+    },
+  });
+
+  expect(traceContentWhenReady).toBeDefined();
+  const typesWhenReady = (traceContentWhenReady ?? "")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line).type);
+  expect(typesWhenReady).toContain("session_started");
+  expect(typesWhenReady).not.toContain("model_turn");
+  expect(result.session.stage).toBe("final");
+});
+
+test("session_ready live event carries Session identity and Trace path before any model-turn event", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-preflight-ready-identity-"));
+  const modelClient = new FakeModelClient([
+    { content: "Inspected the repo.", toolCalls: [] },
+  ]);
+  const liveEvents: SessionLiveEvent[] = [];
+
+  const result = await runCodingSession({
+    task: "inspect the repo",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+    onLiveEvent: (event) => {
+      liveEvents.push(event);
+    },
+  });
+
+  const readyIndex = liveEvents.findIndex((event) => event.type === "session_ready");
+  const firstModelTurnIndex = liveEvents.findIndex(
+    (event) => event.type === "model_turn_started",
+  );
+  expect(readyIndex).toBeGreaterThanOrEqual(0);
+  expect(liveEvents[readyIndex]).toEqual({
+    type: "session_ready",
+    sessionId: result.session.id,
+    tracePath: result.tracePath,
+  });
+  expect(readyIndex).toBeLessThan(firstModelTurnIndex);
 });
 
 test("a debug-enabled coding Session writes the full agent-model exchange outside the trace", async () => {
@@ -1673,6 +1815,142 @@ test("a learning Session normalizes model output into a source-linked Learning P
   expect(systemMessage).toMatch(/Source Links/);
   expect(systemMessage).toMatch(/Durable Memory as preference or terminology guidance/);
   expect(systemMessage).toMatch(/note-writing/);
+});
+
+test("answer_once performs exactly one successful model turn with no tool schemas, recorded as an explicit policy rather than a turn budget", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-answer-once-"));
+  await writeFile(join(workspaceRoot, "paper.md"), "# Paper\nSource text.\n", "utf8");
+  const modelClient = new FakeModelClient([
+    { content: "## Summary\nOne-turn answer.", toolCalls: [] },
+  ]);
+
+  const result = await runLearningSession({
+    task: "summarize this page",
+    contextFiles: ["paper.md"],
+    workspaceRoot,
+    modelClient,
+    executionPolicy: "answer_once",
+    maxModelTurns: 8,
+  });
+
+  expect(modelClient.turnInputs).toHaveLength(1);
+  expect(modelClient.turnInputs[0]?.tools).toEqual([]);
+  expect(result.session.stage).toBe("final");
+  expect(result.summary).toMatch(/One-turn answer\./);
+
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const started = events.find((event) => event.type === "session_started");
+  expect(started?.payload.executionPolicy).toBe("answer_once");
+  expect(started?.payload.limits ?? started?.payload).not.toMatchObject({
+    maxModelTurns: 1,
+  });
+  expect(events.filter((event) => event.type === "model_turn")).toHaveLength(1);
+});
+
+test("normal iterative Learning is unaffected by the answer_once policy", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-learning-iterative-"));
+  await writeFile(join(workspaceRoot, "paper.md"), "# Paper\nSource text.\n", "utf8");
+  const modelClient = new FakeModelClient([
+    { content: "## Summary\nFinal answer after thinking.", toolCalls: [] },
+  ]);
+
+  const result = await runLearningSession({
+    task: "summarize this page",
+    contextFiles: ["paper.md"],
+    workspaceRoot,
+    modelClient,
+  });
+
+  expect(modelClient.turnInputs[0]?.tools).toEqual(
+    expect.arrayContaining([expect.objectContaining({ name: "update_plan" })]),
+  );
+
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const started = events.find((event) => event.type === "session_started");
+  expect(started?.payload.executionPolicy).toBe("iterative");
+});
+
+test("answer_once retries a transient model error within the same logical turn", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-answer-once-retry-"));
+  await writeFile(join(workspaceRoot, "paper.md"), "# Paper\nSource text.\n", "utf8");
+  let attempts = 0;
+  const modelClient = {
+    async createTurn() {
+      attempts += 1;
+      if (attempts === 1) {
+        throw Object.assign(new Error("transient network blip"), {
+          causeCategory: "request_error",
+        });
+      }
+      return { content: "## Summary\nRecovered answer.", toolCalls: [] };
+    },
+  };
+
+  const result = await runLearningSession({
+    task: "summarize this page",
+    contextFiles: ["paper.md"],
+    workspaceRoot,
+    modelClient,
+    executionPolicy: "answer_once",
+  });
+
+  expect(attempts).toBe(2);
+  expect(result.summary).toMatch(/Recovered answer\./);
+
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(events.filter((event) => event.type === "model_turn")).toHaveLength(1);
+  expect(events.filter((event) => event.type === "model_turn_retry")).toHaveLength(1);
+  expect(
+    events.find((event) => event.type === "model_turn")?.payload.turnIndex,
+  ).toBe(0);
+});
+
+test("answer_once blocks tool calls returned on the single turn and finishes honestly", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-answer-once-blocked-"));
+  await writeFile(join(workspaceRoot, "paper.md"), "# Paper\nSource text.\n", "utf8");
+  const modelClient = new FakeModelClient([
+    {
+      content: "I need a tool.",
+      toolCalls: [{ id: "call_1", name: "update_plan", input: { items: [] } }],
+    },
+  ]);
+
+  const result = await runLearningSession({
+    task: "summarize this page",
+    contextFiles: ["paper.md"],
+    workspaceRoot,
+    modelClient,
+    executionPolicy: "answer_once",
+  });
+
+  expect(modelClient.turnInputs).toHaveLength(1);
+  expect(result.summary).toMatch(/Reason: answer_once_tool_calls_blocked/);
+
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const finished = events.find((event) => event.type === "session_finished");
+  expect(finished?.payload).toMatchObject({
+    status: "stopped",
+    reason: "answer_once_tool_calls_blocked",
+  });
+  expect(
+    events.some((event) => event.type === "budget_blocked_tool_calls"),
+  ).toBe(true);
 });
 
 test("an actionable coding Session can patch, run a configured command, inspect diff, and finish", async () => {
