@@ -1,12 +1,7 @@
 node_modules/
 dist/
 dist-test/
-.forgelet/sessions/
-.forgelet/debug/
-.forgelet/writing/
-.forgelet/knowledge/
-.forgelet/*.local.json
-.forgelet/tmp/
+.forgelet
 .env
 .env.*
 !.env.example
