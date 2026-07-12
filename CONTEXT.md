@@ -32,6 +32,10 @@ _Avoid_: Style word, prompt adjective, freeform vibe, genre, author imitation
 The Forgelet workflow for turning source material into structured understanding, such as summaries, key concepts, open questions, review prompts, and source-linked learning outputs.
 _Avoid_: Writing variant, notes app, memory extraction
 
+**Learning Pack**:
+The structured understanding a Learning Workflow Session delivers from explicitly attached source material: a summary, key concepts, source links, open questions, and review prompts in a fixed section shape. Its claims must be supported by the attached sources, its review prompts must be answerable from the pack itself, and its source links describe the Session's actual attachments rather than model output. The pack is the normalized final outcome; text observed while a Session is still running is live presentation, not the pack.
+_Avoid_: Chat answer, summary blob, raw model output, notes file
+
 **Session**:
 One auditable run of a Workflow, including the user's task, selected workflow, context, trace, decisions, and final outcome. A Session may pause awaiting a user decision and later continue as the same Session; the pause, the decision, and the continuation are Trace events, not new Sessions.
 _Avoid_: Agent conversation, chat session, workflow session
