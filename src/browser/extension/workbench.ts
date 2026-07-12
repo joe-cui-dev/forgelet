@@ -16,6 +16,7 @@ export interface BrowserWorkbenchBridge {
     actionId: string;
     invocationId: string;
     workspaceProfileId: string;
+    uiLanguage?: string;
     capture: Record<string, unknown>;
   }): BrowserWorkbenchPort;
 }
@@ -31,11 +32,23 @@ export interface BrowserPanelState {
   profiles?: BrowserWorkspaceProfileProjection[];
 }
 
+// Mirrors the uiLanguage validation in src/browserWorkbench/index.ts. A locale
+// the native host would reject is dropped here so it cannot fail the invocation.
+const LANGUAGE_TAG_PATTERN = /^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{1,8})*$/;
+
+export function normalizeBrowserUiLanguage(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const tag = raw.trim();
+  if (tag.length === 0 || tag.length > 35 || !LANGUAGE_TAG_PATTERN.test(tag)) return undefined;
+  return tag;
+}
+
 export function createBrowserWorkbenchController(input: {
   bridge: BrowserWorkbenchBridge;
   openSidePanel(): Promise<void>;
   captureCurrentPage(): Promise<Record<string, unknown>>;
   createId(): string;
+  detectUiLanguage?(): string | undefined;
   persistState?(state: BrowserPanelState): void;
 }): {
   summarizeCurrentPage(): Promise<BrowserPanelState>;
@@ -81,10 +94,12 @@ export function createBrowserWorkbenchController(input: {
       }
 
       const state = save({ actionId, invocationId, status: "starting", profiles });
+      const uiLanguage = normalizeBrowserUiLanguage(input.detectUiLanguage?.());
       const port = input.bridge.start({
         actionId,
         invocationId,
         workspaceProfileId: profile.id,
+        ...(uiLanguage ? { uiLanguage } : {}),
         capture,
       });
       ports.set(invocationId, port);
