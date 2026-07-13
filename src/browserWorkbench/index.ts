@@ -3,13 +3,13 @@ import type { LoadedBrowserSnapshot } from "../browser/index.js";
 import type { ProtocolLauncher, ProtocolLaunchResult } from "../browser/protocol.js";
 import type { ExecutionPolicy } from "../kernel/workflowDefinition.js";
 import type { SessionLiveEventSink } from "../sessionLiveView/index.js";
-import type { LearningPack } from "../workflows/learning.js";
+import type { PageBrief } from "../workflows/learning.js";
 
 export interface BrowserSummaryInvocation {
   actionId: string;
   invocationId: string;
   workspaceProfileId: string;
-  uiLanguage?: string;
+  outputLanguage?: string;
   capture: LoadedBrowserSnapshot & { captureId: string; captureReadyMs: number };
 }
 
@@ -31,7 +31,7 @@ export interface AuthorizedBrowserLearningLaunch {
 
 export interface BrowserLearningLauncher {
   startLearning(input: AuthorizedBrowserLearningLaunch): Promise<
-    | { status: "completed"; summary: string; learningPack?: LearningPack }
+    | { status: "completed"; summary: string; pageBrief?: PageBrief }
     | { status: "stopped"; reason: string }
     | { status: "failed"; message: string }
   >;
@@ -49,7 +49,7 @@ export function createBrowserWorkbench(input: {
       if (signal?.aborted) throw new Error("Session launch cancelled before Session creation.");
       return input.startLearning({
         workspaceRoot: profile.path,
-        task: browserSummaryTask(invocation.uiLanguage),
+        task: browserSummaryTask(invocation.outputLanguage),
         browserSnapshot: invocation.capture,
         executionPolicy: "answer_once",
         trigger: {
@@ -66,10 +66,10 @@ export function createBrowserWorkbench(input: {
   };
 }
 
-function browserSummaryTask(uiLanguage: string | undefined): string {
-  const base = "Summarize the explicitly shared current browser page as a concise Learning Pack.";
-  if (!uiLanguage) return base;
-  return `${base} The user's browser UI language is ${uiLanguage}. Keep the Learning Pack headings in English and write all other text in that language.`;
+function browserSummaryTask(outputLanguage: string | undefined): string {
+  const base = "Summarize the explicitly shared current browser page as a concise Page Brief.";
+  if (!outputLanguage) return base;
+  return `${base} Write all body text in ${outputLanguage}; keep the Page Brief headings in English.`;
 }
 
 function parseBrowserSummaryInvocation(
@@ -77,9 +77,9 @@ function parseBrowserSummaryInvocation(
   actionId: string,
   invocationId: string,
 ): BrowserSummaryInvocation {
-  requireOnlyKeys(payload, ["workspaceProfileId", "uiLanguage", "capture"], "Browser invocation payload");
+  requireOnlyKeys(payload, ["workspaceProfileId", "outputLanguage", "capture"], "Browser invocation payload");
   const workspaceProfileId = requiredString(payload, "workspaceProfileId", "Browser invocation payload");
-  const uiLanguage = optionalLanguageTag(payload, "uiLanguage", "Browser invocation payload");
+  const outputLanguage = optionalLanguageTag(payload, "outputLanguage", "Browser invocation payload");
   const capture = requiredRecord(payload, "capture", "Browser invocation payload");
   requireOnlyKeys(
     capture,
@@ -113,7 +113,7 @@ function parseBrowserSummaryInvocation(
     actionId,
     invocationId,
     workspaceProfileId,
-    ...(uiLanguage ? { uiLanguage } : {}),
+    ...(outputLanguage ? { outputLanguage } : {}),
     capture: {
       url: requiredString(capture, "url", "Browser capture"),
       title: requiredString(capture, "title", "Browser capture"),
@@ -145,7 +145,7 @@ function requiredString(value: Record<string, unknown>, key: string, subject: st
   return field;
 }
 
-// Mirrors normalizeBrowserUiLanguage in src/browser/extension/workbench.ts; the
+// Mirrors normalizeBrowserOutputLanguage in src/browser/extension/workbench.ts; the
 // extension drops what this boundary would reject, but the host must not trust it.
 const LANGUAGE_TAG_PATTERN = /^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{1,8})*$/;
 

@@ -1,14 +1,25 @@
 import { persistBrowserWorkbenchCapture } from "../browser/captures.js";
 import type { AuthorizedBrowserLearningLaunch, BrowserLearningLauncher } from "../browserWorkbench/index.js";
-import type { LearningSessionInput, LearningSessionResult } from "../workflows/learning.js";
+import type {
+  LearningSessionInput,
+  LearningSessionResult,
+  PageBriefSessionInput,
+  PageBriefSessionResult,
+} from "../workflows/learning.js";
 import { runLearningSession } from "../workflows/learning.js";
 
 /** The shared Learning Session Launcher seam for CLI and Browser Workbench.
  * Callers supply already-authorized sources and policy, never CLI parsing or
  * Native Messaging protocol types. */
+export function launchLearningSession(
+  input: PageBriefSessionInput,
+): Promise<PageBriefSessionResult>;
+export function launchLearningSession(
+  input: LearningSessionInput,
+): Promise<LearningSessionResult>;
 export async function launchLearningSession(
   input: LearningSessionInput,
-): Promise<LearningSessionResult> {
+): Promise<LearningSessionResult | PageBriefSessionResult> {
   return runLearningSession(input);
 }
 
@@ -35,6 +46,7 @@ export function createBrowserLearningLauncher(input: {
       });
       let finish: { status: string; reason?: string } | undefined;
       const result = await launchLearningSession({
+        deliverableShape: "pageBrief",
         task: launch.task,
         contextFiles: [],
         browserSnapshot: { ...launch.browserSnapshot, contentPath },
@@ -66,7 +78,7 @@ export function createBrowserLearningLauncher(input: {
       return {
         status: "completed" as const,
         summary: result.summary,
-        ...(result.completion ? { learningPack: result.completion } : {}),
+        ...(result.completion ? { pageBrief: result.completion } : {}),
       };
     },
   };

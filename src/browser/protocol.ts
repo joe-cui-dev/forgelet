@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
 import type { SessionLiveEvent, SessionLiveEventSink } from "../sessionLiveView/index.js";
-import type { LearningPack } from "../workflows/learning.js";
+import type { LearningPack, PageBrief } from "../workflows/learning.js";
 import {
   claimInvocation,
   recordInvocationOutcome,
   type InvocationReceipt,
 } from "./invocations.js";
 
-export const BROWSER_PROTOCOL_VERSION = 1;
+export const BROWSER_PROTOCOL_VERSION = 2;
 const MAX_INVOCATION_PAYLOAD_BYTES = 64 * 1024;
 
 export interface BrowserInvocationRequest {
@@ -97,13 +97,14 @@ export type BrowserRunFrame =
       seq: number;
       summary: string;
       learningPack?: LearningPack;
+      pageBrief?: PageBrief;
     }
   | { type: "stopped"; invocationId: string; seq: number; reason: string }
   | { type: "failed"; invocationId: string; seq: number; message: string }
   | { type: "action_conflict"; invocationId: string; seq: number };
 
 export type ProtocolLaunchResult =
-  | { status: "completed"; summary: string; learningPack?: LearningPack }
+  | { status: "completed"; summary: string; learningPack?: LearningPack; pageBrief?: PageBrief }
   | { status: "stopped"; reason: string }
   | { status: "failed"; message: string };
 
@@ -210,6 +211,9 @@ async function driveInvocation(
       ...(result.status === "completed" && result.learningPack
         ? { learningPack: result.learningPack }
         : {}),
+      ...(result.status === "completed" && result.pageBrief
+        ? { pageBrief: result.pageBrief }
+        : {}),
       ...(result.status === "stopped" ? { reason: result.reason } : {}),
       ...(result.status === "failed" ? { reason: result.message } : {}),
       now: options.now,
@@ -220,6 +224,7 @@ async function driveInvocation(
             type: "completed",
             summary: result.summary,
             ...(result.learningPack ? { learningPack: result.learningPack } : {}),
+            ...(result.pageBrief ? { pageBrief: result.pageBrief } : {}),
           }
         : result.status === "stopped"
           ? { type: "stopped", reason: result.reason }
@@ -254,6 +259,7 @@ function replayReceipt(
       type: "completed",
       summary: receipt.summary ?? "",
       ...(receipt.learningPack ? { learningPack: receipt.learningPack } : {}),
+      ...(receipt.pageBrief ? { pageBrief: receipt.pageBrief } : {}),
     });
   else if (receipt.state === "stopped")
     emit({ type: "stopped", reason: receipt.reason ?? "" });

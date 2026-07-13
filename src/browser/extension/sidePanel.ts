@@ -43,7 +43,13 @@ export function buildSidePanelViewModel(
     view.streamText = state.liveText ?? "";
   }
   if (state.status === "completed") {
-    if (state.learningPack) {
+    if (state.pageBrief) {
+      view.packSections = [
+        { title: "Summary", blocks: parsePanelMarkdown(state.pageBrief.summary) },
+        { title: "Key Concepts", blocks: parsePanelMarkdown(state.pageBrief.keyConcepts) },
+      ];
+      if (state.summary) view.rawSummary = state.summary;
+    } else if (state.learningPack) {
       view.packSections = [
         { title: "Summary", blocks: parsePanelMarkdown(state.learningPack.summary) },
         { title: "Key Concepts", blocks: parsePanelMarkdown(state.learningPack.keyConcepts) },
@@ -240,7 +246,17 @@ function inlineElement(doc: PanelDocument, tag: string, children: PanelInlineNod
 async function initializeSidePanel(): Promise<void> {
   const output = document.getElementById("workbench-root");
   const stop = document.getElementById("stop");
-  if (!output || !stop) return;
+  const outputLanguage = document.getElementById("output-language");
+  if (!output || !stop || !outputLanguage) return;
+  const storedPreference = await chrome.storage.local.get("forgeletBrowserWorkbenchOutputLanguage");
+  outputLanguage.value = normalizeOutputLanguagePreference(
+    storedPreference.forgeletBrowserWorkbenchOutputLanguage,
+  );
+  outputLanguage.addEventListener("change", async () => {
+    const preference = normalizeOutputLanguagePreference(outputLanguage.value);
+    outputLanguage.value = preference;
+    await chrome.storage.local.set({ forgeletBrowserWorkbenchOutputLanguage: preference });
+  });
   let currentInvocationId: string | undefined;
   let streamElement: any;
   const render = (state: BrowserPanelState | undefined): void => {
@@ -277,6 +293,10 @@ async function initializeSidePanel(): Promise<void> {
       }
     }
   });
+}
+
+function normalizeOutputLanguagePreference(raw: unknown): "auto" | "en" | "zh-CN" {
+  return raw === "en" || raw === "zh-CN" ? raw : "auto";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

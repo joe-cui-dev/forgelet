@@ -56,6 +56,10 @@ test("validateBrowserInvocationRequest fails closed on an unknown protocol versi
   ).toThrow(/unsupported.*version/i);
 });
 
+test("Browser protocol version is bumped for Page Brief completion frames", () => {
+  expect(BROWSER_PROTOCOL_VERSION).toBe(2);
+});
+
 test("validateBrowserInvocationRequest fails closed on a malformed request", () => {
   expect(() => validateBrowserInvocationRequest(null)).toThrow(/malformed|object/i);
   expect(() =>
@@ -221,6 +225,34 @@ test("the same invocation identity with the same payload never starts a second S
   expect(secondCompleted).toMatchObject({
     summary: "Forgelet session completed: sess_1",
     learningPack: pack,
+  });
+});
+
+test("a Page Brief completion persists and replays its two-section shape", async () => {
+  const homeDir = await makeHomeDir();
+  let launchCount = 0;
+  const launcher: ProtocolLauncher = {
+    async launch({ onLiveEvent }) {
+      launchCount += 1;
+      await onLiveEvent({
+        type: "session_ready",
+        sessionId: "sess_page_brief",
+        tracePath: "/tmp/work/.forgelet/sessions/sess_page_brief.jsonl",
+      });
+      return {
+        status: "completed",
+        summary: "## Summary\nA concise page summary.",
+        pageBrief: { summary: "A concise page summary.", keyConcepts: "- First concept" },
+      };
+    },
+  };
+
+  await collectFrames(runBrowserInvocation(baseRequest, launcher, { homeDir }));
+  const replay = await collectFrames(runBrowserInvocation(baseRequest, launcher, { homeDir }));
+
+  expect(launchCount).toBe(1);
+  expect(replay.find((frame) => frame.type === "completed")).toMatchObject({
+    pageBrief: { summary: "A concise page summary.", keyConcepts: "- First concept" },
   });
 });
 

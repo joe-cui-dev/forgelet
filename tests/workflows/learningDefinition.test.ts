@@ -1,5 +1,8 @@
 import { expect, test } from "@jest/globals";
-import { createLearningWorkflowDefinition } from "../../src/workflows/learning.js";
+import {
+  createLearningWorkflowDefinition,
+  createPageBriefWorkflowDefinition,
+} from "../../src/workflows/learning.js";
 
 test("learning definition grants source-backed text capabilities", () => {
   const definition = createLearningWorkflowDefinition();
@@ -22,6 +25,65 @@ test("learning definition renders the Learning Workflow system prompt", () => {
   );
   expect(prompt).toContain(
     "Do not request workspace, git, shell, patch, command, note-writing, or browser automation tools.",
+  );
+});
+
+test("Page Brief definition keeps source grounding but requests only its two browser sections", () => {
+  const definition = createPageBriefWorkflowDefinition();
+  const prompt = definition.systemPrompt({ act: false });
+
+  expect(prompt).toContain("This is a source-backed Learning Workflow Session.");
+  expect(prompt).toContain(
+    "Produce a Page Brief with these headings: Summary, Key Concepts.",
+  );
+  expect(prompt).not.toContain("Every Review Prompt must be answerable");
+  expect(prompt).not.toContain("Do not write a Source Links section");
+  expect(prompt).toContain("If sources conflict, name the conflict in the relevant section.");
+});
+
+test("Page Brief normalizer discards unexpected Learning Pack sections", async () => {
+  const definition = createPageBriefWorkflowDefinition();
+  const normalized = definition.normalizeFinalContent?.(
+    [
+      "## Summary",
+      "Core idea.",
+      "## Key Concepts",
+      "- First concept",
+      "## Open Questions",
+      "- This must not survive.",
+      "## Review Prompts",
+      "- Nor this.",
+    ].join("\n"),
+    { contextAttachments: [] },
+  ) ?? "";
+
+  expect(normalized).toBe("## Summary\nCore idea.\n\n## Key Concepts\n- First concept");
+  const effects = await definition.onCompleted?.({
+    workspaceRoot: "/tmp/unused",
+    session: {
+      id: "sess_test",
+      workflow: "learning",
+      task: "summarize the page",
+      taskHash: "abcdef00",
+      stage: "final",
+      plan: { items: [] },
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+    finalContent: normalized,
+    contextAttachments: [],
+    appendTrace: async () => {},
+  });
+  expect(effects?.completion).toEqual({
+    summary: "Core idea.",
+    keyConcepts: "- First concept",
+  });
+});
+
+test("Page Brief normalizer uses unstructured content as the summary", () => {
+  const definition = createPageBriefWorkflowDefinition();
+
+  expect(definition.normalizeFinalContent?.("Core idea.", { contextAttachments: [] })).toBe(
+    "## Summary\nCore idea.\n\n## Key Concepts\nNo separate key concepts were provided by the model.",
   );
 });
 

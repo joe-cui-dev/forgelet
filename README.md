@@ -115,7 +115,7 @@ Learning Sessions require explicit source material from `--context` or `--with-b
 
 ## Chrome Browser Workbench
 
-The Browser Workbench summarizes the current page with one toolbar click. It opens a Side Panel and starts one answer-once Learning Session in an explicitly approved local workspace; it cannot run Coding or Writing Workflows, or select a model, path, or command from the browser. The Learning Pack body follows the browser's UI language (headings stay English); a Chinese-language Chrome gets a Chinese Learning Pack. The full captured page content is persisted to `.forgelet/browser/<captureId>.json` in the approved workspace, and the Session Trace's Context Attachment references that file, so the recorded content hash stays auditable after the Session.
+The Browser Workbench summarizes the current page with one toolbar click. It opens a Side Panel and starts one answer-once Learning Session in an explicitly approved local workspace; it cannot run Coding or Writing Workflows, or select a model, path, or command from the browser. It delivers a two-section Page Brief (`Summary`, `Key Concepts`); the Learning Pack returned by `forge learn` is unchanged. The panel's sticky output-language selector offers Auto, English, and 中文. Auto follows Chrome's UI language; section titles always stay English. The full captured page content is persisted to `.forgelet/browser/<captureId>.json` in the approved workspace, and the Session Trace's Context Attachment references that file, so the recorded content hash stays auditable after the Session.
 
 ### Install
 
@@ -153,7 +153,7 @@ forge browser install-host --extension-id <chrome-extension-id>
 
 ### Use
 
-Open a page Chrome allows extensions to inspect, then click the Forgelet toolbar icon. The Side Panel displays Session status, Session ID, Trace path, and the final Learning Pack summary. Use **Stop** to cancel an active Session; closing the Side Panel only detaches its presentation and does not cancel work.
+Open a page Chrome allows extensions to inspect, then click the Forgelet toolbar icon. The first invocation opens the Side Panel and uses Auto. Choose the output language there, then click the toolbar icon again to apply it; changing the selector does not rerun the current Session. The Side Panel displays Session status, Session ID, Trace path, and the final Page Brief. Use **Stop** to cancel an active Session; closing the Side Panel only detaches its presentation and does not cancel work.
 
 Chrome internal pages such as `chrome://extensions` and other browser-restricted pages cannot be captured. Open an ordinary HTTP(S) page instead. After a source update, run `npm run build` and press Chrome's reload button for the extension in `chrome://extensions`.
 
@@ -231,7 +231,7 @@ npm run smoke:browser-workbench
 
 Use `npm run smoke:deepseek` as the cheapest real-provider check. The workflow smoke scripts validate public CLI behavior, Trace evidence, and saved artifacts without scoring model prose quality. `npm run smoke:memory-review` is the exception: it drives `forge memory list/show/accept/reject` in a scratch workspace against a versioned suggestion and representative legacy evidence, and proves the path stays model-free by never providing a provider API key.
 
-`npm run smoke:browser-workbench` drives the built Native Host protocol in a scratch workspace with a deterministic fake model. It validates approved-profile launch, Session-ready ordering, normalized Learning Pack completion, Trace page-body privacy, and the persisted capture audit file; it is not a substitute for manual unpacked-extension dogfood.
+`npm run smoke:browser-workbench` drives the built Native Host protocol in a scratch workspace with a deterministic fake model. It validates approved-profile launch, Session-ready ordering, normalized Page Brief completion, Trace page-body privacy, and the persisted capture audit file; it is not a substitute for manual unpacked-extension dogfood.
 
 ## Docs
 

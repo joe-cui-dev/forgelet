@@ -36,12 +36,12 @@ const browserWorkbench = createBrowserWorkbenchController({
       port.postMessage({
         type: "browserInvocation",
         request: {
-          version: 1,
+          version: 2,
           actionId: input.actionId,
           invocationId: input.invocationId,
           payload: {
             workspaceProfileId: input.workspaceProfileId,
-            ...(input.uiLanguage ? { uiLanguage: input.uiLanguage } : {}),
+            ...(input.outputLanguage ? { outputLanguage: input.outputLanguage } : {}),
             capture: input.capture,
           },
         },
@@ -59,7 +59,15 @@ const browserWorkbench = createBrowserWorkbenchController({
   },
   captureCurrentPage: async () => captureCurrentPageForWorkbench(),
   createId: () => crypto.randomUUID(),
-  detectUiLanguage: () => {
+  resolveOutputLanguage: async () => {
+    let preference: unknown;
+    try {
+      const stored = await chrome.storage.local.get("forgeletBrowserWorkbenchOutputLanguage");
+      preference = stored.forgeletBrowserWorkbenchOutputLanguage;
+    } catch {
+      // A storage failure must not turn Auto into an omitted language request.
+    }
+    if (preference === "en" || preference === "zh-CN") return preference;
     try {
       return chrome.i18n?.getUILanguage?.() ?? (globalThis as any).navigator?.language;
     } catch {

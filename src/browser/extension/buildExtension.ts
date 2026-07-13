@@ -85,6 +85,21 @@ export function sidePanelHtml(): string {
       button:hover {
         border-color: var(--muted);
       }
+      label {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+        margin-bottom: 4px;
+      }
+      select {
+        width: 100%;
+        padding: 7px 8px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--surface);
+        color: var(--fg);
+        font: inherit;
+      }
       #workbench-root {
         margin-top: 12px;
       }
@@ -135,6 +150,12 @@ export function sidePanelHtml(): string {
     </style>
   </head>
   <body>
+    <label for="output-language">Output language</label>
+    <select id="output-language">
+      <option value="auto">Auto</option>
+      <option value="en">English</option>
+      <option value="zh-CN">中文</option>
+    </select>
     <button id="stop" type="button">Stop</button>
     <div id="workbench-root"></div>
     <script type="module" src="sidePanel.js"></script>

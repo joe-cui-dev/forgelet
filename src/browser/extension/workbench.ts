@@ -1,8 +1,8 @@
 // Type-only: erased at compile time, so the copied extension bundle stays
 // dependency-free (buildExtension copies compiled files as-is).
-import type { LearningPack } from "../../workflows/learning.js";
+import type { LearningPack, PageBrief } from "../../workflows/learning.js";
 
-export type { LearningPack };
+export type { LearningPack, PageBrief };
 
 export interface BrowserWorkspaceProfileProjection {
   id: string;
@@ -22,7 +22,7 @@ export interface BrowserWorkbenchBridge {
     actionId: string;
     invocationId: string;
     workspaceProfileId: string;
-    uiLanguage?: string;
+    outputLanguage?: string;
     capture: Record<string, unknown>;
   }): BrowserWorkbenchPort;
 }
@@ -44,13 +44,14 @@ export interface BrowserPanelState {
   model?: string;
   activity?: string;
   learningPack?: LearningPack;
+  pageBrief?: PageBrief;
 }
 
-// Mirrors the uiLanguage validation in src/browserWorkbench/index.ts. A locale
+// Mirrors the outputLanguage validation in src/browserWorkbench/index.ts. A locale
 // the native host would reject is dropped here so it cannot fail the invocation.
 const LANGUAGE_TAG_PATTERN = /^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{1,8})*$/;
 
-export function normalizeBrowserUiLanguage(raw: unknown): string | undefined {
+export function normalizeBrowserOutputLanguage(raw: unknown): string | undefined {
   if (typeof raw !== "string") return undefined;
   const tag = raw.trim();
   if (tag.length === 0 || tag.length > 35 || !LANGUAGE_TAG_PATTERN.test(tag)) return undefined;
@@ -62,7 +63,7 @@ export function createBrowserWorkbenchController(input: {
   openSidePanel(): Promise<void>;
   captureCurrentPage(): Promise<Record<string, unknown>>;
   createId(): string;
-  detectUiLanguage?(): string | undefined;
+  resolveOutputLanguage?(): string | undefined | Promise<string | undefined>;
   /** Durable storage write; called only on status transitions, never per delta. */
   persistState?(state: BrowserPanelState): void;
   /** Full-state notification to an attached panel; triggers a re-render. */
@@ -127,12 +128,14 @@ export function createBrowserWorkbenchController(input: {
       }
 
       const state = save({ actionId, invocationId, status: "starting", profiles });
-      const uiLanguage = normalizeBrowserUiLanguage(input.detectUiLanguage?.());
+      const outputLanguage = normalizeBrowserOutputLanguage(
+        await input.resolveOutputLanguage?.(),
+      );
       const port = input.bridge.start({
         actionId,
         invocationId,
         workspaceProfileId: profile.id,
-        ...(uiLanguage ? { uiLanguage } : {}),
+        ...(outputLanguage ? { outputLanguage } : {}),
         capture,
       });
       ports.set(invocationId, port);
@@ -189,13 +192,14 @@ export function applyBrowserFrame(
     return applyLiveEvent(state, frame.event);
   }
   if (frame.type === "completed") {
-    // The normalized Learning Pack is the authoritative outcome; the streamed
+    // The normalized Page Brief or legacy Learning Pack is the authoritative outcome; the streamed
     // text was live presentation only and is replaced entirely.
     return {
       ...state,
       status: "completed",
       summary: typeof frame.summary === "string" ? frame.summary : undefined,
       learningPack: learningPackFromFrame(frame.learningPack),
+      pageBrief: pageBriefFromFrame(frame.pageBrief),
       liveText: undefined,
       activity: undefined,
     };
@@ -261,6 +265,16 @@ function learningPackFromFrame(value: unknown): LearningPack | undefined {
     sourceLinks: value.sourceLinks as string,
     openQuestions: value.openQuestions as string,
     reviewPrompts: value.reviewPrompts as string,
+  };
+}
+
+function pageBriefFromFrame(value: unknown): PageBrief | undefined {
+  if (!isRecord(value)) return undefined;
+  const fields = ["summary", "keyConcepts"] as const;
+  if (!fields.every((field) => typeof value[field] === "string")) return undefined;
+  return {
+    summary: value.summary as string,
+    keyConcepts: value.keyConcepts as string,
   };
 }
 

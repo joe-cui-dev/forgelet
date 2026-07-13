@@ -35,12 +35,6 @@ export async function runBrowserWorkbenchSmoke(): Promise<{ tracePath: string; s
           "A deterministic summary.",
           "## Key Concepts",
           "- Browser sources are explicit.",
-          "## Source Links",
-          "- The page is attached by Forgelet.",
-          "## Open Questions",
-          "- None.",
-          "## Review Prompts",
-          "- What did the page establish?",
         ].join("\n"),
         toolCalls: [],
       };
@@ -56,7 +50,7 @@ export async function runBrowserWorkbenchSmoke(): Promise<{ tracePath: string; s
   stdin.write(encodeNativeHostMessage({
     type: "browserInvocation",
     request: {
-      version: 1,
+      version: 2,
       actionId: "smoke_action",
       invocationId: "smoke_invocation",
       payload: {
@@ -87,8 +81,8 @@ export async function runBrowserWorkbenchSmoke(): Promise<{ tracePath: string; s
   }
   const ready = frames[readyIndex] as Record<string, unknown>;
   const completed = frames[completeIndex] as Record<string, unknown>;
-  if (!isRecord(completed.learningPack) || typeof completed.learningPack.summary !== "string") {
-    throw new Error("Browser Workbench smoke expected a normalized Learning Pack.");
+  if (!isRecord(completed.pageBrief) || typeof completed.pageBrief.summary !== "string") {
+    throw new Error("Browser Workbench smoke expected a normalized Page Brief.");
   }
   const tracePath = stringValue(ready.tracePath, "session_ready.tracePath");
   const sessionId = stringValue(ready.sessionId, "session_ready.sessionId");
