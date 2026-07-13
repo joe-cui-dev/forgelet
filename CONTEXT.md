@@ -36,6 +36,10 @@ _Avoid_: Writing variant, notes app, memory extraction
 The structured understanding a Learning Workflow Session delivers from explicitly attached source material: a summary, key concepts, source links, open questions, and review prompts in a fixed section shape. Its claims must be supported by the attached sources, its review prompts must be answerable from the pack itself, and its source links describe the Session's actual attachments rather than model output. The pack is the normalized final outcome; text observed while a Session is still running is live presentation, not the pack.
 _Avoid_: Chat answer, summary blob, raw model output, notes file
 
+**Page Brief**:
+The lean structured outcome a Browser Workbench page-summarization Session delivers from the explicitly captured current page: a summary and key concepts in a fixed two-section shape, for fast page understanding rather than study. Its claims must be supported by the captured page content. A Page Brief is not a reduced Learning Pack: it never carries source links, open questions, or review prompts, and Learning Pack invariants do not apply to it. Like the pack, the brief is the normalized final outcome; streamed text is live presentation, not the brief.
+_Avoid_: Learning Pack, trimmed pack, chat answer, highlight list
+
 **Session**:
 One auditable run of a Workflow, including the user's task, selected workflow, context, trace, decisions, and final outcome. A Session may pause awaiting a user decision and later continue as the same Session; the pause, the decision, and the continuation are Trace events, not new Sessions.
 _Avoid_: Agent conversation, chat session, workflow session
