@@ -59,105 +59,206 @@ export function sidePanelHtml(): string {
         --fg: #e6e9ed;
         --muted: #9aa4b2;
         --surface: #1c2229;
+        --surface-raised: #222a33;
         --border: #2b333d;
         --accent: #6ea8fe;
+        --danger: #e5687a;
+        --content-font-size: 13px;
+      }
+      body[data-font-size="small"] { --content-font-size: 12px; }
+      body[data-font-size="medium"] { --content-font-size: 13px; }
+      body[data-font-size="large"] { --content-font-size: 15px; }
+      body[data-font-size="xlarge"] { --content-font-size: 17px; }
+      html, body {
+        height: 100%;
       }
       body {
         min-width: 320px;
         margin: 0;
-        padding: 12px;
+        display: flex;
+        flex-direction: column;
         font-family: system-ui, sans-serif;
         font-size: 13px;
         line-height: 1.5;
         color: var(--fg);
         background: var(--bg);
       }
+      .panel-header {
+        flex: none;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+      .brand-dot {
+        flex: none;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--accent);
+      }
+      .brand h1 {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
       button {
-        width: 100%;
-        padding: 8px 10px;
+        flex: none;
+        padding: 5px 14px;
         border: 1px solid var(--border);
         border-radius: 6px;
-        background: var(--surface);
+        background: transparent;
         color: var(--fg);
         font: inherit;
+        font-size: 12px;
         cursor: pointer;
       }
       button:hover {
-        border-color: var(--muted);
-      }
-      label {
-        display: block;
-        color: var(--muted);
-        font-size: 12px;
-        margin-bottom: 4px;
-      }
-      select {
-        width: 100%;
-        padding: 7px 8px;
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        background: var(--surface);
-        color: var(--fg);
-        font: inherit;
+        border-color: var(--danger);
+        color: var(--danger);
       }
       #workbench-root {
-        margin-top: 12px;
+        flex: 1;
+        overflow-y: auto;
+        padding: 14px;
+        font-size: var(--content-font-size);
       }
       .status-line {
         color: var(--muted);
-        font-size: 12px;
-        margin-bottom: 8px;
+        font-size: 0.92em;
+        margin-bottom: 10px;
       }
       pre {
         white-space: pre-wrap;
         overflow-wrap: anywhere;
         margin: 8px 0;
-        font-size: 12px;
-        line-height: 1.4;
+        font-size: 0.92em;
+        line-height: 1.45;
       }
       pre.stream {
         border: 1px solid var(--border);
-        border-radius: 6px;
+        border-radius: 8px;
         background: var(--surface);
-        padding: 8px;
+        padding: 10px;
         min-height: 2em;
       }
       h2 {
-        font-size: 13px;
-        margin: 14px 0 4px;
+        font-size: 0.85em;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+        margin: 18px 0 6px;
+        padding-bottom: 4px;
+        border-bottom: 1px solid var(--border);
+      }
+      h2:first-of-type {
+        margin-top: 12px;
       }
       ul {
         margin: 4px 0;
         padding-left: 18px;
+      }
+      li {
+        margin: 2px 0;
       }
       p {
         margin: 4px 0;
       }
       a {
         color: var(--accent);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
       }
       details {
-        margin-top: 14px;
+        margin-top: 16px;
         border: 1px solid var(--border);
-        border-radius: 6px;
-        padding: 6px 8px;
+        border-radius: 8px;
+        padding: 6px 10px;
+        background: var(--surface);
       }
       summary {
         color: var(--muted);
         cursor: pointer;
+        font-size: 0.92em;
+      }
+      .panel-settings {
+        flex: none;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        padding: 10px 14px 12px;
+        border-top: 1px solid var(--border);
+        background: var(--surface);
+      }
+      label {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 4px;
+      }
+      select {
+        width: 100%;
+        padding: 6px 8px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--surface-raised);
+        color: var(--fg);
+        font: inherit;
         font-size: 12px;
+      }
+      select:focus-visible,
+      button:focus-visible {
+        outline: 1px solid var(--accent);
+        outline-offset: 1px;
       }
     </style>
   </head>
-  <body>
-    <label for="output-language">Output language</label>
-    <select id="output-language">
-      <option value="auto">Auto</option>
-      <option value="en">English</option>
-      <option value="zh-CN">中文</option>
-    </select>
-    <button id="stop" type="button">Stop</button>
-    <div id="workbench-root"></div>
+  <body data-font-size="medium">
+    <header class="panel-header">
+      <div class="brand">
+        <span class="brand-dot"></span>
+        <h1>Forgelet Workbench</h1>
+      </div>
+      <button id="stop" type="button">Stop</button>
+    </header>
+    <main id="workbench-root"></main>
+    <footer class="panel-settings">
+      <div>
+        <label for="output-language">Output language</label>
+        <select id="output-language">
+          <option value="auto">Auto</option>
+          <option value="en">English</option>
+          <option value="zh-CN">中文</option>
+        </select>
+      </div>
+      <div>
+        <label for="font-size">Text size</label>
+        <select id="font-size">
+          <option value="small">Small</option>
+          <option value="medium" selected>Medium</option>
+          <option value="large">Large</option>
+          <option value="xlarge">Extra large</option>
+        </select>
+      </div>
+    </footer>
     <script type="module" src="sidePanel.js"></script>
   </body>
 </html>

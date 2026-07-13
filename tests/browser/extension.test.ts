@@ -23,6 +23,7 @@ import {
 } from "../../src/browser/extension/workbench.js";
 import {
   buildSidePanelViewModel,
+  normalizeFontSizePreference,
   parsePanelMarkdown,
   renderSidePanelState,
   requestBrowserWorkbenchState,
@@ -1013,6 +1014,29 @@ test("Side Panel page uses a fixed dark theme with color tokens", () => {
   expect(html).toContain('option value="auto"');
   expect(html).toContain('option value="zh-CN"');
   expect(html).not.toContain("#ffffff");
+});
+
+test("Side Panel keeps settings in a footer below the content and offers a text-size preference", () => {
+  const html = sidePanelHtml();
+
+  expect(html).toContain('id="font-size"');
+  expect(html).toContain('option value="medium"');
+  expect(html).toContain("--content-font-size");
+  // Settings live at the bottom: both selects come after the content root.
+  expect(html.indexOf('id="workbench-root"')).toBeLessThan(html.indexOf('id="output-language"'));
+  expect(html.indexOf('id="workbench-root"')).toBeLessThan(html.indexOf('id="font-size"'));
+  // The Stop action stays in the header above the content.
+  expect(html.indexOf('id="stop"')).toBeLessThan(html.indexOf('id="workbench-root"'));
+});
+
+test("font-size normalization keeps known sizes and falls back to medium", () => {
+  expect(normalizeFontSizePreference("small")).toBe("small");
+  expect(normalizeFontSizePreference("medium")).toBe("medium");
+  expect(normalizeFontSizePreference("large")).toBe("large");
+  expect(normalizeFontSizePreference("xlarge")).toBe("xlarge");
+  expect(normalizeFontSizePreference("huge")).toBe("medium");
+  expect(normalizeFontSizePreference(undefined)).toBe("medium");
+  expect(normalizeFontSizePreference(16)).toBe("medium");
 });
 
 test("Side Panel tolerates a reattach request when no Service Worker receiver exists", async () => {

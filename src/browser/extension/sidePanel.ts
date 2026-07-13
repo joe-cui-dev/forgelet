@@ -247,15 +247,30 @@ async function initializeSidePanel(): Promise<void> {
   const output = document.getElementById("workbench-root");
   const stop = document.getElementById("stop");
   const outputLanguage = document.getElementById("output-language");
-  if (!output || !stop || !outputLanguage) return;
-  const storedPreference = await chrome.storage.local.get("forgeletBrowserWorkbenchOutputLanguage");
+  const fontSize = document.getElementById("font-size");
+  if (!output || !stop || !outputLanguage || !fontSize) return;
+  const storedPreferences = await chrome.storage.local.get([
+    "forgeletBrowserWorkbenchOutputLanguage",
+    "forgeletBrowserWorkbenchFontSize",
+  ]);
   outputLanguage.value = normalizeOutputLanguagePreference(
-    storedPreference.forgeletBrowserWorkbenchOutputLanguage,
+    storedPreferences.forgeletBrowserWorkbenchOutputLanguage,
   );
   outputLanguage.addEventListener("change", async () => {
     const preference = normalizeOutputLanguagePreference(outputLanguage.value);
     outputLanguage.value = preference;
     await chrome.storage.local.set({ forgeletBrowserWorkbenchOutputLanguage: preference });
+  });
+  const storedFontSize = normalizeFontSizePreference(
+    storedPreferences.forgeletBrowserWorkbenchFontSize,
+  );
+  fontSize.value = storedFontSize;
+  document.body.setAttribute("data-font-size", storedFontSize);
+  fontSize.addEventListener("change", async () => {
+    const preference = normalizeFontSizePreference(fontSize.value);
+    fontSize.value = preference;
+    document.body.setAttribute("data-font-size", preference);
+    await chrome.storage.local.set({ forgeletBrowserWorkbenchFontSize: preference });
   });
   let currentInvocationId: string | undefined;
   let streamElement: any;
@@ -297,6 +312,12 @@ async function initializeSidePanel(): Promise<void> {
 
 function normalizeOutputLanguagePreference(raw: unknown): "auto" | "en" | "zh-CN" {
   return raw === "en" || raw === "zh-CN" ? raw : "auto";
+}
+
+export type PanelFontSizePreference = "small" | "medium" | "large" | "xlarge";
+
+export function normalizeFontSizePreference(raw: unknown): PanelFontSizePreference {
+  return raw === "small" || raw === "large" || raw === "xlarge" ? raw : "medium";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
