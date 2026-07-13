@@ -25,8 +25,8 @@ export function kernelCommonPromptLines(): string[] {
   ];
 }
 
-const CONTEXT_ATTACHMENT_PROMPT_LIMIT_BYTES = 20 * 1024;
-const CONTEXT_ATTACHMENTS_PROMPT_LIMIT_BYTES = 60 * 1024;
+const CONTEXT_ATTACHMENT_PROMPT_LIMIT_BYTES = 60 * 1024;
+const CONTEXT_ATTACHMENTS_PROMPT_LIMIT_BYTES = 200 * 1024;
 
 export const buildMessages = (
   definition: WorkflowDefinition<unknown>,

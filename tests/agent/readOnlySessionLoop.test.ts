@@ -1,6 +1,13 @@
 import { expect, test } from "@jest/globals";
 import { execFile } from "child_process";
-import { mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from "fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  symlink,
+  writeFile,
+} from "fs/promises";
 import { basename, join } from "path";
 import { tmpdir } from "os";
 import { runCodingSession } from "../../src/workflows/coding.js";
@@ -183,7 +190,9 @@ test("a model-backed coding Session emits Session Live View events without writi
 });
 
 test("a missing context attachment fails launch preflight before any Trace file or live event exists", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-preflight-attachment-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-preflight-attachment-"),
+  );
   const liveEvents: SessionLiveEvent[] = [];
 
   await expect(
@@ -199,7 +208,9 @@ test("a missing context attachment fails launch preflight before any Trace file 
   ).rejects.toThrow();
 
   expect(liveEvents).toEqual([]);
-  const sessionDirExists = await readdir(join(workspaceRoot, ".forgelet", "sessions")).then(
+  const sessionDirExists = await readdir(
+    join(workspaceRoot, ".forgelet", "sessions"),
+  ).then(
     (entries) => entries.length > 0,
     () => false,
   );
@@ -207,7 +218,9 @@ test("a missing context attachment fails launch preflight before any Trace file 
 });
 
 test("corrupt project config fails launch preflight before any Trace file or live event exists", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-preflight-config-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-preflight-config-"),
+  );
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
   await writeFile(
     join(workspaceRoot, ".forgelet", "config.json"),
@@ -229,7 +242,9 @@ test("corrupt project config fails launch preflight before any Trace file or liv
   ).rejects.toThrow(/Invalid JSON config/);
 
   expect(liveEvents).toEqual([]);
-  const sessionDirExists = await readdir(join(workspaceRoot, ".forgelet", "sessions")).then(
+  const sessionDirExists = await readdir(
+    join(workspaceRoot, ".forgelet", "sessions"),
+  ).then(
     (entries) => entries.length > 0,
     () => false,
   );
@@ -237,7 +252,9 @@ test("corrupt project config fails launch preflight before any Trace file or liv
 });
 
 test("an invalid read scope fails launch preflight before any Trace file or live event exists", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-preflight-readscope-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-preflight-readscope-"),
+  );
   const liveEvents: SessionLiveEvent[] = [];
 
   await expect(
@@ -254,7 +271,9 @@ test("an invalid read scope fails launch preflight before any Trace file or live
   ).rejects.toThrow();
 
   expect(liveEvents).toEqual([]);
-  const sessionDirExists = await readdir(join(workspaceRoot, ".forgelet", "sessions")).then(
+  const sessionDirExists = await readdir(
+    join(workspaceRoot, ".forgelet", "sessions"),
+  ).then(
     (entries) => entries.length > 0,
     () => false,
   );
@@ -262,7 +281,9 @@ test("an invalid read scope fails launch preflight before any Trace file or live
 });
 
 test("successful preflight appends the real session_started Trace event before the session_ready live event", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-preflight-ready-order-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-preflight-ready-order-"),
+  );
   const modelClient = new FakeModelClient([
     { content: "Inspected the repo.", toolCalls: [] },
   ]);
@@ -290,7 +311,9 @@ test("successful preflight appends the real session_started Trace event before t
 });
 
 test("session_ready live event carries Session identity and Trace path before any model-turn event", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-preflight-ready-identity-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-preflight-ready-identity-"),
+  );
   const modelClient = new FakeModelClient([
     { content: "Inspected the repo.", toolCalls: [] },
   ]);
@@ -306,7 +329,9 @@ test("session_ready live event carries Session identity and Trace path before an
     },
   });
 
-  const readyIndex = liveEvents.findIndex((event) => event.type === "session_ready");
+  const readyIndex = liveEvents.findIndex(
+    (event) => event.type === "session_ready",
+  );
   const firstModelTurnIndex = liveEvents.findIndex(
     (event) => event.type === "model_turn_started",
   );
@@ -347,7 +372,10 @@ test("a debug-enabled coding Session writes the full agent-model exchange outsid
     debug: true,
   });
 
-  const debugEvents = await readDebugTranscript(workspaceRoot, result.session.id);
+  const debugEvents = await readDebugTranscript(
+    workspaceRoot,
+    result.session.id,
+  );
   expect(debugEvents.map((event) => event.type)).toEqual([
     "model_request",
     "model_response",
@@ -365,7 +393,10 @@ test("a debug-enabled coding Session writes the full agent-model exchange outsid
   });
   expect(debugEvents[0]?.payload.messages).toEqual(
     expect.arrayContaining([
-      expect.objectContaining({ role: "user", content: expect.stringContaining("find the answer") }),
+      expect.objectContaining({
+        role: "user",
+        content: expect.stringContaining("find the answer"),
+      }),
     ]),
   );
   expect(debugEvents[0]?.payload.tools).toEqual(
@@ -419,9 +450,7 @@ test("workspace_summary returns Markdown observations and compact trace metadata
   );
   const modelClient = new FakeModelClient([
     {
-      toolCalls: [
-        { id: "call_summary", name: "workspace_summary", input: {} },
-      ],
+      toolCalls: [{ id: "call_summary", name: "workspace_summary", input: {} }],
     },
     {
       content: "Workspace summary inspected.",
@@ -510,7 +539,9 @@ test("a model-backed coding Session streams model output deltas through Session 
 });
 
 test("a model execution failure records the failed model turn before rethrowing", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-model-failure-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-model-failure-"),
+  );
   const modelClient = {
     turnCount: 0,
     async createTurn() {
@@ -555,7 +586,9 @@ test("a model execution failure records the failed model turn before rethrowing"
     }),
   ).rejects.toThrow("DeepSeek API response aborted before completion.");
 
-  const sessionFiles = await readdir(join(workspaceRoot, ".forgelet", "sessions"));
+  const sessionFiles = await readdir(
+    join(workspaceRoot, ".forgelet", "sessions"),
+  );
   expect(sessionFiles).toHaveLength(1);
   const trace = await readFile(
     join(workspaceRoot, ".forgelet", "sessions", sessionFiles[0] ?? ""),
@@ -623,7 +656,9 @@ test("a model execution failure records the failed model turn before rethrowing"
 });
 
 test("a debug-enabled model execution failure records model error and finalizes the transcript", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-debug-failure-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-debug-failure-"),
+  );
   const modelClient = {
     async createTurn() {
       throw Object.assign(
@@ -647,7 +682,9 @@ test("a debug-enabled model execution failure records model error and finalizes 
     }),
   ).rejects.toThrow("DeepSeek API response aborted before completion.");
 
-  const sessionFiles = await readdir(join(workspaceRoot, ".forgelet", "sessions"));
+  const sessionFiles = await readdir(
+    join(workspaceRoot, ".forgelet", "sessions"),
+  );
   expect(sessionFiles).toHaveLength(1);
   const debugTrace = await readFile(
     join(workspaceRoot, ".forgelet", "sessions", sessionFiles[0] ?? ""),
@@ -681,7 +718,9 @@ test("a debug-enabled model execution failure records model error and finalizes 
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
-  expect(events.find((event) => event.type === "model_turn_error")).toBeTruthy();
+  expect(
+    events.find((event) => event.type === "model_turn_error"),
+  ).toBeTruthy();
   expect(
     events.find((event) => event.type === "session_finished")?.payload,
   ).toMatchObject({
@@ -689,8 +728,7 @@ test("a debug-enabled model execution failure records model error and finalizes 
     reason: "model_execution_error",
   });
   expect(
-    events.find((event) => event.type === "debug_transcript_finished")
-      ?.payload,
+    events.find((event) => event.type === "debug_transcript_finished")?.payload,
   ).toMatchObject({
     path: `.forgelet/debug/${sessionId}.jsonl`,
     status: "failed",
@@ -793,8 +831,9 @@ test("a Session Continuation includes Continuation Context in the first model in
   });
 
   const firstUserMessage =
-    modelClient.turnInputs[0]?.messages.find((message) => message.role === "user")
-      ?.content ?? "";
+    modelClient.turnInputs[0]?.messages.find(
+      (message) => message.role === "user",
+    )?.content ?? "";
   expect(firstUserMessage).toMatch(/Continuation Context:/);
   expect(firstUserMessage).toMatch(/sourceSessionId: sess_parent/);
   expect(firstUserMessage).toMatch(/lineage: sess_parent/);
@@ -813,7 +852,9 @@ test("a Session Continuation includes Continuation Context in the first model in
   expect(firstUserMessage).toMatch(/draft\.md hash=hash_parent/);
   expect(firstUserMessage).not.toMatch(/parent attachment preview/);
 
-  await expect(readFile(parentTracePath, "utf8")).resolves.toBe(parentTraceBefore);
+  await expect(readFile(parentTracePath, "utf8")).resolves.toBe(
+    parentTraceBefore,
+  );
   expect(result.tracePath).toBeDefined();
   const childTrace = await readFile(result.tracePath ?? "", "utf8");
   const events = childTrace
@@ -833,7 +874,9 @@ test("a Session Continuation includes Continuation Context in the first model in
   expect(events.map((event) => event.type)).toContain(
     "continuation_context_loaded",
   );
-  const loaded = events.find((event) => event.type === "continuation_context_loaded");
+  const loaded = events.find(
+    (event) => event.type === "continuation_context_loaded",
+  );
   expect(loaded?.payload).toMatchObject({
     priorChangedFiles: 1,
     priorVerificationCommands: 1,
@@ -843,8 +886,14 @@ test("a Session Continuation includes Continuation Context in the first model in
 });
 
 test("a creative writing Session returns a Revision Pack", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-creative-loop-"));
-  await writeFile(join(workspaceRoot, "draft.md"), "The room was cold.\n", "utf8");
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-creative-loop-"),
+  );
+  await writeFile(
+    join(workspaceRoot, "draft.md"),
+    "The room was cold.\n",
+    "utf8",
+  );
   const modelClient = new FakeModelClient([
     { content: "The room breathed winter through the walls.", toolCalls: [] },
   ]);
@@ -876,9 +925,10 @@ test("a creative writing Session returns a Revision Pack", async () => {
   );
   expect(artifact).toBe("The room breathed winter through the walls.\n");
 
-  const systemMessage = modelClient.turnInputs[0]?.messages.find(
-    (message) => message.role === "system",
-  )?.content ?? "";
+  const systemMessage =
+    modelClient.turnInputs[0]?.messages.find(
+      (message) => message.role === "system",
+    )?.content ?? "";
   expect(systemMessage).toMatch(/Style Preset: vivid/);
   expect(systemMessage).toMatch(/Instructions:/);
   expect(systemMessage).toMatch(/Avoid:/);
@@ -889,9 +939,15 @@ test("a creative writing Session returns a Revision Pack", async () => {
 });
 
 test("a creative writing Session uses local Style Preset overrides without tracing the definition", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-creative-local-style-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-creative-local-style-"),
+  );
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
-  await writeFile(join(workspaceRoot, "draft.md"), "The room was cold.\n", "utf8");
+  await writeFile(
+    join(workspaceRoot, "draft.md"),
+    "The room was cold.\n",
+    "utf8",
+  );
   await writeFile(
     join(workspaceRoot, ".forgelet", "style-presets.local.json"),
     JSON.stringify({
@@ -925,9 +981,10 @@ test("a creative writing Session uses local Style Preset overrides without traci
     modelClient,
   });
 
-  const systemMessage = modelClient.turnInputs[0]?.messages.find(
-    (message) => message.role === "system",
-  )?.content ?? "";
+  const systemMessage =
+    modelClient.turnInputs[0]?.messages.find(
+      (message) => message.role === "system",
+    )?.content ?? "";
   expect(systemMessage).toMatch(/Private visible label/);
   expect(systemMessage).toMatch(/Private visible instruction three/);
 
@@ -938,7 +995,9 @@ test("a creative writing Session uses local Style Preset overrides without traci
 });
 
 test("a prompt-only Creative Brief returns only a Draft without context attachments", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-creative-brief-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-creative-brief-"),
+  );
   const modelClient = new FakeModelClient([
     { content: "Rain silvered the convenience store windows.", toolCalls: [] },
   ]);
@@ -972,16 +1031,18 @@ test("a prompt-only Creative Brief returns only a Draft without context attachme
   );
   expect(artifact).toBe("Rain silvered the convenience store windows.\n");
 
-  const firstUserMessage = modelClient.turnInputs[0]?.messages.find(
-    (message) => message.role === "user",
-  )?.content ?? "";
+  const firstUserMessage =
+    modelClient.turnInputs[0]?.messages.find(
+      (message) => message.role === "user",
+    )?.content ?? "";
   expect(firstUserMessage).toMatch(
     /Creative brief: write a rain-soaked convenience store scene/,
   );
   expect(firstUserMessage).not.toMatch(/Context attachments:/);
-  const systemMessage = modelClient.turnInputs[0]?.messages.find(
-    (message) => message.role === "system",
-  )?.content ?? "";
+  const systemMessage =
+    modelClient.turnInputs[0]?.messages.find(
+      (message) => message.role === "system",
+    )?.content ?? "";
   expect(systemMessage).toMatch(/Style Preset: cinematic/);
   expect(systemMessage).toMatch(/Aim:/);
   expect(systemMessage).toMatch(/Instructions:/);
@@ -1002,7 +1063,9 @@ test("a prompt-only Creative Brief returns only a Draft without context attachme
   expect(events.some((event) => event.type === "context_attachment")).toBe(
     false,
   );
-  const artifactEvent = events.find((event) => event.type === "writing_artifact");
+  const artifactEvent = events.find(
+    (event) => event.type === "writing_artifact",
+  );
   expect(artifactEvent?.payload).toMatchObject({
     path: result.writingArtifact?.path,
     contentKind: "draft",
@@ -1010,7 +1073,9 @@ test("a prompt-only Creative Brief returns only a Draft without context attachme
 });
 
 test("a creative Writing Artifact Continuation labels the source separately in the model prompt", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-writing-continuation-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-writing-continuation-"),
+  );
   await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
   await writeFile(
     join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"),
@@ -1032,18 +1097,20 @@ test("a creative Writing Artifact Continuation labels the source separately in t
     modelClient,
   });
 
-  const firstUserMessage = modelClient.turnInputs[0]?.messages.find(
-    (message) => message.role === "user",
-  )?.content ?? "";
+  const firstUserMessage =
+    modelClient.turnInputs[0]?.messages.find(
+      (message) => message.role === "user",
+    )?.content ?? "";
   expect(firstUserMessage).toMatch(/Continuation source:/);
   expect(firstUserMessage).toMatch(/uri: \.forgelet\/writing\/chapter-1\.md/);
   expect(firstUserMessage).toMatch(/Mara opened the brass door/);
   expect(firstUserMessage).not.toMatch(/Context attachments:/);
   expect(firstUserMessage).not.toMatch(/Additional context attachments:/);
   expect(result.summary).toMatch(/She stepped into a room full of rain/);
-  const systemMessage = modelClient.turnInputs[0]?.messages.find(
-    (message) => message.role === "system",
-  )?.content ?? "";
+  const systemMessage =
+    modelClient.turnInputs[0]?.messages.find(
+      (message) => message.role === "system",
+    )?.content ?? "";
   expect(systemMessage).toMatch(/Style Preset: vivid/);
   expect(systemMessage).toMatch(/Instructions:/);
   expect(systemMessage).toMatch(/Avoid:/);
@@ -1065,7 +1132,9 @@ test("a creative Writing Artifact Continuation labels the source separately in t
 });
 
 test("a creative Writing Artifact Continuation separates additional context attachments", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-writing-continuation-context-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-writing-continuation-context-"),
+  );
   await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
   await writeFile(
     join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"),
@@ -1096,9 +1165,10 @@ test("a creative Writing Artifact Continuation separates additional context atta
     modelClient,
   });
 
-  const firstUserMessage = modelClient.turnInputs[0]?.messages.find(
-    (message) => message.role === "user",
-  )?.content ?? "";
+  const firstUserMessage =
+    modelClient.turnInputs[0]?.messages.find(
+      (message) => message.role === "user",
+    )?.content ?? "";
   expect(firstUserMessage).toMatch(/Continuation source:/);
   expect(firstUserMessage).toMatch(/uri: \.forgelet\/writing\/chapter-1\.md/);
   expect(firstUserMessage).toMatch(/Additional context attachments:/);
@@ -1122,7 +1192,10 @@ test("a creative Writing Artifact Continuation separates additional context atta
   );
   expect(artifact).toBe("She stepped into a room full of rain.\n");
   await expect(
-    readFile(join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"), "utf8"),
+    readFile(
+      join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"),
+      "utf8",
+    ),
   ).resolves.toBe(sourceBefore);
 });
 
@@ -1173,7 +1246,11 @@ test("a Session Read Scope allows read_file inside the allowed paths", async () 
   const workspaceRoot = await mkdtemp(
     join(tmpdir(), "forgelet-read-scope-allowed-"),
   );
-  await writeFile(join(workspaceRoot, "allowed.txt"), "allowed content\n", "utf8");
+  await writeFile(
+    join(workspaceRoot, "allowed.txt"),
+    "allowed content\n",
+    "utf8",
+  );
   const modelClient = new FakeModelClient([
     {
       toolCalls: [
@@ -1235,10 +1312,12 @@ test("a missing file inside the Session Read Scope returns invalid_input", async
 });
 
 test("search_text returns only matches inside the Session Read Scope", async () => {
-  const workspaceRoot = await mkdtemp(
-    join(tmpdir(), "forgelet-search-scope-"),
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-search-scope-"));
+  await writeFile(
+    join(workspaceRoot, "allowed.txt"),
+    "needle allowed\n",
+    "utf8",
   );
-  await writeFile(join(workspaceRoot, "allowed.txt"), "needle allowed\n", "utf8");
   await writeFile(join(workspaceRoot, "secret.txt"), "needle secret\n", "utf8");
   const modelClient = new FakeModelClient([
     {
@@ -1280,7 +1359,11 @@ test("list_files returns only paths inside the Session Read Scope", async () => 
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-list-scope-"));
   await mkdir(join(workspaceRoot, "allowed"), { recursive: true });
   await mkdir(join(workspaceRoot, "secret"), { recursive: true });
-  await writeFile(join(workspaceRoot, "allowed", "visible.txt"), "yes\n", "utf8");
+  await writeFile(
+    join(workspaceRoot, "allowed", "visible.txt"),
+    "yes\n",
+    "utf8",
+  );
   await writeFile(join(workspaceRoot, "secret", "hidden.txt"), "no\n", "utf8");
   const modelClient = new FakeModelClient([
     { toolCalls: [{ id: "call_list", name: "list_files", input: {} }] },
@@ -1373,11 +1456,19 @@ test("git_diff exposes only content inside the Session Read Scope", async () => 
     join(tmpdir(), "forgelet-git-diff-scope-"),
   );
   await execGit(workspaceRoot, ["init"]);
-  await writeFile(join(workspaceRoot, "allowed.txt"), "before allowed\n", "utf8");
+  await writeFile(
+    join(workspaceRoot, "allowed.txt"),
+    "before allowed\n",
+    "utf8",
+  );
   await writeFile(join(workspaceRoot, "secret.txt"), "before secret\n", "utf8");
   await execGit(workspaceRoot, ["add", "allowed.txt", "secret.txt"]);
   await execGit(workspaceRoot, ["commit", "-m", "baseline"]);
-  await writeFile(join(workspaceRoot, "allowed.txt"), "after allowed\n", "utf8");
+  await writeFile(
+    join(workspaceRoot, "allowed.txt"),
+    "after allowed\n",
+    "utf8",
+  );
   await writeFile(join(workspaceRoot, "secret.txt"), "after secret\n", "utf8");
   const modelClient = new FakeModelClient([
     { toolCalls: [{ id: "call_diff", name: "git_diff", input: {} }] },
@@ -1442,9 +1533,8 @@ test("a Session compacts old tool observations before a later model turn", async
     8_000,
   );
   expect(
-    thirdTurnMessages
-      .filter((message) => message.role === "user")
-      .at(-1)?.content,
+    thirdTurnMessages.filter((message) => message.role === "user").at(-1)
+      ?.content,
   ).toMatch(/Active observations compacted: \d+\/4096 bytes/);
 
   const events = (await readFile(result.tracePath ?? "", "utf8"))
@@ -1538,9 +1628,9 @@ test("a Session folds an old turn into a Rolling Summary when digests alone cann
   const budgetUpdates = events.filter(
     (event) => event.type === "budget_update",
   );
-  expect(budgetUpdates.at(-1)?.payload.usage.inputTokens).toBeGreaterThanOrEqual(
-    40,
-  );
+  expect(
+    budgetUpdates.at(-1)?.payload.usage.inputTokens,
+  ).toBeGreaterThanOrEqual(40);
 });
 
 test("a Session stops when the fold summarization call itself breaches the token budget", async () => {
@@ -1592,7 +1682,7 @@ test("a Session stops when the fold summarization call itself breaches the token
 
 test("context attachments are rendered for the model without storing full content in the trace", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-context-"));
-  const largeContext = `Important issue context\n${"x".repeat(22 * 1024)}\nHidden tail marker\n`;
+  const largeContext = `Important issue context\n${"x".repeat(62 * 1024)}\nHidden tail marker\n`;
   await writeFile(join(workspaceRoot, "allowed.txt"), "allowed\n", "utf8");
   await writeFile(join(workspaceRoot, "issue.md"), largeContext, "utf8");
   const modelClient = new FakeModelClient([
@@ -1617,10 +1707,10 @@ test("context attachments are rendered for the model without storing full conten
   expect(firstUserMessage).toMatch(/title: issue\.md/);
   expect(firstUserMessage).toMatch(/contentHash:/);
   expect(firstUserMessage).toMatch(/contentBytes:/);
-  expect(firstUserMessage).toMatch(/returnedBytes: 20480/);
+  expect(firstUserMessage).toMatch(/returnedBytes: 61440/);
   expect(firstUserMessage).toMatch(/truncated: true/);
   expect(firstUserMessage).toMatch(/Important issue context/);
-  expect(firstUserMessage).toMatch(/\[truncated: showing 20480 of \d+ bytes\]/);
+  expect(firstUserMessage).toMatch(/\[truncated: showing 61440 of \d+ bytes\]/);
   expect(firstUserMessage).not.toMatch(/Hidden tail marker/);
 
   const trace = await readFile(result.tracePath ?? "", "utf8");
@@ -1763,8 +1853,14 @@ test("a coding Session exposes only registry-projected tool schemas to the model
 });
 
 test("a learning Session exposes only plan updates to the model", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-learning-tools-"));
-  await writeFile(join(workspaceRoot, "paper.md"), "# Paper\nSource text.\n", "utf8");
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-learning-tools-"),
+  );
+  await writeFile(
+    join(workspaceRoot, "paper.md"),
+    "# Paper\nSource text.\n",
+    "utf8",
+  );
   const modelClient = new FakeModelClient([
     { content: "## Summary\nLearned from the source.", toolCalls: [] },
   ]);
@@ -1785,8 +1881,14 @@ test("a learning Session exposes only plan updates to the model", async () => {
 });
 
 test("a learning Session normalizes model output into a source-linked Learning Pack", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-learning-pack-"));
-  await writeFile(join(workspaceRoot, "paper.md"), "# Paper\nSource text.\n", "utf8");
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-learning-pack-"),
+  );
+  await writeFile(
+    join(workspaceRoot, "paper.md"),
+    "# Paper\nSource text.\n",
+    "utf8",
+  );
   const modelClient = new FakeModelClient([
     { content: "These are the core ideas.", toolCalls: [] },
   ]);
@@ -1809,19 +1911,26 @@ test("a learning Session normalizes model output into a source-linked Learning P
   expect(result.summary).toMatch(/## Open Questions/);
   expect(result.summary).toMatch(/## Review Prompts/);
 
-  const systemMessage = modelClient.turnInputs[0]?.messages.find(
-    (message) => message.role === "system",
-  )?.content ?? "";
+  const systemMessage =
+    modelClient.turnInputs[0]?.messages.find(
+      (message) => message.role === "system",
+    )?.content ?? "";
   expect(systemMessage).toMatch(/source-backed Learning Workflow Session/);
   expect(systemMessage).toMatch(/Learning Pack/);
   expect(systemMessage).toMatch(/Source Links/);
-  expect(systemMessage).toMatch(/Durable Memory as preference or terminology guidance/);
+  expect(systemMessage).toMatch(
+    /Durable Memory as preference or terminology guidance/,
+  );
   expect(systemMessage).toMatch(/note-writing/);
 });
 
 test("answer_once performs exactly one successful model turn with no tool schemas, recorded as an explicit policy rather than a turn budget", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-answer-once-"));
-  await writeFile(join(workspaceRoot, "paper.md"), "# Paper\nSource text.\n", "utf8");
+  await writeFile(
+    join(workspaceRoot, "paper.md"),
+    "# Paper\nSource text.\n",
+    "utf8",
+  );
   const modelClient = new FakeModelClient([
     { content: "## Summary\nOne-turn answer.", toolCalls: [] },
   ]);
@@ -1854,8 +1963,14 @@ test("answer_once performs exactly one successful model turn with no tool schema
 });
 
 test("normal iterative Learning is unaffected by the answer_once policy", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-learning-iterative-"));
-  await writeFile(join(workspaceRoot, "paper.md"), "# Paper\nSource text.\n", "utf8");
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-learning-iterative-"),
+  );
+  await writeFile(
+    join(workspaceRoot, "paper.md"),
+    "# Paper\nSource text.\n",
+    "utf8",
+  );
   const modelClient = new FakeModelClient([
     { content: "## Summary\nFinal answer after thinking.", toolCalls: [] },
   ]);
@@ -1881,8 +1996,14 @@ test("normal iterative Learning is unaffected by the answer_once policy", async 
 });
 
 test("answer_once retries a transient model error within the same logical turn", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-answer-once-retry-"));
-  await writeFile(join(workspaceRoot, "paper.md"), "# Paper\nSource text.\n", "utf8");
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-answer-once-retry-"),
+  );
+  await writeFile(
+    join(workspaceRoot, "paper.md"),
+    "# Paper\nSource text.\n",
+    "utf8",
+  );
   let attempts = 0;
   const modelClient = {
     async createTurn() {
@@ -1913,15 +2034,23 @@ test("answer_once retries a transient model error within the same logical turn",
     .split("\n")
     .map((line) => JSON.parse(line));
   expect(events.filter((event) => event.type === "model_turn")).toHaveLength(1);
-  expect(events.filter((event) => event.type === "model_turn_retry")).toHaveLength(1);
+  expect(
+    events.filter((event) => event.type === "model_turn_retry"),
+  ).toHaveLength(1);
   expect(
     events.find((event) => event.type === "model_turn")?.payload.turnIndex,
   ).toBe(0);
 });
 
 test("answer_once blocks tool calls returned on the single turn and finishes honestly", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-answer-once-blocked-"));
-  await writeFile(join(workspaceRoot, "paper.md"), "# Paper\nSource text.\n", "utf8");
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-answer-once-blocked-"),
+  );
+  await writeFile(
+    join(workspaceRoot, "paper.md"),
+    "# Paper\nSource text.\n",
+    "utf8",
+  );
   const modelClient = new FakeModelClient([
     {
       content: "I need a tool.",
@@ -1956,7 +2085,9 @@ test("answer_once blocks tool calls returned on the single turn and finishes hon
 });
 
 test("cancellation before Session creation rejects the launch with no Trace, and repeated cancellation is idempotent", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cancel-preflight-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cancel-preflight-"),
+  );
   const controller = new AbortController();
   controller.abort();
   controller.abort();
@@ -1971,7 +2102,9 @@ test("cancellation before Session creation rejects the launch with no Trace, and
     }),
   ).rejects.toThrow(/cancel/i);
 
-  const sessionDirExists = await readdir(join(workspaceRoot, ".forgelet", "sessions")).then(
+  const sessionDirExists = await readdir(
+    join(workspaceRoot, ".forgelet", "sessions"),
+  ).then(
     (entries) => entries.length > 0,
     () => false,
   );
@@ -1979,7 +2112,9 @@ test("cancellation before Session creation rejects the launch with no Trace, and
 });
 
 test("cancellation reaches an in-flight model call, stops the Session with Trace evidence, and is not retried", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cancel-inflight-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cancel-inflight-"),
+  );
   const controller = new AbortController();
   let createTurnCalls = 0;
   let markStarted: () => void;
@@ -2030,7 +2165,9 @@ test("cancellation reaches an in-flight model call, stops the Session with Trace
 });
 
 test("a transport failure unrelated to the owned cancellation signal is not converted to user_stopped", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cancel-unrelated-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cancel-unrelated-"),
+  );
   const controller = new AbortController();
   const modelClient = {
     async createTurn() {
@@ -2054,7 +2191,9 @@ test("a transport failure unrelated to the owned cancellation signal is not conv
 });
 
 test("cancellation before completion effects stops the Session instead of running onCompleted side effects", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cancel-completion-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cancel-completion-"),
+  );
   const controller = new AbortController();
   let onCompletedCalled = false;
   const definition: WorkflowDefinition = {
@@ -2230,12 +2369,18 @@ test("an actionable Session Continuation audit separates inherited and child cha
     join(tmpdir(), "forgelet-actionable-continuation-audit-"),
   );
   await execGit(workspaceRoot, ["init"]);
-  await writeFile(join(workspaceRoot, "parent.txt"), "parent baseline\n", "utf8");
+  await writeFile(
+    join(workspaceRoot, "parent.txt"),
+    "parent baseline\n",
+    "utf8",
+  );
   await writeFile(join(workspaceRoot, "child.txt"), "child baseline\n", "utf8");
   await execGit(workspaceRoot, ["add", "parent.txt", "child.txt"]);
   await execGit(workspaceRoot, ["commit", "-m", "baseline"]);
   await writeFile(join(workspaceRoot, "parent.txt"), "parent dirty\n", "utf8");
-  await mkdir(join(workspaceRoot, ".forgelet", "sessions"), { recursive: true });
+  await mkdir(join(workspaceRoot, ".forgelet", "sessions"), {
+    recursive: true,
+  });
   await writeFile(
     join(workspaceRoot, ".forgelet", "sessions", "sess_parent.jsonl"),
     [
@@ -2340,7 +2485,9 @@ test("an actionable Session Continuation can continue editing a parent-owned dir
     "# Parent\n- parent-created\n",
     "utf8",
   );
-  await mkdir(join(workspaceRoot, ".forgelet", "sessions"), { recursive: true });
+  await mkdir(join(workspaceRoot, ".forgelet", "sessions"), {
+    recursive: true,
+  });
   await writeFile(
     join(workspaceRoot, ".forgelet", "sessions", "sess_parent.jsonl"),
     [
@@ -2414,9 +2561,9 @@ test("an actionable Session Continuation can continue editing a parent-owned dir
     }),
   });
 
-  await expect(readFile(join(workspaceRoot, "parent.txt"), "utf8")).resolves.toBe(
-    "# Parent\n- parent-created\n- child-confirmed\n",
-  );
+  await expect(
+    readFile(join(workspaceRoot, "parent.txt"), "utf8"),
+  ).resolves.toBe("# Parent\n- parent-created\n- child-confirmed\n");
   const trace = await readFile(result.tracePath ?? "", "utf8");
   const events = trace
     .trim()
@@ -2447,7 +2594,9 @@ test("an actionable Session Continuation still rejects user-owned dirty files", 
   await execGit(workspaceRoot, ["init"]);
   await writeFile(join(workspaceRoot, "parent.txt"), "parent change\n", "utf8");
   await writeFile(join(workspaceRoot, "user.txt"), "user dirty\n", "utf8");
-  await mkdir(join(workspaceRoot, ".forgelet", "sessions"), { recursive: true });
+  await mkdir(join(workspaceRoot, ".forgelet", "sessions"), {
+    recursive: true,
+  });
   await writeFile(
     join(workspaceRoot, ".forgelet", "sessions", "sess_parent.jsonl"),
     [
@@ -2556,7 +2705,9 @@ test("an actionable Session Continuation does not inherit parent approval", asyn
   await writeFile(join(workspaceRoot, "example.txt"), "original\n", "utf8");
   await execGit(workspaceRoot, ["add", "example.txt"]);
   await execGit(workspaceRoot, ["commit", "-m", "baseline"]);
-  await mkdir(join(workspaceRoot, ".forgelet", "sessions"), { recursive: true });
+  await mkdir(join(workspaceRoot, ".forgelet", "sessions"), {
+    recursive: true,
+  });
   await writeFile(
     join(workspaceRoot, ".forgelet", "sessions", "sess_parent.jsonl"),
     [
@@ -2641,9 +2792,9 @@ test("an actionable Session Continuation does not inherit parent approval", asyn
     }),
   });
 
-  await expect(readFile(join(workspaceRoot, "example.txt"), "utf8")).resolves.toBe(
-    "original\n",
-  );
+  await expect(
+    readFile(join(workspaceRoot, "example.txt"), "utf8"),
+  ).resolves.toBe("original\n");
   const trace = await readFile(result.tracePath ?? "", "utf8");
   const events = trace
     .trim()
@@ -2669,7 +2820,9 @@ test("an actionable Session Continuation does not inherit parent approval", asyn
 });
 
 test("an actionable coding Session prompts the model with action and approval boundaries", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-action-prompt-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-action-prompt-"),
+  );
   const modelClient = new FakeModelClient([
     { content: "I will use approved tools only.", toolCalls: [] },
   ]);
@@ -2682,19 +2835,24 @@ test("an actionable coding Session prompts the model with action and approval bo
     act: true,
   });
 
-  const systemPrompt = modelClient.turnInputs[0]?.messages.find(
-    (message) => message.role === "system",
-  )?.content ?? "";
+  const systemPrompt =
+    modelClient.turnInputs[0]?.messages.find(
+      (message) => message.role === "system",
+    )?.content ?? "";
 
   expect(systemPrompt).toMatch(/apply_patch/);
   expect(systemPrompt).toMatch(/run_command/);
   expect(systemPrompt).toMatch(/permission and approval/);
   expect(systemPrompt).toMatch(/workspace_summary/);
-  expect(systemPrompt).not.toMatch(/do not claim to write files or run commands/);
+  expect(systemPrompt).not.toMatch(
+    /do not claim to write files or run commands/,
+  );
 });
 
 test("a read-only coding Session prompts the model to use workspace_summary for unfamiliar workspaces", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-summary-prompt-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-summary-prompt-"),
+  );
   const modelClient = new FakeModelClient([
     { content: "I will summarize the workspace first.", toolCalls: [] },
   ]);
@@ -2706,9 +2864,10 @@ test("a read-only coding Session prompts the model to use workspace_summary for 
     modelClient,
   });
 
-  const systemPrompt = modelClient.turnInputs[0]?.messages.find(
-    (message) => message.role === "system",
-  )?.content ?? "";
+  const systemPrompt =
+    modelClient.turnInputs[0]?.messages.find(
+      (message) => message.role === "system",
+    )?.content ?? "";
 
   expect(systemPrompt).toMatch(/workspace_summary/);
   expect(systemPrompt).toMatch(/unfamiliar workspace/);
@@ -2760,8 +2919,14 @@ test("a writing Session requesting git_diff receives a controlled registry denia
 });
 
 test("a writing Session returns the V1 Critique Revision Notes shape", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-writing-shape-"));
-  await writeFile(join(workspaceRoot, "draft.md"), "This draft is wordy.\n", "utf8");
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-writing-shape-"),
+  );
+  await writeFile(
+    join(workspaceRoot, "draft.md"),
+    "This draft is wordy.\n",
+    "utf8",
+  );
   const modelClient = new FakeModelClient([
     { content: "Make it shorter.", toolCalls: [] },
   ]);
@@ -2773,12 +2938,15 @@ test("a writing Session returns the V1 Critique Revision Notes shape", async () 
     modelClient,
   });
 
-  const systemPrompt = modelClient.turnInputs[0]?.messages.find(
-    (message) => message.role === "system",
-  )?.content ?? "";
+  const systemPrompt =
+    modelClient.turnInputs[0]?.messages.find(
+      (message) => message.role === "system",
+    )?.content ?? "";
 
   expect(systemPrompt).toMatch(/Critique, Revision, Notes/);
-  expect(systemPrompt).toMatch(/do not request workspace, git, shell, patch, or command tools/);
+  expect(systemPrompt).toMatch(
+    /do not request workspace, git, shell, patch, or command tools/,
+  );
   expect(systemPrompt).not.toMatch(/workspace_summary/);
   expect(result.summary).toMatch(/Critique\n/);
   expect(result.summary).toMatch(/Revision\nMake it shorter\./);
@@ -2986,7 +3154,7 @@ test("textual tool-call markup is not accepted as a final answer", async () => {
   const modelClient = new FakeModelClient([
     {
       content: [
-        '<｜｜DSML｜｜tool_calls>',
+        "<｜｜DSML｜｜tool_calls>",
         '<｜｜DSML｜｜invoke name="read_file">',
         "</｜｜DSML｜｜invoke>",
         "</｜｜DSML｜｜tool_calls>",
@@ -3421,7 +3589,9 @@ test("read_file tail reads return the end of a file instead of the first chunk",
 });
 
 test("read_file rejects conflicting range modes as invalid input", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-range-conflict-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-range-conflict-"),
+  );
   await writeFile(join(workspaceRoot, "conflict.txt"), "one\ntwo\n", "utf8");
   const modelClient = new FakeModelClient([
     {
@@ -3452,7 +3622,9 @@ test("read_file rejects conflicting range modes as invalid input", async () => {
   const observation = JSON.parse(toolMessage);
   expect(observation.ok).toBe(false);
   expect(observation.error.code).toBe("invalid_input");
-  expect(observation.error.message).toMatch(/range modes are mutually exclusive/i);
+  expect(observation.error.message).toMatch(
+    /range modes are mutually exclusive/i,
+  );
 
   const trace = await readFile(result.tracePath ?? "", "utf8");
   const events = trace
@@ -3529,7 +3701,9 @@ test("read_file rejects zero as a one-based start line", async () => {
   const observation = JSON.parse(toolMessage);
   expect(observation.ok).toBe(false);
   expect(observation.error.code).toBe("invalid_input");
-  expect(observation.error.message).toMatch(/positive integer input: startLine/);
+  expect(observation.error.message).toMatch(
+    /positive integer input: startLine/,
+  );
 });
 
 test("update_plan records the changed Session plan in the trace", async () => {
@@ -3661,9 +3835,7 @@ test("a Session Read Scope denies symlinks that escape an allowed directory", as
   const workspaceRoot = await mkdtemp(
     join(tmpdir(), "forgelet-scope-symlink-"),
   );
-  const outsideRoot = await mkdtemp(
-    join(tmpdir(), "forgelet-scope-outside-"),
-  );
+  const outsideRoot = await mkdtemp(join(tmpdir(), "forgelet-scope-outside-"));
   await mkdir(join(workspaceRoot, "allowed"), { recursive: true });
   await writeFile(join(outsideRoot, "secret.txt"), "outside secret\n", "utf8");
   await symlink(
