@@ -70,6 +70,18 @@ export type BrowserProtocolValidationReason =
   | "oversized"
   | "malformed";
 
+/** Machine-readable browser outcomes are intentionally distinct from their
+ * user-facing messages. The Side Panel can select a stable recovery action
+ * without parsing a provider error or a Trace-oriented diagnostic. */
+export type BrowserLaunchRejectionCode =
+  | BrowserProtocolValidationReason
+  | "workspace_profile_unavailable"
+  | "source_unavailable"
+  | "source_integrity_mismatch"
+  | "conversation_history_unavailable";
+
+export type BrowserAttemptFailureCode = "invalid_page_answer";
+
 export class BrowserProtocolValidationError extends Error {
   readonly reason: BrowserProtocolValidationReason;
   constructor(reason: BrowserProtocolValidationReason, message: string) {
@@ -184,7 +196,14 @@ function parseCapture(raw: unknown): BrowserCaptureRequest {
 // the protocol itself.
 export type BrowserRunFrame =
   | { type: "invocation_accepted"; conversationId: string; invocationId: string; seq: number }
-  | { type: "launch_rejected"; conversationId: string; invocationId: string; seq: number; reason: string }
+  | {
+      type: "launch_rejected";
+      conversationId: string;
+      invocationId: string;
+      seq: number;
+      reason: string;
+      code?: BrowserLaunchRejectionCode;
+    }
   | {
       type: "session_ready";
       conversationId: string;
@@ -211,7 +230,14 @@ export type BrowserRunFrame =
       pageAnswer: BrowserPageAnswer;
     }
   | { type: "stopped"; conversationId: string; invocationId: string; seq: number; reason: string }
-  | { type: "failed"; conversationId: string; invocationId: string; seq: number; message: string }
+  | {
+      type: "failed";
+      conversationId: string;
+      invocationId: string;
+      seq: number;
+      message: string;
+      code?: BrowserAttemptFailureCode;
+    }
   | { type: "action_conflict"; conversationId: string; invocationId: string; seq: number };
 
 export interface BrowserPageAnswer {
@@ -350,15 +376,23 @@ async function driveInvocation(
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    const code = sessionStarted
+      ? attemptFailureCode(error)
+      : launchRejectionCode(error);
     await recordInvocationOutcome({
       homeDir: options.homeDir,
       actionId: request.actionId,
       invocationId: request.invocationId,
       state: sessionStarted ? "failed" : "rejected",
       reason: message,
+      ...(code ? { code } : {}),
       now: options.now,
     });
-    emit(sessionStarted ? { type: "failed", message } : { type: "launch_rejected", reason: message });
+    emit(
+      sessionStarted
+        ? { type: "failed", message, ...(code ? { code } : {}) }
+        : { type: "launch_rejected", reason: message, ...(code ? { code } : {}) },
+    );
   }
 }
 
@@ -382,14 +416,48 @@ function replayReceipt(
   else if (receipt.state === "stopped")
     emit({ type: "stopped", reason: receipt.reason ?? "" });
   else if (receipt.state === "failed")
-    emit({ type: "failed", message: receipt.reason ?? "" });
+    emit({
+      type: "failed",
+      message: receipt.reason ?? "",
+      ...(receipt.code ? { code: receipt.code as BrowserAttemptFailureCode } : {}),
+    });
   else if (receipt.state === "rejected")
-    emit({ type: "launch_rejected", reason: receipt.reason ?? "" });
+    emit({
+      type: "launch_rejected",
+      reason: receipt.reason ?? "",
+      ...(receipt.code ? { code: receipt.code as BrowserLaunchRejectionCode } : {}),
+    });
   else emit({ type: "failed", message: "Browser invocation is already in progress; reattach to its active Side Panel." });
 }
 
 function hashPayload(payload: unknown): string {
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+}
+
+function launchRejectionCode(error: unknown): BrowserLaunchRejectionCode | undefined {
+  const reason = errorReason(error);
+  return reason === "protocol_mismatch" ||
+    reason === "oversized" ||
+    reason === "malformed" ||
+    reason === "workspace_profile_unavailable" ||
+    reason === "source_unavailable" ||
+    reason === "source_integrity_mismatch" ||
+    reason === "conversation_history_unavailable"
+    ? reason
+    : undefined;
+}
+
+function attemptFailureCode(error: unknown): BrowserAttemptFailureCode | undefined {
+  return errorReason(error) === "invalid_page_answer"
+    ? "invalid_page_answer"
+    : undefined;
+}
+
+function errorReason(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null || !("reason" in error))
+    return undefined;
+  const reason = (error as { reason?: unknown }).reason;
+  return typeof reason === "string" ? reason : undefined;
 }
 
 class AsyncFrameQueue<T> implements AsyncIterable<T> {

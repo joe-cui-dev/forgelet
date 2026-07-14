@@ -3,7 +3,11 @@ import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promise
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { LearningPack, PageBrief } from "../workflows/learning.js";
-import type { BrowserPageAnswer } from "./protocol.js";
+import type {
+  BrowserAttemptFailureCode,
+  BrowserLaunchRejectionCode,
+  BrowserPageAnswer,
+} from "./protocol.js";
 
 type BrowserAttemptKind = "root" | "root_retry" | "follow_up" | "follow_up_retry";
 
@@ -28,6 +32,7 @@ export interface InvocationReceipt {
   sessionId?: string;
   tracePath?: string;
   reason?: string;
+  code?: BrowserAttemptFailureCode | BrowserLaunchRejectionCode;
   summary?: string;
   learningPack?: LearningPack;
   pageBrief?: PageBrief;
@@ -92,6 +97,7 @@ export async function recordInvocationOutcome(input: {
   sessionId?: string;
   tracePath?: string;
   reason?: string;
+  code?: BrowserAttemptFailureCode | BrowserLaunchRejectionCode;
   summary?: string;
   learningPack?: LearningPack;
   pageBrief?: PageBrief;
@@ -107,6 +113,7 @@ export async function recordInvocationOutcome(input: {
     ...(input.sessionId !== undefined ? { sessionId: input.sessionId } : {}),
     ...(input.tracePath !== undefined ? { tracePath: input.tracePath } : {}),
     ...(input.reason !== undefined ? { reason: input.reason } : {}),
+    ...(input.code !== undefined ? { code: input.code } : {}),
     ...(input.summary !== undefined ? { summary: input.summary } : {}),
     ...(input.learningPack !== undefined ? { learningPack: input.learningPack } : {}),
     ...(input.pageBrief !== undefined ? { pageBrief: input.pageBrief } : {}),

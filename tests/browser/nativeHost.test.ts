@@ -292,6 +292,7 @@ test("Native Host rejects a v2 Browser Workbench invocation with a typed v3 mism
       conversationId: "conversation_1",
       invocationId: "invocation_1",
       seq: 0,
+      code: "protocol_mismatch",
       reason: expect.stringMatching(/rebuild.*reload.*install-host/i),
     },
   ]);

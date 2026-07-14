@@ -9,6 +9,7 @@ import {
   type BrowserRunFrame,
   type ProtocolLauncher,
 } from "../../src/browser/protocol.js";
+import { InvalidPageAnswerError } from "../../src/workflows/learning.js";
 
 const pageBrief = { summary: "A concise page summary.", keyConcepts: "- First concept" };
 const rootRequest = {
@@ -118,6 +119,46 @@ test("an invalid completed launch is persisted and replayed as failed, never as 
   const replay = await frames(runBrowserInvocation(rootRequest, launcher, { homeDir: directory }));
   expect(original.at(-1)).toMatchObject({ type: "failed" });
   expect(replay.at(-1)).toMatchObject({ type: "failed" });
+});
+
+test("typed Page Conversation failure and preflight rejection codes survive protocol replay", async () => {
+  const directory = await homeDir();
+  const invalidAnswer: ProtocolLauncher = {
+    async launch({ onLiveEvent }) {
+      await onLiveEvent({ type: "session_ready", sessionId: "sess_invalid", tracePath: "/tmp/sess_invalid.jsonl" });
+      throw new InvalidPageAnswerError("Page Answer Evidence excerpt does not match the captured page.");
+    },
+  };
+  const original = await frames(runBrowserInvocation(rootRequest, invalidAnswer, { homeDir: directory }));
+  const replay = await frames(runBrowserInvocation(rootRequest, invalidAnswer, { homeDir: directory }));
+
+  expect(original.at(-1)).toMatchObject({
+    type: "failed",
+    code: "invalid_page_answer",
+  });
+  expect(replay.at(-1)).toMatchObject({
+    type: "failed",
+    code: "invalid_page_answer",
+  });
+
+  const rejected: ProtocolLauncher = {
+    async launch() {
+      const error = new Error("Captured page is no longer available.") as Error & { reason: string };
+      error.reason = "source_unavailable";
+      throw error;
+    },
+  };
+  const rejectedFrames = await frames(
+    runBrowserInvocation(
+      { ...rootRequest, actionId: "action_rejected", invocationId: "invocation_rejected" },
+      rejected,
+      { homeDir: directory },
+    ),
+  );
+  expect(rejectedFrames.at(-1)).toMatchObject({
+    type: "launch_rejected",
+    code: "source_unavailable",
+  });
 });
 
 test("same invocation with changed conversation, question, or output language is an action conflict", async () => {

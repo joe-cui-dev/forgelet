@@ -10,6 +10,7 @@ import {
   toExtensionWorkspaceProfileProjection,
 } from "../browser/workspaceProfiles.js";
 import {
+  BrowserProtocolValidationError,
   runBrowserInvocation,
   validateBrowserInvocationRequest,
   type BrowserInvocationRequest,
@@ -302,6 +303,9 @@ export function createNativeHostApplication(input: {
             invocationId: typeof raw.invocationId === "string" ? raw.invocationId : "",
             seq: 0,
             reason: error instanceof Error ? error.message : String(error),
+            ...(error instanceof BrowserProtocolValidationError
+              ? { code: error.reason }
+              : {}),
           });
           return;
         }
