@@ -179,7 +179,8 @@ export function createPageAnswerWorkflowDefinition(
     pageConversationHistory,
     systemPromptLines: [
       "Produce a Page Answer with these headings: Answer, Evidence.",
-      "Evidence must list one to three exact quoted passages copied verbatim from the captured page, one passage per line.",
+      "Evidence must list one to three exact excerpts copied verbatim from the captured page, one passage per line.",
+      "Format each Evidence line as `- excerpt`; do not add surrounding quotation marks.",
       `If no passage in the captured page supports the answer, write exactly "${PAGE_ANSWER_NOT_FOUND_SENTINEL}" as the entire Evidence section and nothing else.`,
       "Never paraphrase Evidence, invent a passage, or cite the page URL or a heading name as Evidence.",
       "Use the Page Conversation History below only as context for what was already asked and answered; ground the Evidence itself in the captured page, not in that history.",
@@ -345,24 +346,30 @@ function normalizePageAnswer(
       "Page Answer is missing the required Answer or Evidence section.",
     );
 
-  const excerpts = parsePageAnswerEvidenceLines(evidenceSection);
-  if (excerpts.length === 0)
+  const rawExcerpts = parsePageAnswerEvidenceLines(evidenceSection);
+  if (rawExcerpts.length === 0)
     throw new InvalidPageAnswerError(
       "Page Answer Evidence is empty without the not-found sentinel.",
     );
 
-  const hasSentinel = excerpts.includes(PAGE_ANSWER_NOT_FOUND_SENTINEL);
+  const hasSentinel = rawExcerpts.includes(PAGE_ANSWER_NOT_FOUND_SENTINEL);
   if (hasSentinel) {
-    if (excerpts.length > 1)
+    if (rawExcerpts.length > 1)
       throw new InvalidPageAnswerError(
         "Page Answer Evidence mixes the not-found sentinel with excerpts.",
       );
     return formatPageAnswerMarkdown(answer, "not_found", []);
   }
 
-  if (excerpts.length > MAX_PAGE_ANSWER_EXCERPT_COUNT)
+  if (rawExcerpts.length > MAX_PAGE_ANSWER_EXCERPT_COUNT)
     throw new InvalidPageAnswerError(
       `Page Answer Evidence has more than ${MAX_PAGE_ANSWER_EXCERPT_COUNT} excerpts.`,
+    );
+
+  const excerpts = rawExcerpts.map(stripBalancedEvidencePresentationQuotes);
+  if (excerpts.includes(PAGE_ANSWER_NOT_FOUND_SENTINEL))
+    throw new InvalidPageAnswerError(
+      "Page Answer Evidence quotes the not-found sentinel instead of using it as the entire section.",
     );
 
   const capturedContent = findBrowserCaptureContent(contextAttachments);
@@ -448,6 +455,13 @@ function parsePageAnswerEvidenceLines(section: string): string[] {
     .split(/\r?\n/)
     .map((line) => line.replace(/^[-*]\s+/, "").trim())
     .filter((line) => line.length > 0);
+}
+
+function stripBalancedEvidencePresentationQuotes(excerpt: string): string {
+  const hasBalancedPresentationQuotes =
+    (excerpt.startsWith('"') && excerpt.endsWith('"')) ||
+    (excerpt.startsWith("“") && excerpt.endsWith("”"));
+  return hasBalancedPresentationQuotes ? excerpt.slice(1, -1).trim() : excerpt;
 }
 
 /** Renders exact, ordered Page Conversation History turns (ADR 0046) as a

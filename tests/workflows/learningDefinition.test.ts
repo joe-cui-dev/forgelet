@@ -213,6 +213,9 @@ test("Page Answer definition requests the Answer/Evidence shape and forbids tool
   expect(prompt).toContain(
     "Produce a Page Answer with these headings: Answer, Evidence.",
   );
+  expect(prompt).toContain(
+    "Format each Evidence line as `- excerpt`; do not add surrounding quotation marks.",
+  );
   expect(prompt).toContain(PAGE_ANSWER_NOT_FOUND_SENTINEL);
   expect(prompt).toContain(
     "Do not request workspace, git, shell, patch, command, note-writing, or browser automation tools.",
@@ -274,6 +277,59 @@ test("Page Answer normalizer accepts a supported answer with verified excerpts",
   });
 });
 
+test.each([
+  {
+    quoteStyle: "straight",
+    captured: "1989年出生于湖北襄阳的她，7岁写作，9岁出书。",
+    evidence: '"1989年出生于湖北襄阳的她，7岁写作，9岁出书。"',
+  },
+  {
+    quoteStyle: "Chinese",
+    captured: "20个注释中，12个为虚假注释。",
+    evidence: "“20个注释中，12个为虚假注释。”",
+  },
+])(
+  "Page Answer normalizer treats balanced $quoteStyle quotes around exact Evidence as presentation syntax",
+  ({ captured, evidence }) => {
+    const definition = createPageAnswerWorkflowDefinition();
+    const contextAttachments = browserCapture(captured);
+
+    const normalized = definition.normalizeFinalContent?.(
+      [
+        "## Answer",
+        "页面提供了相关信息。",
+        "## Evidence",
+        `- ${evidence}`,
+      ].join("\n"),
+      { contextAttachments },
+    );
+
+    expect(normalized).toBe(
+      [
+        "## Answer\n页面提供了相关信息。",
+        `## Evidence\n- ${captured}`,
+      ].join("\n\n"),
+    );
+  },
+);
+
+test.each([
+  ["balanced quote-wrapped text absent from the capture", '"a sentence the page never said"'],
+  ["an unmatched straight quote", '"The captured page says this.'],
+  ["an unmatched Chinese quote", "“The captured page says this."],
+  ["mismatched straight and Chinese quotes", '"The captured page says this.”'],
+])("Page Answer normalizer rejects %s", (_scenario, evidence) => {
+  const definition = createPageAnswerWorkflowDefinition();
+  const contextAttachments = browserCapture("The captured page says this.");
+
+  expect(() =>
+    definition.normalizeFinalContent?.(
+      ["## Answer", "An answer.", "## Evidence", `- ${evidence}`].join("\n"),
+      { contextAttachments },
+    ),
+  ).toThrow(InvalidPageAnswerError);
+});
+
 test("Page Answer normalizer converts the not-found sentinel into an empty-evidence not_found result", () => {
   const definition = createPageAnswerWorkflowDefinition();
   const contextAttachments = browserCapture("Unrelated page content.");
@@ -288,6 +344,23 @@ test("Page Answer normalizer converts the not-found sentinel into an empty-evide
   expect(normalized).toBe(
     `## Answer\nThe page does not say.\n\n## Evidence\n${PAGE_ANSWER_NOT_FOUND_SENTINEL}`,
   );
+});
+
+test("Page Answer normalizer rejects a quoted not-found sentinel", () => {
+  const definition = createPageAnswerWorkflowDefinition();
+  const contextAttachments = browserCapture(PAGE_ANSWER_NOT_FOUND_SENTINEL);
+
+  expect(() =>
+    definition.normalizeFinalContent?.(
+      [
+        "## Answer",
+        "The page does not say.",
+        "## Evidence",
+        `- "${PAGE_ANSWER_NOT_FOUND_SENTINEL}"`,
+      ].join("\n"),
+      { contextAttachments },
+    ),
+  ).toThrow(InvalidPageAnswerError);
 });
 
 test("Page Answer normalizer rejects missing Answer or Evidence sections", () => {
