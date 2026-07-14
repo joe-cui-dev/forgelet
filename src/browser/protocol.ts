@@ -41,6 +41,9 @@ export interface BrowserRootInvocationRequest extends BrowserInvocationBase {
 export interface BrowserRootRetryInvocationRequest extends BrowserInvocationBase {
   kind: "root_retry";
   captureId: string;
+  /** The failed root/root-Retry Session whose Trace pins this Retry to the
+   * original conversation and Workspace Profile before another Session starts. */
+  rootSessionId: string;
 }
 
 export interface BrowserFollowUpInvocationRequest extends BrowserInvocationBase {
@@ -119,7 +122,7 @@ export function validateBrowserInvocationRequest(
     ...(optionalLanguageTag(raw) ? { outputLanguage: optionalLanguageTag(raw) } : {}),
   };
   if (raw.kind === "root") return { ...base, kind: "root", capture: parseCapture(raw.capture) };
-  if (raw.kind === "root_retry") return { ...base, kind: "root_retry", captureId: requiredString(raw, "captureId", "Invocation request") };
+  if (raw.kind === "root_retry") return { ...base, kind: "root_retry", captureId: requiredString(raw, "captureId", "Invocation request"), rootSessionId: requiredString(raw, "rootSessionId", "Invocation request") };
   if (raw.kind === "follow_up") {
     const question = requiredString(raw, "question", "Invocation request").trim();
     if (Buffer.byteLength(question, "utf8") > MAX_FOLLOW_UP_QUESTION_BYTES)
@@ -149,7 +152,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function requestKeys(kind: unknown): string[] {
   const base = ["version", "kind", "conversationId", "actionId", "invocationId", "workspaceProfileId", "outputLanguage"];
   if (kind === "root") return [...base, "capture"];
-  if (kind === "root_retry") return [...base, "captureId"];
+  if (kind === "root_retry") return [...base, "captureId", "rootSessionId"];
   if (kind === "follow_up" || kind === "follow_up_retry") return [...base, "captureId", "rootSessionId", "parentSessionId", "question"];
   return base;
 }

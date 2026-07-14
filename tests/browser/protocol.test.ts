@@ -48,7 +48,9 @@ test("v3 validates only closed root, root Retry, follow-up, and follow-up Retry 
   expect(BROWSER_PROTOCOL_VERSION).toBe(3);
   expect(validateBrowserInvocationRequest(rootRequest)).toEqual(rootRequest);
   const { capture: _capture, ...rootRetryBase } = rootRequest;
-  expect(validateBrowserInvocationRequest({ ...rootRetryBase, kind: "root_retry", captureId: "capture_1" })).toMatchObject({ kind: "root_retry" });
+  const rootRetry = { ...rootRetryBase, kind: "root_retry", captureId: "capture_1", rootSessionId: "sess_root" };
+  expect(validateBrowserInvocationRequest(rootRetry)).toMatchObject({ kind: "root_retry", rootSessionId: "sess_root" });
+  expect(() => validateBrowserInvocationRequest({ ...rootRetry, rootSessionId: undefined })).toThrow(/rootSessionId/);
   const followUp = {
     ...rootRequest,
     kind: "follow_up" as const,

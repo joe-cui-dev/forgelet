@@ -72,6 +72,7 @@ export async function runBrowserWorkbenchSmoke(): Promise<{ tracePath: string; s
   }));
   await waitForTerminal(outputChunks, "inv_root_failed");
   assertFrame(lastFrameFor(outputChunks, "inv_root_failed"), { type: "failed" }, "failed root terminal");
+  const failedRootSessionId = sessionIdFor(outputChunks, "inv_root_failed");
 
   // A provider failure happens after capture persistence, so root Retry must
   // reuse the identical capture without a fresh body on the protocol wire.
@@ -88,6 +89,7 @@ export async function runBrowserWorkbenchSmoke(): Promise<{ tracePath: string; s
     invocationId: "inv_root_retry",
     workspaceProfileId: profile.id,
     captureId: capture.captureId,
+    rootSessionId: failedRootSessionId,
   });
   await waitForTerminal(outputChunks, "inv_root_retry");
   const rootSessionId = sessionIdFor(outputChunks, "inv_root_retry");

@@ -41,6 +41,7 @@ export type PageAnswerSessionInput = LearningSessionInput & {
   deliverableShape: "pageAnswer";
   continuationSourceSessionId: string;
   pageConversationHistory: PageAnswerConversationTurn[];
+  outputLanguage?: string;
 };
 
 export type LearningSessionResult = KernelSessionResult<LearningPack>;
@@ -129,6 +130,7 @@ export function runLearningSession(
           ? createPageAnswerWorkflowDefinition(
               pageAnswerInput.startTraceExtras,
               pageAnswerInput.pageConversationHistory,
+              pageAnswerInput.outputLanguage,
             )
           : createLearningWorkflowDefinition(input.startTraceExtras),
   });
@@ -169,6 +171,7 @@ export function createPageBriefWorkflowDefinition(
 export function createPageAnswerWorkflowDefinition(
   startTraceExtras?: Record<string, unknown>,
   pageConversationHistory?: PageAnswerConversationTurn[],
+  outputLanguage?: string,
 ): WorkflowDefinition<PageAnswer> {
   return createSourceBackedLearningDefinition({
     deliverableShape: "pageAnswer",
@@ -180,6 +183,9 @@ export function createPageAnswerWorkflowDefinition(
       `If no passage in the captured page supports the answer, write exactly "${PAGE_ANSWER_NOT_FOUND_SENTINEL}" as the entire Evidence section and nothing else.`,
       "Never paraphrase Evidence, invent a passage, or cite the page URL or a heading name as Evidence.",
       "Use the Page Conversation History below only as context for what was already asked and answered; ground the Evidence itself in the captured page, not in that history.",
+      ...(outputLanguage
+        ? [`Write all body text in ${outputLanguage}; keep the Page Answer headings in English.`]
+        : []),
     ],
     normalize: normalizePageAnswer,
     completion: pageAnswerFromNormalizedMarkdown,
@@ -331,7 +337,7 @@ function normalizePageAnswer(
   content: string,
   contextAttachments: LoadedContextAttachment[],
 ): string {
-  const { sections } = parseSections(content, PAGE_ANSWER_HEADINGS);
+  const sections = parseStrictPageAnswerSections(content);
   const answer = sections.get("Answer")?.trim();
   const evidenceSection = sections.get("Evidence");
   if (!answer || evidenceSection === undefined)
@@ -375,8 +381,45 @@ function normalizePageAnswer(
   return formatPageAnswerMarkdown(answer, "supported", excerpts);
 }
 
+/** Page Answers are a closed, evidence-bearing wire contract. Unlike the
+ * broader Learning formats, no preamble, duplicate heading, or additional
+ * Markdown section can be silently treated as prose. */
+function parseStrictPageAnswerSections(content: string): Map<(typeof PAGE_ANSWER_HEADINGS)[number], string> {
+  const sections = new Map<(typeof PAGE_ANSWER_HEADINGS)[number], string>();
+  let currentHeading: (typeof PAGE_ANSWER_HEADINGS)[number] | undefined;
+  let currentLines: string[] = [];
+
+  const flush = (): void => {
+    if (currentHeading) sections.set(currentHeading, currentLines.join("\n").trim());
+    currentLines = [];
+  };
+
+  for (const line of content.split(/\r?\n/)) {
+    const heading = headingForLine(line, PAGE_ANSWER_HEADINGS);
+    if (heading) {
+      if (sections.has(heading) || heading === currentHeading)
+        throw new InvalidPageAnswerError(`Page Answer repeats the ${heading} section.`);
+      flush();
+      currentHeading = heading;
+      continue;
+    }
+    if (/^#{1,6}\s+\S/.test(line))
+      throw new InvalidPageAnswerError("Page Answer contains an unsupported section.");
+    if (!currentHeading && line.trim())
+      throw new InvalidPageAnswerError("Page Answer contains content outside Answer and Evidence.");
+    if (currentHeading) currentLines.push(line);
+  }
+  flush();
+
+  if (!sections.has("Answer") || !sections.has("Evidence") || sections.size !== 2)
+    throw new InvalidPageAnswerError(
+      "Page Answer is missing the required Answer or Evidence section.",
+    );
+  return sections;
+}
+
 function pageAnswerFromNormalizedMarkdown(markdown: string): PageAnswer {
-  const { sections } = parseSections(markdown, PAGE_ANSWER_HEADINGS);
+  const sections = parseStrictPageAnswerSections(markdown);
   const answer = sections.get("Answer") ?? "";
   const evidenceSection = sections.get("Evidence") ?? "";
   if (evidenceSection.trim() === PAGE_ANSWER_NOT_FOUND_SENTINEL)

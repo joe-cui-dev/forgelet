@@ -7,6 +7,7 @@ import { createBrowserWorkbench } from "../../src/browserWorkbench/index.js";
 import {
   BrowserFollowUpPreflightError,
   preflightBrowserFollowUp,
+  preflightBrowserRootRetry,
 } from "../../src/browserWorkbench/followUpPreflight.js";
 import { persistBrowserWorkbenchCapture } from "../../src/browser/captures.js";
 import { runBrowserInvocation, type BrowserRunFrame } from "../../src/browser/protocol.js";
@@ -123,6 +124,7 @@ test("root, root Retry, follow-up, and follow-up Retry all launch through the sa
         invocationId: "invocation_retry",
         workspaceProfileId: "profile_1",
         captureId: "capture_1",
+        rootSessionId,
       },
       workbench,
       { homeDir },
@@ -148,6 +150,7 @@ test("root, root Retry, follow-up, and follow-up Retry all launch through the sa
         rootSessionId,
         parentSessionId: rootSessionId,
         question: "Why is the sky blue?",
+        outputLanguage: "zh-CN",
       },
       workbench,
       { homeDir },
@@ -158,6 +161,11 @@ test("root, root Retry, follow-up, and follow-up Retry all launch through the sa
     pageAnswer: { answer: "The sky is blue.", groundingStatus: "supported", evidence: ["Useful page content."] },
   });
   const followUpSessionId = frameSessionId(followUpFrames);
+  expect(
+    modelClient.turnInputs[2]?.messages.find((message) => message.role === "system")?.content,
+  ).toContain(
+    "Write all body text in zh-CN; keep the Page Answer headings in English.",
+  );
 
   const followUpRetryFrames = await collect(
     runBrowserInvocation(
@@ -388,6 +396,45 @@ test("a revoked or deleted profile rejects the follow-up launch", async () => {
   await expect(launch).rejects.toThrow(BrowserFollowUpPreflightError);
   await expect(launch).rejects.toMatchObject({ reason: "workspace_profile_unavailable" });
   expect(await sessionFileCount(workspaceRoot)).toBe(0);
+});
+
+test("root Retry stays pinned to the original Workspace Profile even if another profile has the same capture", async () => {
+  const rootWorkspace = await mkdtemp(join(tmpdir(), "forgelet-root-retry-root-"));
+  const otherWorkspace = await mkdtemp(join(tmpdir(), "forgelet-root-retry-other-"));
+  const content = "The captured source body.";
+  await writeRootSession(rootWorkspace, {
+    sessionId: "sess_root_failed",
+    workspaceProfileId: "profile_root",
+    captureId: "capture_1",
+    conversationId: "conv_1",
+  });
+  await persistBrowserWorkbenchCapture({
+    workspaceRoot: otherWorkspace,
+    capture: {
+      captureId: "capture_1",
+      url: "https://example.com/source",
+      title: "Source",
+      capturedAt: "2026-07-14T00:00:00.000Z",
+      contentKind: "mainText",
+      contentHash: createHash("sha256").update(content).digest("hex"),
+      contentBytes: Buffer.byteLength(content, "utf8"),
+      truncated: false,
+      content,
+    },
+  });
+
+  const launch = preflightBrowserRootRetry({
+    workspaceProfileId: "profile_other",
+    conversationId: "conv_1",
+    captureId: "capture_1",
+    rootSessionId: "sess_root_failed",
+    async resolveProfile(id) {
+      return { id, label: "Other", path: otherWorkspace };
+    },
+  });
+
+  await expect(launch).rejects.toMatchObject({ reason: "conversation_history_unavailable" });
+  expect(await sessionFileCount(otherWorkspace)).toBe(0);
 });
 
 test("a missing persisted capture yields source_unavailable", async () => {

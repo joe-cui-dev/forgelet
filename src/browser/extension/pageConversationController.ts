@@ -49,6 +49,7 @@ export type PageConversationStartRequest =
       workspaceProfileId: string;
       outputLanguage?: string;
       captureId: string;
+      rootSessionId: string;
     }
   | {
       kind: "follow_up" | "follow_up_retry";
@@ -302,6 +303,8 @@ export function createPageConversationController(input: {
 
       const retryKind: PageConversationAttemptKind =
         card.kind === "root" || card.kind === "root_retry" ? "root_retry" : "follow_up_retry";
+      if (retryKind === "root_retry" && !card.sessionId) return;
+      const rootRetrySessionId = card.sessionId;
       const actionId = input.createId();
       const newInvocationId = input.createId();
       const next = startPageConversationAttempt(current, {
@@ -323,6 +326,7 @@ export function createPageConversationController(input: {
               workspaceProfileId: current.workspaceProfileId,
               ...outputLanguageField(outputLanguage),
               captureId: current.captureId,
+              rootSessionId: rootRetrySessionId as string,
             })
           : input.bridge.start({
               kind: "follow_up_retry",

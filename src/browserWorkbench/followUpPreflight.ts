@@ -46,6 +46,45 @@ export interface BrowserFollowUpPreflightResult {
   history: PageConversationHistory;
 }
 
+/** Root Retry is another attempt over a failed root source, not a chance to
+ * choose a new approved workspace. Its source Session Trace pins the retry's
+ * conversation, capture, and profile before capture bytes are read. */
+export async function preflightBrowserRootRetry(input: {
+  workspaceProfileId: string;
+  conversationId: string;
+  captureId: string;
+  rootSessionId: string;
+  resolveProfile(id: string): Promise<ResolvedBrowserProfile>;
+}): Promise<Pick<BrowserFollowUpPreflightResult, "workspaceRoot" | "workspaceProfileId" | "capture">> {
+  let profile: ResolvedBrowserProfile;
+  try {
+    profile = await input.resolveProfile(input.workspaceProfileId);
+  } catch (error) {
+    throw new BrowserFollowUpPreflightError(
+      "workspace_profile_unavailable",
+      `Workspace Profile is unavailable: ${describeError(error)}`,
+    );
+  }
+
+  const trigger = await readRootRetrySourceTrigger(profile.path, input.rootSessionId);
+  if (trigger.workspaceProfileId !== profile.id)
+    throw new BrowserFollowUpPreflightError(
+      "workspace_profile_unavailable",
+      `Root Retry Workspace Profile ${profile.id} does not match its source Session.`,
+    );
+  if (trigger.conversationId !== input.conversationId || trigger.captureId !== input.captureId)
+    throw new BrowserFollowUpPreflightError(
+      "conversation_history_unavailable",
+      "Root Retry does not match the original Page Conversation source Session.",
+    );
+
+  return {
+    workspaceRoot: profile.path,
+    workspaceProfileId: profile.id,
+    capture: await verifyPersistedCapture(profile.path, input.captureId),
+  };
+}
+
 /**
  * Verifies a Page Conversation follow-up's authority and source evidence
  * before any child Session is created: the pinned root Workspace Profile
@@ -131,6 +170,44 @@ async function readRootTrigger(
     found: true,
     workspaceProfileId:
       typeof workspaceProfileId === "string" ? workspaceProfileId : undefined,
+  };
+}
+
+async function readRootRetrySourceTrigger(
+  workspaceRoot: string,
+  rootSessionId: string,
+): Promise<{ workspaceProfileId: string; conversationId: string; captureId: string }> {
+  let events;
+  try {
+    events = await readTraceFile(await findSessionTracePath(workspaceRoot, rootSessionId));
+  } catch {
+    throw new BrowserFollowUpPreflightError(
+      "conversation_history_unavailable",
+      `Root Retry source Session trace is missing or unreadable: ${rootSessionId}.`,
+    );
+  }
+  const started = events.find((event) => event.type === "session_started");
+  const trigger = started?.payload.trigger;
+  if (started?.payload.workflow !== "learning" || typeof trigger !== "object" || trigger === null)
+    throw new BrowserFollowUpPreflightError(
+      "conversation_history_unavailable",
+      `Root Retry source Session is not a valid Browser Workbench Learning Session: ${rootSessionId}.`,
+    );
+  const record = trigger as Record<string, unknown>;
+  if (
+    (record.kind !== "root" && record.kind !== "root_retry") ||
+    typeof record.workspaceProfileId !== "string" ||
+    typeof record.conversationId !== "string" ||
+    typeof record.captureId !== "string"
+  )
+    throw new BrowserFollowUpPreflightError(
+      "conversation_history_unavailable",
+      `Root Retry source Session is missing Browser Workbench provenance: ${rootSessionId}.`,
+    );
+  return {
+    workspaceProfileId: record.workspaceProfileId,
+    conversationId: record.conversationId,
+    captureId: record.captureId,
   };
 }
 

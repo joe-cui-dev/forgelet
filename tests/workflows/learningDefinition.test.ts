@@ -219,6 +219,14 @@ test("Page Answer definition requests the Answer/Evidence shape and forbids tool
   );
 });
 
+test("Page Answer snapshots the requested output language into its model instruction", () => {
+  const definition = createPageAnswerWorkflowDefinition(undefined, [], "zh-CN");
+
+  expect(definition.systemPrompt({ act: false })).toContain(
+    "Write all body text in zh-CN; keep the Page Answer headings in English.",
+  );
+});
+
 test("Page Answer normalizer accepts a supported answer with verified excerpts", async () => {
   const definition = createPageAnswerWorkflowDefinition();
   const contextAttachments = browserCapture(
@@ -296,6 +304,18 @@ test("Page Answer normalizer rejects missing Answer or Evidence sections", () =>
     definition.normalizeFinalContent?.("## Answer\nOnly an answer, no Evidence heading.", {
       contextAttachments,
     }),
+  ).toThrow(InvalidPageAnswerError);
+});
+
+test("Page Answer normalizer rejects preamble or extra sections instead of silently ignoring them", () => {
+  const definition = createPageAnswerWorkflowDefinition();
+  const contextAttachments = browserCapture("The captured page says the sky is blue.");
+
+  expect(() =>
+    definition.normalizeFinalContent?.(
+      "## Notes\nIgnore this.\n\n## Answer\nThe sky is blue.\n\n## Evidence\n- The captured page says the sky is blue.",
+      { contextAttachments },
+    ),
   ).toThrow(InvalidPageAnswerError);
 });
 

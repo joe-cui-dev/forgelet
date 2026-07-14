@@ -128,6 +128,7 @@ export function createBrowserLearningLauncher(input: {
         executionPolicy: launch.executionPolicy,
         continuationSourceSessionId: launch.continuationSourceSessionId,
         pageConversationHistory: launch.pageConversationHistory,
+        outputLanguage: launch.trigger.outputLanguage,
         startTraceExtras: browserSessionTraceExtras(launch.trigger),
         signal: launch.signal,
         onLiveEvent: async (event) => {

@@ -10,7 +10,7 @@ import type { SessionLiveEventSink } from "../sessionLiveView/index.js";
 import type { PageAnswer, PageAnswerConversationTurn, PageBrief } from "../workflows/learning.js";
 import {
   preflightBrowserFollowUp,
-  verifyPersistedCapture,
+  preflightBrowserRootRetry,
   type ResolvedBrowserProfile,
 } from "./followUpPreflight.js";
 
@@ -122,24 +122,27 @@ async function launchRootRetry(
   signal: AbortSignal | undefined,
   onLiveEvent: SessionLiveEventSink,
 ): Promise<ProtocolLaunchResult> {
-  const profile = await deps.resolveProfile(request.workspaceProfileId);
-  assertNotCancelled(signal);
-  // Root Retry carries no fresh capture bytes: it must reload and verify the
-  // same persisted capture the original root attempt captured (ADR 0044).
-  const capture = await verifyPersistedCapture(profile.path, request.captureId);
+  const preflight = await preflightBrowserRootRetry({
+    workspaceProfileId: request.workspaceProfileId,
+    conversationId: request.conversationId,
+    captureId: request.captureId,
+    rootSessionId: request.rootSessionId,
+    resolveProfile: deps.resolveProfile,
+  });
   assertNotCancelled(signal);
   const result = await deps.startLearning({
-    workspaceRoot: profile.path,
+    workspaceRoot: preflight.workspaceRoot,
     task: browserSummaryTask(request.outputLanguage),
-    browserSnapshot: captureToBrowserSnapshot(capture),
+    browserSnapshot: captureToBrowserSnapshot(preflight.capture),
     executionPolicy: "answer_once",
     trigger: {
       kind: "root_retry",
       conversationId: request.conversationId,
       actionId: request.actionId,
       invocationId: request.invocationId,
-      workspaceProfileId: profile.id,
-      captureId: capture.captureId,
+      workspaceProfileId: preflight.workspaceProfileId,
+      captureId: preflight.capture.captureId,
+      rootSessionId: request.rootSessionId,
       ...(request.outputLanguage ? { outputLanguage: request.outputLanguage } : {}),
     },
     signal,
