@@ -360,6 +360,7 @@ export async function runKernelSession<TCompletion = void>(
           error: failure.error,
         }),
       );
+      const reason = typedFailureReason(error) ?? "model_execution_error";
       await traceWriter.append(
         createTraceEvent(
           sessionId,
@@ -367,7 +368,7 @@ export async function runKernelSession<TCompletion = void>(
           new Date().toISOString(),
           {
             status: "failed",
-            reason: "model_execution_error",
+            reason,
             error: failure.error,
             finishedAt: new Date().toISOString(),
           },
@@ -376,7 +377,7 @@ export async function runKernelSession<TCompletion = void>(
       await emitLiveEvent(input.onLiveEvent, {
         type: "session_finished",
         status: "failed",
-        reason: "model_execution_error",
+        reason,
       });
       await removePidMarker(input.workspaceRoot, sessionId);
       throw error;
@@ -625,6 +626,7 @@ export async function resumeKernelSession<TCompletion = void>(
         { summary: failure.summary, error: failure.error },
       ),
     );
+    const reason = typedFailureReason(error) ?? "model_execution_error";
     await traceWriter.append(
       createTraceEvent(
         snapshot.sessionId,
@@ -632,7 +634,7 @@ export async function resumeKernelSession<TCompletion = void>(
         new Date().toISOString(),
         {
           status: "failed",
-          reason: "model_execution_error",
+          reason,
           error: failure.error,
           finishedAt: new Date().toISOString(),
         },
@@ -641,7 +643,7 @@ export async function resumeKernelSession<TCompletion = void>(
     await emitLiveEvent(input.onLiveEvent, {
       type: "session_finished",
       status: "failed",
-      reason: "model_execution_error",
+      reason,
     });
     await removePidMarker(input.workspaceRoot, snapshot.sessionId);
     throw error;
@@ -866,6 +868,16 @@ const modelExecutionFailurePayload = (
     ),
     error: traceError,
   };
+};
+
+/** Workflow-level validation failures (e.g. Page Answer Evidence rejection)
+ * throw an Error carrying a stable string `reason`; this lets the Session
+ * finish with that typed reason instead of the generic model-execution one,
+ * without a workflow needing kernel-private trace-writing access. */
+const typedFailureReason = (error: unknown): string | undefined => {
+  if (typeof error !== "object" || error === null) return undefined;
+  const reason = (error as Record<string, unknown>).reason;
+  return typeof reason === "string" ? reason : undefined;
 };
 
 const hashTask = (task: string): string => {

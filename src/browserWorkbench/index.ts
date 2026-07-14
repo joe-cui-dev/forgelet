@@ -1,16 +1,32 @@
-import { isSafeCaptureId } from "../browser/captures.js";
+import type { BrowserWorkbenchCapture } from "../browser/captures.js";
 import type { LoadedBrowserSnapshot } from "../browser/index.js";
-import type { ProtocolLauncher, ProtocolLaunchResult } from "../browser/protocol.js";
+import type {
+  BrowserInvocationRequest,
+  ProtocolLauncher,
+  ProtocolLaunchResult,
+} from "../browser/protocol.js";
 import type { ExecutionPolicy } from "../kernel/workflowDefinition.js";
 import type { SessionLiveEventSink } from "../sessionLiveView/index.js";
-import type { PageBrief } from "../workflows/learning.js";
+import type { PageAnswer, PageAnswerConversationTurn, PageBrief } from "../workflows/learning.js";
+import {
+  preflightBrowserFollowUp,
+  verifyPersistedCapture,
+  type ResolvedBrowserProfile,
+} from "./followUpPreflight.js";
 
-export interface BrowserSummaryInvocation {
+/** Recorded in every Session start Trace (ADR 0051): lets root/child identity
+ * relationships be reconstructed from Traces alone, without extension storage. */
+export interface BrowserSessionTrigger {
+  kind: "root" | "root_retry" | "follow_up" | "follow_up_retry";
+  conversationId: string;
   actionId: string;
   invocationId: string;
   workspaceProfileId: string;
+  captureId: string;
+  captureReadyMs?: number;
+  rootSessionId?: string;
+  parentSessionId?: string;
   outputLanguage?: string;
-  capture: LoadedBrowserSnapshot & { captureId: string; captureReadyMs: number };
 }
 
 export interface AuthorizedBrowserLearningLaunch {
@@ -18,169 +34,203 @@ export interface AuthorizedBrowserLearningLaunch {
   task: string;
   browserSnapshot: LoadedBrowserSnapshot;
   executionPolicy: ExecutionPolicy;
-  trigger: {
-    actionId: string;
-    invocationId: string;
-    workspaceProfileId: string;
-    captureId: string;
-    captureReadyMs: number;
-  };
+  trigger: BrowserSessionTrigger;
   signal?: AbortSignal;
   onLiveEvent: SessionLiveEventSink;
 }
 
+export interface AuthorizedBrowserPageAnswerLaunch {
+  workspaceRoot: string;
+  question: string;
+  browserSnapshot: LoadedBrowserSnapshot;
+  continuationSourceSessionId: string;
+  pageConversationHistory: PageAnswerConversationTurn[];
+  executionPolicy: ExecutionPolicy;
+  trigger: BrowserSessionTrigger;
+  signal?: AbortSignal;
+  onLiveEvent: SessionLiveEventSink;
+}
+
+export type BrowserLearningLaunchOutcome =
+  | { status: "completed"; summary: string; pageBrief?: PageBrief }
+  | { status: "stopped"; reason: string }
+  | { status: "failed"; message: string };
+
+export type BrowserPageAnswerLaunchOutcome =
+  | { status: "completed"; summary: string; pageAnswer?: PageAnswer }
+  | { status: "stopped"; reason: string }
+  | { status: "failed"; message: string };
+
 export interface BrowserLearningLauncher {
-  startLearning(input: AuthorizedBrowserLearningLaunch): Promise<
-    | { status: "completed"; summary: string; pageBrief?: PageBrief }
-    | { status: "stopped"; reason: string }
-    | { status: "failed"; message: string }
-  >;
+  startLearning(
+    input: AuthorizedBrowserLearningLaunch,
+  ): Promise<BrowserLearningLaunchOutcome>;
+  startPageAnswer(
+    input: AuthorizedBrowserPageAnswerLaunch,
+  ): Promise<BrowserPageAnswerLaunchOutcome>;
 }
 
 export function createBrowserWorkbench(input: {
-  resolveProfile(profileId: string): Promise<{ id: string; label: string; path: string }>;
+  resolveProfile(profileId: string): Promise<ResolvedBrowserProfile>;
   startLearning: BrowserLearningLauncher["startLearning"];
+  startPageAnswer: BrowserLearningLauncher["startPageAnswer"];
 }): ProtocolLauncher {
   return {
     async launch({ request, signal, onLiveEvent }): Promise<ProtocolLaunchResult> {
-      if (signal?.aborted) throw new Error("Session launch cancelled before Session creation.");
-      if (request.kind !== "root")
-        throw new Error("Page Conversation follow-ups are not available until the conversation launcher is installed.");
-      const invocation = {
-        actionId: request.actionId,
-        invocationId: request.invocationId,
-        workspaceProfileId: request.workspaceProfileId,
-        ...(request.outputLanguage ? { outputLanguage: request.outputLanguage } : {}),
-        capture: { ...request.capture, preview: makePreview(request.capture.content) },
-      };
-      const profile = await input.resolveProfile(invocation.workspaceProfileId);
-      if (signal?.aborted) throw new Error("Session launch cancelled before Session creation.");
-      return input.startLearning({
-        workspaceRoot: profile.path,
-        task: browserSummaryTask(invocation.outputLanguage),
-        browserSnapshot: invocation.capture,
-        executionPolicy: "answer_once",
-        trigger: {
-          actionId: invocation.actionId,
-          invocationId: invocation.invocationId,
-          workspaceProfileId: profile.id,
-          captureId: invocation.capture.captureId,
-          captureReadyMs: invocation.capture.captureReadyMs,
-        },
-        signal,
-        onLiveEvent,
-      });
+      assertNotCancelled(signal);
+      if (request.kind === "root")
+        return launchRoot(request, input, signal, onLiveEvent);
+      if (request.kind === "root_retry")
+        return launchRootRetry(request, input, signal, onLiveEvent);
+      return launchFollowUp(request, input, signal, onLiveEvent);
     },
   };
+}
+
+async function launchRoot(
+  request: Extract<BrowserInvocationRequest, { kind: "root" }>,
+  deps: Parameters<typeof createBrowserWorkbench>[0],
+  signal: AbortSignal | undefined,
+  onLiveEvent: SessionLiveEventSink,
+): Promise<ProtocolLaunchResult> {
+  const profile = await deps.resolveProfile(request.workspaceProfileId);
+  assertNotCancelled(signal);
+  const result = await deps.startLearning({
+    workspaceRoot: profile.path,
+    task: browserSummaryTask(request.outputLanguage),
+    browserSnapshot: { ...request.capture, preview: makePreview(request.capture.content) },
+    executionPolicy: "answer_once",
+    trigger: {
+      kind: "root",
+      conversationId: request.conversationId,
+      actionId: request.actionId,
+      invocationId: request.invocationId,
+      workspaceProfileId: profile.id,
+      captureId: request.capture.captureId,
+      captureReadyMs: request.capture.captureReadyMs,
+      ...(request.outputLanguage ? { outputLanguage: request.outputLanguage } : {}),
+    },
+    signal,
+    onLiveEvent,
+  });
+  return mapLaunchOutcome("pageBrief", result);
+}
+
+async function launchRootRetry(
+  request: Extract<BrowserInvocationRequest, { kind: "root_retry" }>,
+  deps: Parameters<typeof createBrowserWorkbench>[0],
+  signal: AbortSignal | undefined,
+  onLiveEvent: SessionLiveEventSink,
+): Promise<ProtocolLaunchResult> {
+  const profile = await deps.resolveProfile(request.workspaceProfileId);
+  assertNotCancelled(signal);
+  // Root Retry carries no fresh capture bytes: it must reload and verify the
+  // same persisted capture the original root attempt captured (ADR 0044).
+  const capture = await verifyPersistedCapture(profile.path, request.captureId);
+  assertNotCancelled(signal);
+  const result = await deps.startLearning({
+    workspaceRoot: profile.path,
+    task: browserSummaryTask(request.outputLanguage),
+    browserSnapshot: captureToBrowserSnapshot(capture),
+    executionPolicy: "answer_once",
+    trigger: {
+      kind: "root_retry",
+      conversationId: request.conversationId,
+      actionId: request.actionId,
+      invocationId: request.invocationId,
+      workspaceProfileId: profile.id,
+      captureId: capture.captureId,
+      ...(request.outputLanguage ? { outputLanguage: request.outputLanguage } : {}),
+    },
+    signal,
+    onLiveEvent,
+  });
+  return mapLaunchOutcome("pageBrief", result);
+}
+
+async function launchFollowUp(
+  request: Extract<
+    BrowserInvocationRequest,
+    { kind: "follow_up" | "follow_up_retry" }
+  >,
+  deps: Parameters<typeof createBrowserWorkbench>[0],
+  signal: AbortSignal | undefined,
+  onLiveEvent: SessionLiveEventSink,
+): Promise<ProtocolLaunchResult> {
+  const preflight = await preflightBrowserFollowUp({
+    workspaceProfileId: request.workspaceProfileId,
+    conversationId: request.conversationId,
+    captureId: request.captureId,
+    rootSessionId: request.rootSessionId,
+    headSessionId: request.parentSessionId,
+    resolveProfile: deps.resolveProfile,
+  });
+  assertNotCancelled(signal);
+  const result = await deps.startPageAnswer({
+    workspaceRoot: preflight.workspaceRoot,
+    question: request.question,
+    browserSnapshot: captureToBrowserSnapshot(preflight.capture),
+    continuationSourceSessionId: request.parentSessionId,
+    pageConversationHistory: preflight.history.turns,
+    executionPolicy: "answer_once",
+    trigger: {
+      kind: request.kind,
+      conversationId: request.conversationId,
+      actionId: request.actionId,
+      invocationId: request.invocationId,
+      workspaceProfileId: preflight.workspaceProfileId,
+      captureId: request.captureId,
+      rootSessionId: request.rootSessionId,
+      parentSessionId: request.parentSessionId,
+      ...(request.outputLanguage ? { outputLanguage: request.outputLanguage } : {}),
+    },
+    signal,
+    onLiveEvent,
+  });
+  return mapLaunchOutcome("pageAnswer", result);
+}
+
+function mapLaunchOutcome(
+  deliverable: "pageBrief" | "pageAnswer",
+  outcome:
+    | { status: "completed"; summary: string; pageBrief?: PageBrief; pageAnswer?: PageAnswer }
+    | { status: "stopped"; reason: string }
+    | { status: "failed"; message: string },
+): ProtocolLaunchResult {
+  if (outcome.status !== "completed") return outcome;
+  const completion = outcome[deliverable];
+  return {
+    status: "completed",
+    summary: outcome.summary,
+    ...(completion ? { [deliverable]: completion } : {}),
+  };
+}
+
+function captureToBrowserSnapshot(
+  capture: BrowserWorkbenchCapture,
+): LoadedBrowserSnapshot {
+  return {
+    url: capture.url,
+    title: capture.title,
+    capturedAt: capture.capturedAt,
+    contentKind: capture.contentKind,
+    content: capture.content,
+    contentBytes: capture.contentBytes,
+    contentHash: capture.contentHash,
+    truncated: capture.truncated,
+    preview: makePreview(capture.content),
+  };
+}
+
+function assertNotCancelled(signal: AbortSignal | undefined): void {
+  if (signal?.aborted)
+    throw new Error("Session launch cancelled before Session creation.");
 }
 
 function browserSummaryTask(outputLanguage: string | undefined): string {
   const base = "Summarize the explicitly shared current browser page as a concise Page Brief.";
   if (!outputLanguage) return base;
   return `${base} Write all body text in ${outputLanguage}; keep the Page Brief headings in English.`;
-}
-
-function parseBrowserSummaryInvocation(
-  payload: Record<string, unknown>,
-  actionId: string,
-  invocationId: string,
-): BrowserSummaryInvocation {
-  requireOnlyKeys(payload, ["workspaceProfileId", "outputLanguage", "capture"], "Browser invocation payload");
-  const workspaceProfileId = requiredString(payload, "workspaceProfileId", "Browser invocation payload");
-  const outputLanguage = optionalLanguageTag(payload, "outputLanguage", "Browser invocation payload");
-  const capture = requiredRecord(payload, "capture", "Browser invocation payload");
-  requireOnlyKeys(
-    capture,
-    [
-      "url",
-      "title",
-      "content",
-      "contentKind",
-      "contentHash",
-      "contentBytes",
-      "captureId",
-      "capturedAt",
-      "captureReadyMs",
-    ],
-    "Browser capture",
-  );
-  const content = requiredString(capture, "content", "Browser capture");
-  if (Buffer.byteLength(content, "utf8") > 64 * 1024) {
-    throw new Error("Browser capture exceeds 65536 bytes.");
-  }
-  const contentKind = requiredString(capture, "contentKind", "Browser capture");
-  if (contentKind !== "selectedText" && contentKind !== "mainText") {
-    throw new Error("Browser capture has an invalid contentKind.");
-  }
-  const captureId = requiredString(capture, "captureId", "Browser capture");
-  if (!isSafeCaptureId(captureId)) {
-    // The captureId keys the persisted capture file inside the workspace.
-    throw new Error("Browser capture has an unsafe captureId.");
-  }
-  return {
-    actionId,
-    invocationId,
-    workspaceProfileId,
-    ...(outputLanguage ? { outputLanguage } : {}),
-    capture: {
-      url: requiredString(capture, "url", "Browser capture"),
-      title: requiredString(capture, "title", "Browser capture"),
-      content,
-      contentKind,
-      contentHash: requiredString(capture, "contentHash", "Browser capture"),
-      contentBytes: requiredNumber(capture, "contentBytes", "Browser capture"),
-      captureId,
-      capturedAt: requiredString(capture, "capturedAt", "Browser capture"),
-      captureReadyMs: requiredNumber(capture, "captureReadyMs", "Browser capture"),
-      preview: makePreview(content),
-    },
-  };
-}
-
-function requiredRecord(value: Record<string, unknown>, key: string, subject: string): Record<string, unknown> {
-  const field = value[key];
-  if (typeof field !== "object" || field === null || Array.isArray(field)) {
-    throw new Error(`${subject} is missing ${key}.`);
-  }
-  return field as Record<string, unknown>;
-}
-
-function requiredString(value: Record<string, unknown>, key: string, subject: string): string {
-  const field = value[key];
-  if (typeof field !== "string" || field.trim() === "") {
-    throw new Error(`${subject} is missing ${key}.`);
-  }
-  return field;
-}
-
-// Mirrors normalizeBrowserOutputLanguage in src/browser/extension/workbench.ts; the
-// extension drops what this boundary would reject, but the host must not trust it.
-const LANGUAGE_TAG_PATTERN = /^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{1,8})*$/;
-
-function optionalLanguageTag(
-  value: Record<string, unknown>,
-  key: string,
-  subject: string,
-): string | undefined {
-  const field = value[key];
-  if (field === undefined) return undefined;
-  if (typeof field !== "string" || field.length > 35 || !LANGUAGE_TAG_PATTERN.test(field)) {
-    throw new Error(`${subject} has an invalid ${key}.`);
-  }
-  return field;
-}
-
-function requiredNumber(value: Record<string, unknown>, key: string, subject: string): number {
-  const field = value[key];
-  if (typeof field !== "number" || !Number.isFinite(field) || field < 0) {
-    throw new Error(`${subject} has an invalid ${key}.`);
-  }
-  return field;
-}
-
-function requireOnlyKeys(value: Record<string, unknown>, allowed: string[], subject: string): void {
-  const unexpected = Object.keys(value).find((key) => !allowed.includes(key));
-  if (unexpected) throw new Error(`${subject} contains forbidden field: ${unexpected}.`);
 }
 
 function makePreview(content: string): string {

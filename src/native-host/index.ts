@@ -265,6 +265,7 @@ export function createNativeHostApplication(input: {
   const workbench = createBrowserWorkbench({
     resolveProfile: (profileId) => resolveWorkspaceProfile({ homeDir, profileId }),
     startLearning: learningLauncher.startLearning,
+    startPageAnswer: learningLauncher.startPageAnswer,
   });
 
   return {

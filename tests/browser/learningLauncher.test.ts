@@ -38,6 +38,8 @@ test("a Workbench-launched Learning Session persists the capture and its Trace a
     },
     executionPolicy: "answer_once",
     trigger: {
+      kind: "root",
+      conversationId: "conversation_1",
       actionId: "action_1",
       invocationId: "invocation_1",
       workspaceProfileId: "profile_1",

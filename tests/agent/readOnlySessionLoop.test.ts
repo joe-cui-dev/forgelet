@@ -1924,6 +1924,170 @@ test("a learning Session normalizes model output into a source-linked Learning P
   expect(systemMessage).toMatch(/note-writing/);
 });
 
+test("a Page Answer child Session finishes with a typed invalid_page_answer reason instead of the generic model-execution one", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-page-answer-invalid-"),
+  );
+  const pageContent = "The captured page says the sky is blue.";
+  const modelClient = new FakeModelClient([
+    {
+      content:
+        "## Answer\nThe sky is blue.\n## Evidence\n- a sentence the page never said",
+      toolCalls: [],
+    },
+  ]);
+
+  await expect(
+    runLearningSession({
+      deliverableShape: "pageAnswer",
+      task: "why is the sky blue",
+      contextFiles: [],
+      workspaceRoot,
+      modelClient,
+      executionPolicy: "answer_once",
+      browserSnapshot: {
+        url: "https://example.com/sky",
+        title: "Sky",
+        capturedAt: "2026-07-12T00:00:00.000Z",
+        contentKind: "mainText",
+        content: pageContent,
+        contentBytes: Buffer.byteLength(pageContent, "utf8"),
+        contentHash: "a".repeat(64),
+        preview: pageContent,
+      },
+    }),
+  ).rejects.toThrow(
+    "Page Answer Evidence excerpt does not match the captured page.",
+  );
+
+  const sessionFiles = await readdir(
+    join(workspaceRoot, ".forgelet", "sessions"),
+  );
+  expect(sessionFiles).toHaveLength(1);
+  const trace = await readFile(
+    join(workspaceRoot, ".forgelet", "sessions", sessionFiles[0] ?? ""),
+    "utf8",
+  );
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const finished = events.find((event) => event.type === "session_finished");
+  expect(finished?.payload).toMatchObject({
+    status: "failed",
+    reason: "invalid_page_answer",
+  });
+});
+
+test("the internal Page Answer continuation path launches a child Session with the right kind, deliverableShape, policy, continuation lineage, capture, and Page Conversation History, and no forbidden tools", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-page-answer-continuation-"),
+  );
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(sessionDir, "sess_root.jsonl"),
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-07-12T00:00:00.000Z",
+        sessionId: "sess_root",
+        payload: { workflow: "learning", startedAt: "2026-07-12T00:00:00.000Z" },
+      }),
+      JSON.stringify({
+        type: "user_task",
+        ts: "2026-07-12T00:00:00.000Z",
+        sessionId: "sess_root",
+        payload: { task: "Summarize the page." },
+      }),
+      JSON.stringify({
+        type: "final_summary",
+        ts: "2026-07-12T00:00:01.000Z",
+        sessionId: "sess_root",
+        payload: { finalContent: "## Summary\nPage summary.\n\n## Key Concepts\nConcept." },
+      }),
+      JSON.stringify({
+        type: "session_finished",
+        ts: "2026-07-12T00:00:01.000Z",
+        sessionId: "sess_root",
+        payload: { status: "completed" },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+
+  const pageContent = "The captured page says the sky is blue.";
+  const modelClient = new FakeModelClient([
+    {
+      content: "## Answer\nThe sky is blue.\n\n## Evidence\n- the sky is blue",
+      toolCalls: [],
+    },
+  ]);
+
+  const result = await runLearningSession({
+    deliverableShape: "pageAnswer",
+    task: "Why is the sky blue?",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+    executionPolicy: "answer_once",
+    continuationSourceSessionId: "sess_root",
+    pageConversationHistory: [
+      {
+        sessionId: "sess_root",
+        question: "Summarize the page.",
+        answer: "## Summary\nPage summary.\n\n## Key Concepts\nConcept.",
+      },
+    ],
+    browserSnapshot: {
+      url: "https://example.com/sky",
+      title: "Sky",
+      capturedAt: "2026-07-12T00:00:00.000Z",
+      contentKind: "mainText",
+      content: pageContent,
+      contentBytes: Buffer.byteLength(pageContent, "utf8"),
+      contentHash: "a".repeat(64),
+      preview: pageContent,
+    },
+  });
+
+  expect(result.completion).toEqual({
+    answer: "The sky is blue.",
+    groundingStatus: "supported",
+    evidence: ["the sky is blue"],
+  });
+
+  const sessionFiles = (
+    await readdir(join(workspaceRoot, ".forgelet", "sessions"))
+  ).filter((name) => name !== "sess_root.jsonl");
+  expect(sessionFiles).toHaveLength(1);
+  const trace = await readFile(
+    join(workspaceRoot, ".forgelet", "sessions", sessionFiles[0] ?? ""),
+    "utf8",
+  );
+  const events = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const started = events.find((event) => event.type === "session_started");
+  expect(started?.payload).toMatchObject({
+    workflow: "learning",
+    deliverableShape: "pageAnswer",
+    continuation: { sourceSessionId: "sess_root" },
+  });
+
+  expect(modelClient.turnInputs).toHaveLength(1);
+  expect(modelClient.turnInputs[0]?.tools).toEqual([]);
+  const promptContent =
+    modelClient.turnInputs[0]?.messages.find((message) => message.role === "user")
+      ?.content ?? "";
+  expect(promptContent).toContain("Page Conversation History");
+  expect(promptContent).toContain("Summarize the page.");
+  expect(promptContent).toContain("Page summary.");
+  expect(promptContent).toContain(pageContent);
+  expect(promptContent).not.toMatch(/run_command|apply_patch|git_diff|web_search|web_read/);
+});
+
 test("answer_once performs exactly one successful model turn with no tool schemas, recorded as an explicit policy rather than a turn budget", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-answer-once-"));
   await writeFile(

@@ -1,8 +1,34 @@
 import { expect, test } from "@jest/globals";
 import {
   createLearningWorkflowDefinition,
+  createPageAnswerWorkflowDefinition,
   createPageBriefWorkflowDefinition,
+  InvalidPageAnswerError,
+  MAX_PAGE_ANSWER_EXCERPT_BYTES,
+  MAX_PAGE_ANSWER_EXCERPT_COUNT,
+  PAGE_ANSWER_NOT_FOUND_SENTINEL,
 } from "../../src/workflows/learning.js";
+import type { LoadedContextAttachment } from "../../src/types.js";
+
+function browserCapture(content: string): LoadedContextAttachment[] {
+  return [
+    {
+      attachment: {
+        id: "ctx_1",
+        source: "browser",
+        title: "Example Docs",
+        uri: "https://example.com/docs",
+        mimeType: "text/plain",
+        contentBytes: Buffer.byteLength(content, "utf8"),
+        contentHash: "a".repeat(64),
+        preview: content.slice(0, 160),
+        capturedAt: "2026-07-12T00:00:00.000Z",
+        trustLevel: "external",
+      },
+      content,
+    },
+  ];
+}
 
 test("learning definition grants source-backed text capabilities", () => {
   const definition = createLearningWorkflowDefinition();
@@ -173,6 +199,194 @@ test("learning definition source links surface when a browser attachment was cap
 
   expect(normalized).toContain("- browser: Example Docs");
   expect(normalized).toContain("  capturedAt: 2026-07-12T00:00:00.000Z");
+});
+
+test("Page Answer definition requests the Answer/Evidence shape and forbids tool schemas", () => {
+  const definition = createPageAnswerWorkflowDefinition();
+
+  expect(definition.capabilities({ act: false })).toEqual([
+    "read_context",
+    "update_plan",
+    "model_generate_text",
+  ]);
+  const prompt = definition.systemPrompt({ act: false });
+  expect(prompt).toContain(
+    "Produce a Page Answer with these headings: Answer, Evidence.",
+  );
+  expect(prompt).toContain(PAGE_ANSWER_NOT_FOUND_SENTINEL);
+  expect(prompt).toContain(
+    "Do not request workspace, git, shell, patch, command, note-writing, or browser automation tools.",
+  );
+});
+
+test("Page Answer normalizer accepts a supported answer with verified excerpts", async () => {
+  const definition = createPageAnswerWorkflowDefinition();
+  const contextAttachments = browserCapture(
+    "The  captured   page\nsays the sky is blue. It also says water is wet.",
+  );
+
+  const normalized = definition.normalizeFinalContent?.(
+    [
+      "## Answer",
+      "The sky is blue and water is wet.",
+      "## Evidence",
+      "- the sky is blue.",
+      "- water is wet.",
+    ].join("\n"),
+    { contextAttachments },
+  );
+
+  expect(normalized).toBe(
+    [
+      "## Answer\nThe sky is blue and water is wet.",
+      "## Evidence\n- the sky is blue.\n- water is wet.",
+    ].join("\n\n"),
+  );
+
+  const effects = await definition.onCompleted?.({
+    workspaceRoot: "/tmp/unused",
+    session: {
+      id: "sess_test",
+      workflow: "learning",
+      task: "why is the sky blue",
+      taskHash: "abcdef00",
+      stage: "final",
+      plan: { items: [] },
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+    finalContent: normalized ?? "",
+    contextAttachments,
+    appendTrace: async () => {},
+  });
+
+  expect(effects?.completion).toEqual({
+    answer: "The sky is blue and water is wet.",
+    groundingStatus: "supported",
+    evidence: ["the sky is blue.", "water is wet."],
+  });
+});
+
+test("Page Answer normalizer converts the not-found sentinel into an empty-evidence not_found result", () => {
+  const definition = createPageAnswerWorkflowDefinition();
+  const contextAttachments = browserCapture("Unrelated page content.");
+
+  const normalized = definition.normalizeFinalContent?.(
+    ["## Answer", "The page does not say.", "## Evidence", PAGE_ANSWER_NOT_FOUND_SENTINEL].join(
+      "\n",
+    ),
+    { contextAttachments },
+  );
+
+  expect(normalized).toBe(
+    `## Answer\nThe page does not say.\n\n## Evidence\n${PAGE_ANSWER_NOT_FOUND_SENTINEL}`,
+  );
+});
+
+test("Page Answer normalizer rejects missing Answer or Evidence sections", () => {
+  const definition = createPageAnswerWorkflowDefinition();
+  const contextAttachments = browserCapture("Some captured page text.");
+
+  expect(() =>
+    definition.normalizeFinalContent?.("Just some prose with no headings.", {
+      contextAttachments,
+    }),
+  ).toThrow(InvalidPageAnswerError);
+
+  expect(() =>
+    definition.normalizeFinalContent?.("## Answer\nOnly an answer, no Evidence heading.", {
+      contextAttachments,
+    }),
+  ).toThrow(InvalidPageAnswerError);
+});
+
+test("Page Answer normalizer rejects an empty Evidence section without the sentinel", () => {
+  const definition = createPageAnswerWorkflowDefinition();
+  const contextAttachments = browserCapture("Some captured page text.");
+
+  expect(() =>
+    definition.normalizeFinalContent?.(["## Answer", "An answer.", "## Evidence", ""].join("\n"), {
+      contextAttachments,
+    }),
+  ).toThrow(InvalidPageAnswerError);
+});
+
+test("Page Answer normalizer rejects more than the maximum number of excerpts", () => {
+  const definition = createPageAnswerWorkflowDefinition();
+  expect(MAX_PAGE_ANSWER_EXCERPT_COUNT).toBe(3);
+  const captured = "one two three four sentences in the captured page for this test to quote.";
+  const contextAttachments = browserCapture(captured);
+
+  const excerpts = ["one two", "three four", "sentences in", "the captured"];
+  expect(excerpts.length).toBeGreaterThan(MAX_PAGE_ANSWER_EXCERPT_COUNT);
+
+  expect(() =>
+    definition.normalizeFinalContent?.(
+      [
+        "## Answer",
+        "An answer.",
+        "## Evidence",
+        ...excerpts.map((excerpt) => `- ${excerpt}`),
+      ].join("\n"),
+      { contextAttachments },
+    ),
+  ).toThrow(InvalidPageAnswerError);
+});
+
+test("Page Answer normalizer rejects an excerpt that exceeds the per-excerpt byte bound", () => {
+  const definition = createPageAnswerWorkflowDefinition();
+  expect(MAX_PAGE_ANSWER_EXCERPT_BYTES).toBe(500);
+  const oversized = "a".repeat(MAX_PAGE_ANSWER_EXCERPT_BYTES + 1);
+  const contextAttachments = browserCapture(oversized);
+
+  expect(() =>
+    definition.normalizeFinalContent?.(
+      ["## Answer", "An answer.", "## Evidence", `- ${oversized}`].join("\n"),
+      { contextAttachments },
+    ),
+  ).toThrow(InvalidPageAnswerError);
+});
+
+test("Page Answer normalizer rejects an excerpt that does not match the captured page", () => {
+  const definition = createPageAnswerWorkflowDefinition();
+  const contextAttachments = browserCapture("The captured page only says this exact sentence.");
+
+  expect(() =>
+    definition.normalizeFinalContent?.(
+      ["## Answer", "An answer.", "## Evidence", "- a sentence the page never said"].join("\n"),
+      { contextAttachments },
+    ),
+  ).toThrow(InvalidPageAnswerError);
+});
+
+test("Page Answer normalizer rejects Evidence that mixes the not-found sentinel with excerpts", () => {
+  const definition = createPageAnswerWorkflowDefinition();
+  const contextAttachments = browserCapture("The captured page says something useful.");
+
+  expect(() =>
+    definition.normalizeFinalContent?.(
+      [
+        "## Answer",
+        "An answer.",
+        "## Evidence",
+        "- something useful",
+        PAGE_ANSWER_NOT_FOUND_SENTINEL,
+      ].join("\n"),
+      { contextAttachments },
+    ),
+  ).toThrow(InvalidPageAnswerError);
+});
+
+test("Page Answer normalizer throws a typed reason distinguishable from a generic error", () => {
+  const definition = createPageAnswerWorkflowDefinition();
+  const contextAttachments = browserCapture("Some captured page text.");
+
+  try {
+    definition.normalizeFinalContent?.("No headings here.", { contextAttachments });
+    throw new Error("expected normalizeFinalContent to throw");
+  } catch (error) {
+    expect(error).toBeInstanceOf(InvalidPageAnswerError);
+    expect((error as InvalidPageAnswerError).reason).toBe("invalid_page_answer");
+  }
 });
 
 test("learning definition normalizes unstructured content into a Learning Pack", () => {

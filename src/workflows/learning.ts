@@ -14,15 +14,38 @@ export type LearningSessionInput = Omit<
 > & {
   allowedReadPaths?: string[];
   startTraceExtras?: Record<string, unknown>;
-  deliverableShape?: "learningPack" | "pageBrief";
+  deliverableShape?: "learningPack" | "pageBrief" | "pageAnswer";
 };
 
 export type PageBriefSessionInput = LearningSessionInput & {
   deliverableShape: "pageBrief";
 };
 
+/** The prior-turn shape the internal Browser Workbench launcher passes in
+ * (structurally identical to `PageConversationTurn` in
+ * src/browserWorkbench/pageConversationHistory.ts). Declared locally instead
+ * of imported so this generic workflow module does not depend on the
+ * browser-specific application module that already depends on it. */
+export interface PageAnswerConversationTurn {
+  sessionId: string;
+  question: string;
+  answer: string;
+}
+
+/** Internal, browser-only continuation path (ADR 0040, ADR 0045): every
+ * `pageAnswer` Session is a follow-up child, so it always names the Session
+ * it continues from and the exact ordered history that precedes it. This is
+ * deliberately not part of the public `LearningSessionInput` CLI surface —
+ * `forge learn`/`forge resume` never construct one of these. */
+export type PageAnswerSessionInput = LearningSessionInput & {
+  deliverableShape: "pageAnswer";
+  continuationSourceSessionId: string;
+  pageConversationHistory: PageAnswerConversationTurn[];
+};
+
 export type LearningSessionResult = KernelSessionResult<LearningPack>;
 export type PageBriefSessionResult = KernelSessionResult<PageBrief>;
+export type PageAnswerSessionResult = KernelSessionResult<PageAnswer>;
 
 export interface LearningPack {
   summary: string;
@@ -37,17 +60,51 @@ export interface PageBrief {
   keyConcepts: string;
 }
 
+export type PageAnswerGroundingStatus = "supported" | "not_found";
+
+export interface PageAnswer {
+  answer: string;
+  groundingStatus: PageAnswerGroundingStatus;
+  evidence: string[];
+}
+
+/** Thrown by the pageAnswer normalizer when the model's Answer/Evidence shape
+ * cannot be trusted as-is (ADR 0048, ADR 0049). The stable `reason` lets
+ * `runKernelSession` finish the child Session with this typed reason instead
+ * of the generic model-execution one, so callers can distinguish a bad
+ * Evidence shape from an actual model/provider failure without a second,
+ * hidden repair turn. */
+export class InvalidPageAnswerError extends Error {
+  readonly reason = "invalid_page_answer" as const;
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidPageAnswerError";
+  }
+}
+
+export const PAGE_ANSWER_NOT_FOUND_SENTINEL =
+  "No supporting passage in the captured page.";
+export const MAX_PAGE_ANSWER_EXCERPT_COUNT = 3;
+export const MAX_PAGE_ANSWER_EXCERPT_BYTES = 500;
+
 export function runLearningSession(
   input: PageBriefSessionInput,
 ): Promise<PageBriefSessionResult>;
 export function runLearningSession(
+  input: PageAnswerSessionInput,
+): Promise<PageAnswerSessionResult>;
+export function runLearningSession(
   input: LearningSessionInput,
 ): Promise<LearningSessionResult>;
 export function runLearningSession(
-  input: LearningSessionInput,
-): Promise<KernelSessionResult<LearningPack | PageBrief>> {
+  input: LearningSessionInput | PageAnswerSessionInput,
+): Promise<KernelSessionResult<LearningPack | PageBrief | PageAnswer>> {
   const deliverableShape = input.deliverableShape ?? "learningPack";
-  return runKernelSession<LearningPack | PageBrief>({
+  const pageAnswerInput =
+    deliverableShape === "pageAnswer"
+      ? (input as PageAnswerSessionInput)
+      : undefined;
+  return runKernelSession<LearningPack | PageBrief | PageAnswer>({
     task: input.task,
     contextFiles: input.contextFiles,
     browserSnapshot: input.browserSnapshot,
@@ -62,10 +119,18 @@ export function runLearningSession(
     signal: input.signal,
     readScopeRequest: input.allowedReadPaths,
     executionPolicy: input.executionPolicy,
+    ...(pageAnswerInput
+      ? { continuationSourceSessionId: pageAnswerInput.continuationSourceSessionId }
+      : {}),
     definition:
       deliverableShape === "pageBrief"
         ? createPageBriefWorkflowDefinition(input.startTraceExtras)
-        : createLearningWorkflowDefinition(input.startTraceExtras),
+        : pageAnswerInput
+          ? createPageAnswerWorkflowDefinition(
+              pageAnswerInput.startTraceExtras,
+              pageAnswerInput.pageConversationHistory,
+            )
+          : createLearningWorkflowDefinition(input.startTraceExtras),
   });
 }
 
@@ -73,6 +138,7 @@ export function createLearningWorkflowDefinition(
   startTraceExtras?: Record<string, unknown>,
 ): WorkflowDefinition<LearningPack> {
   return createSourceBackedLearningDefinition({
+    deliverableShape: "learningPack",
     startTraceExtras,
     systemPromptLines: [
       "Produce a Learning Pack with these headings: Summary, Key Concepts, Open Questions, Review Prompts.",
@@ -89,6 +155,7 @@ export function createPageBriefWorkflowDefinition(
   startTraceExtras?: Record<string, unknown>,
 ): WorkflowDefinition<PageBrief> {
   return createSourceBackedLearningDefinition({
+    deliverableShape: "pageBrief",
     startTraceExtras,
     systemPromptLines: [
       "Produce a Page Brief with these headings: Summary, Key Concepts.",
@@ -99,17 +166,42 @@ export function createPageBriefWorkflowDefinition(
   });
 }
 
+export function createPageAnswerWorkflowDefinition(
+  startTraceExtras?: Record<string, unknown>,
+  pageConversationHistory?: PageAnswerConversationTurn[],
+): WorkflowDefinition<PageAnswer> {
+  return createSourceBackedLearningDefinition({
+    deliverableShape: "pageAnswer",
+    startTraceExtras,
+    pageConversationHistory,
+    systemPromptLines: [
+      "Produce a Page Answer with these headings: Answer, Evidence.",
+      "Evidence must list one to three exact quoted passages copied verbatim from the captured page, one passage per line.",
+      `If no passage in the captured page supports the answer, write exactly "${PAGE_ANSWER_NOT_FOUND_SENTINEL}" as the entire Evidence section and nothing else.`,
+      "Never paraphrase Evidence, invent a passage, or cite the page URL or a heading name as Evidence.",
+      "Use the Page Conversation History below only as context for what was already asked and answered; ground the Evidence itself in the captured page, not in that history.",
+    ],
+    normalize: normalizePageAnswer,
+    completion: pageAnswerFromNormalizedMarkdown,
+  });
+}
+
 function createSourceBackedLearningDefinition<T>(input: {
+  deliverableShape: "learningPack" | "pageBrief" | "pageAnswer";
   startTraceExtras?: Record<string, unknown>;
+  pageConversationHistory?: PageAnswerConversationTurn[];
   systemPromptLines: string[];
   normalize(content: string, contextAttachments: LoadedContextAttachment[]): string;
   completion(markdown: string): T;
 }): WorkflowDefinition<T> {
   return {
     kind: "learning",
-    ...(input.startTraceExtras
-      ? { sessionTraits: { startTraceExtras: input.startTraceExtras } }
-      : {}),
+    sessionTraits: {
+      startTraceExtras: {
+        deliverableShape: input.deliverableShape,
+        ...input.startTraceExtras,
+      },
+    },
     async loadAttachments({ workspaceRoot, contextFiles }) {
       return {
         contextAttachments: await loadContextAttachments(
@@ -134,6 +226,11 @@ function createSourceBackedLearningDefinition<T>(input: {
         ...input.systemPromptLines,
         "Do not request workspace, git, shell, patch, command, note-writing, or browser automation tools.",
       ].join("\n");
+    },
+    promptContextLines() {
+      return formatPageConversationHistoryForPrompt(
+        input.pageConversationHistory ?? [],
+      );
     },
     normalizeFinalContent(content, { contextAttachments }) {
       return input.normalize(content, [...contextAttachments]);
@@ -225,13 +322,149 @@ function pageBriefFromNormalizedMarkdown(markdown: string): PageBrief {
   };
 }
 
+const PAGE_ANSWER_HEADINGS = ["Answer", "Evidence"] as const;
+
+/** Strict by design (ADR 0048): unlike the Learning Pack and Page Brief
+ * normalizers, there is no unstructured-content fallback. A Page Answer that
+ * does not carry both headings is not a lesser-effort answer, it is invalid. */
+function normalizePageAnswer(
+  content: string,
+  contextAttachments: LoadedContextAttachment[],
+): string {
+  const { sections } = parseSections(content, PAGE_ANSWER_HEADINGS);
+  const answer = sections.get("Answer")?.trim();
+  const evidenceSection = sections.get("Evidence");
+  if (!answer || evidenceSection === undefined)
+    throw new InvalidPageAnswerError(
+      "Page Answer is missing the required Answer or Evidence section.",
+    );
+
+  const excerpts = parsePageAnswerEvidenceLines(evidenceSection);
+  if (excerpts.length === 0)
+    throw new InvalidPageAnswerError(
+      "Page Answer Evidence is empty without the not-found sentinel.",
+    );
+
+  const hasSentinel = excerpts.includes(PAGE_ANSWER_NOT_FOUND_SENTINEL);
+  if (hasSentinel) {
+    if (excerpts.length > 1)
+      throw new InvalidPageAnswerError(
+        "Page Answer Evidence mixes the not-found sentinel with excerpts.",
+      );
+    return formatPageAnswerMarkdown(answer, "not_found", []);
+  }
+
+  if (excerpts.length > MAX_PAGE_ANSWER_EXCERPT_COUNT)
+    throw new InvalidPageAnswerError(
+      `Page Answer Evidence has more than ${MAX_PAGE_ANSWER_EXCERPT_COUNT} excerpts.`,
+    );
+
+  const capturedContent = findBrowserCaptureContent(contextAttachments);
+  const normalizedCapture = normalizeEvidenceWhitespace(capturedContent);
+  for (const excerpt of excerpts) {
+    if (Buffer.byteLength(excerpt, "utf8") > MAX_PAGE_ANSWER_EXCERPT_BYTES)
+      throw new InvalidPageAnswerError(
+        `Page Answer Evidence excerpt exceeds ${MAX_PAGE_ANSWER_EXCERPT_BYTES} bytes.`,
+      );
+    if (!normalizedCapture.includes(normalizeEvidenceWhitespace(excerpt)))
+      throw new InvalidPageAnswerError(
+        "Page Answer Evidence excerpt does not match the captured page.",
+      );
+  }
+
+  return formatPageAnswerMarkdown(answer, "supported", excerpts);
+}
+
+function pageAnswerFromNormalizedMarkdown(markdown: string): PageAnswer {
+  const { sections } = parseSections(markdown, PAGE_ANSWER_HEADINGS);
+  const answer = sections.get("Answer") ?? "";
+  const evidenceSection = sections.get("Evidence") ?? "";
+  if (evidenceSection.trim() === PAGE_ANSWER_NOT_FOUND_SENTINEL)
+    return { answer, groundingStatus: "not_found", evidence: [] };
+  return {
+    answer,
+    groundingStatus: "supported",
+    evidence: parsePageAnswerEvidenceLines(evidenceSection),
+  };
+}
+
+function formatPageAnswerMarkdown(
+  answer: string,
+  groundingStatus: PageAnswerGroundingStatus,
+  evidence: string[],
+): string {
+  const evidenceBody =
+    groundingStatus === "not_found"
+      ? PAGE_ANSWER_NOT_FOUND_SENTINEL
+      : evidence.map((excerpt) => `- ${excerpt}`).join("\n");
+  return [`## Answer\n${answer}`, `## Evidence\n${evidenceBody}`].join("\n\n");
+}
+
+function parsePageAnswerEvidenceLines(section: string): string[] {
+  return section
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^[-*]\s+/, "").trim())
+    .filter((line) => line.length > 0);
+}
+
+/** Renders exact, ordered Page Conversation History turns (ADR 0046) as a
+ * dedicated prompt block, distinct from Context Attachments and from generic
+ * Continuation Context (WP6). Turns are not trimmed or summarized here: the
+ * read model that supplies them (src/browserWorkbench/pageConversationHistory.ts)
+ * is the seam responsible for failing the launch outright, rather than this
+ * function silently dropping older turns, when history cannot be trusted. */
+function formatPageConversationHistoryForPrompt(
+  turns: PageAnswerConversationTurn[],
+): string[] {
+  if (turns.length === 0) return [];
+  const lines = ["Page Conversation History (most recent turn last):"];
+  turns.forEach((turn, index) => {
+    lines.push(`Turn ${index + 1} (${turn.sessionId}):`);
+    lines.push(`  Question: ${turn.question}`);
+    lines.push("  Answer:");
+    lines.push(indentPageConversationTurnAnswer(turn.answer));
+  });
+  return lines;
+}
+
+function indentPageConversationTurnAnswer(answer: string): string {
+  return answer
+    .split(/\r?\n/)
+    .map((line) => `    ${line}`)
+    .join("\n");
+}
+
+function findBrowserCaptureContent(
+  contextAttachments: LoadedContextAttachment[],
+): string {
+  const browserAttachment = contextAttachments.find(
+    ({ attachment }) => attachment.source === "browser",
+  );
+  if (!browserAttachment)
+    throw new InvalidPageAnswerError(
+      "Page Answer cannot be verified without a captured browser page.",
+    );
+  return browserAttachment.content;
+}
+
+function normalizeEvidenceWhitespace(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
 function parseLearningSections(content: string): {
   preamble: string;
   sections: Map<LearningPackHeading, string>;
 } {
-  const sections = new Map<LearningPackHeading, string>();
+  return parseSections(content, LEARNING_PACK_HEADINGS);
+}
+
+function parseSections<Heading extends string>(
+  content: string,
+  headings: readonly Heading[],
+): { preamble: string; sections: Map<Heading, string> } {
+  const sections = new Map<Heading, string>();
   const preamble: string[] = [];
-  let currentHeading: LearningPackHeading | undefined;
+  let currentHeading: Heading | undefined;
   let currentLines: string[] = [];
 
   const flush = (): void => {
@@ -241,7 +474,7 @@ function parseLearningSections(content: string): {
   };
 
   for (const line of content.split(/\r?\n/)) {
-    const heading = learningPackHeadingForLine(line);
+    const heading = headingForLine(line, headings);
     if (heading) {
       flush();
       currentHeading = heading;
@@ -255,15 +488,16 @@ function parseLearningSections(content: string): {
   return { preamble: preamble.join("\n").trim(), sections };
 }
 
-function learningPackHeadingForLine(
+function headingForLine<Heading extends string>(
   line: string,
-): LearningPackHeading | undefined {
+  headings: readonly Heading[],
+): Heading | undefined {
   const normalized = line
     .replace(/^#{1,6}\s*/, "")
     .trim()
     .replace(/:$/, "")
     .toLowerCase();
-  return LEARNING_PACK_HEADINGS.find(
+  return headings.find(
     (heading) => heading.toLowerCase() === normalized,
   );
 }
