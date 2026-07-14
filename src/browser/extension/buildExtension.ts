@@ -13,8 +13,16 @@ export async function buildBrowserExtension(): Promise<void> {
       resolve(outputDir, "serviceWorker.js"),
     ),
     copyFile(
-      resolve(compiledDir, "workbench.js"),
-      resolve(outputDir, "workbench.js"),
+      resolve(compiledDir, "pageConversationController.js"),
+      resolve(outputDir, "pageConversationController.js"),
+    ),
+    copyFile(
+      resolve(compiledDir, "pageConversationProjection.js"),
+      resolve(outputDir, "pageConversationProjection.js"),
+    ),
+    copyFile(
+      resolve(compiledDir, "pageConversationStore.js"),
+      resolve(outputDir, "pageConversationStore.js"),
     ),
     copyFile(
       resolve(compiledDir, "sidePanel.js"),
@@ -229,6 +237,38 @@ export function sidePanelHtml(): string {
         outline: 1px solid var(--accent);
         outline-offset: 1px;
       }
+      .composer {
+        flex: none;
+        display: flex;
+        align-items: flex-end;
+        gap: 8px;
+        padding: 10px 14px;
+        border-top: 1px solid var(--border);
+        background: var(--surface);
+      }
+      #question {
+        flex: 1;
+        resize: vertical;
+        min-height: 2.4em;
+        max-height: 8em;
+        padding: 6px 8px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--surface-raised);
+        color: var(--fg);
+        font: inherit;
+        font-size: var(--content-font-size);
+      }
+      #question:focus-visible,
+      #send:focus-visible {
+        outline: 1px solid var(--accent);
+        outline-offset: 1px;
+      }
+      #send:disabled,
+      #question:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
     </style>
   </head>
   <body data-font-size="medium">
@@ -240,6 +280,10 @@ export function sidePanelHtml(): string {
       <button id="stop" type="button">Stop</button>
     </header>
     <main id="workbench-root"></main>
+    <div class="composer">
+      <textarea id="question" rows="1" placeholder="Ask a question about this page…" disabled></textarea>
+      <button id="send" type="button" disabled>Send</button>
+    </div>
     <footer class="panel-settings">
       <div>
         <label for="output-language">Output language</label>

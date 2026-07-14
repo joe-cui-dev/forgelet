@@ -12,6 +12,7 @@ import {
 import {
   runBrowserInvocation,
   validateBrowserInvocationRequest,
+  type BrowserInvocationRequest,
 } from "../browser/protocol.js";
 import { createBrowserWorkbench } from "../browserWorkbench/index.js";
 import { createDeferredLiveModelClient, createDeepSeekLiveModelClient } from "../cli/wiring.js";
@@ -285,7 +286,25 @@ export function createNativeHostApplication(input: {
         return;
       }
       if (message.type === "browserInvocation") {
-        const request = validateBrowserInvocationRequest(message.request);
+        let request: BrowserInvocationRequest;
+        try {
+          request = validateBrowserInvocationRequest(message.request);
+        } catch (error) {
+          // A protocol mismatch (or any other pre-parse rejection) never
+          // reaches runBrowserInvocation's frame stream, so it is reported
+          // here as the same launch_rejected shape the extension already
+          // knows how to render, rather than a bare {ok:false} the panel
+          // would silently drop.
+          const raw = isRecord(message.request) ? message.request : {};
+          await response.send({
+            type: "launch_rejected",
+            conversationId: typeof raw.conversationId === "string" ? raw.conversationId : "",
+            invocationId: typeof raw.invocationId === "string" ? raw.invocationId : "",
+            seq: 0,
+            reason: error instanceof Error ? error.message : String(error),
+          });
+          return;
+        }
         const controller = new AbortController();
         controllers.set(request.invocationId, controller);
         try {

@@ -14,20 +14,17 @@ import {
   browserExtensionManifest,
   buildBrowserExtension,
 } from "../../src/browser/extension/buildExtension.js";
-import {
-  applyBrowserFrame,
-  createBrowserWorkbenchController,
-  normalizeBrowserOutputLanguage,
-  type BrowserPanelState,
-  type BrowserWorkbenchBridge,
-} from "../../src/browser/extension/workbench.js";
+import { normalizeBrowserOutputLanguage } from "../../src/browser/extension/pageConversationController.js";
 import {
   buildSidePanelViewModel,
   normalizeFontSizePreference,
+  normalizeSidePanelLanguage,
   parsePanelMarkdown,
   renderSidePanelState,
-  requestBrowserWorkbenchState,
+  requestPageConversationProjection,
+  validateFollowUpQuestion,
 } from "../../src/browser/extension/sidePanel.js";
+import { createPageConversationProjection, type PageConversationProjection } from "../../src/browser/extension/pageConversationProjection.js";
 import { sidePanelHtml } from "../../src/browser/extension/buildExtension.js";
 
 test("browser extension selected-text share builds a minimal snapshot payload", () => {
@@ -48,26 +45,6 @@ test("browser extension selected-text share builds a minimal snapshot payload", 
       capturedAt: "2026-07-02T00:00:00.000Z",
       selectedText: "The checkout button throws after payment auth.",
     },
-  });
-});
-
-test("v3 Page Brief terminal frame replaces streamed text with the normalized outcome", () => {
-  const next = applyBrowserFrame(
-    { invocationId: "invocation_1", status: "running", liveText: "partial model text" },
-    {
-      type: "page_brief_completed",
-      conversationId: "conversation_1",
-      invocationId: "invocation_1",
-      seq: 2,
-      summary: "done",
-      pageBrief: { summary: "Brief", keyConcepts: "- Key" },
-    },
-  );
-
-  expect(next).toMatchObject({
-    status: "completed",
-    liveText: undefined,
-    pageBrief: { summary: "Brief" },
   });
 });
 
@@ -492,10 +469,16 @@ test("browser extension build includes every local Service Worker dependency", a
   try {
     const compiledDir = join(workspaceRoot, "dist", "browser", "extension");
     await mkdir(compiledDir, { recursive: true });
+    const compiledFiles = [
+      "serviceWorker.js",
+      "pageConversationController.js",
+      "pageConversationProjection.js",
+      "pageConversationStore.js",
+      "sidePanel.js",
+      "snapshotProducer.js",
+    ];
     await Promise.all(
-      ["serviceWorker.js", "workbench.js", "sidePanel.js", "snapshotProducer.js"].map(
-        (fileName) => writeFile(join(compiledDir, fileName), `// ${fileName}\n`, "utf8"),
-      ),
+      compiledFiles.map((fileName) => writeFile(join(compiledDir, fileName), `// ${fileName}\n`, "utf8")),
     );
 
     process.chdir(workspaceRoot);
@@ -503,495 +486,197 @@ test("browser extension build includes every local Service Worker dependency", a
 
     expect(
       await readdir(join(workspaceRoot, "dist", "browser-extension")),
-    ).toEqual(
-      expect.arrayContaining([
-        "serviceWorker.js",
-        "workbench.js",
-        "sidePanel.js",
-        "snapshotProducer.js",
-      ]),
-    );
+    ).toEqual(expect.arrayContaining(compiledFiles));
   } finally {
     process.chdir(previousCwd);
     await rm(workspaceRoot, { recursive: true, force: true });
   }
 });
 
-test("toolbar summary opens the Side Panel before capture, keeps its invocation after close, and sends one Stop", async () => {
-  const operations: string[] = [];
-  let receivedFrame: ((frame: Record<string, unknown>) => void) | undefined;
-  let disconnected: (() => void) | undefined;
-  const bridge: BrowserWorkbenchBridge = {
-    async listProfiles() {
-      return [{ id: "profile_default", label: "Forgelet", isDefault: true }];
-    },
-    start(input) {
-      operations.push(`start:${input.invocationId}`);
-      return {
-        postMessage(frame) {
-          operations.push(`post:${String(frame.type)}:${String(frame.invocationId)}`);
-        },
-        onFrame(listener) {
-          receivedFrame = listener;
-        },
-        onDisconnect(listener) {
-          disconnected = listener;
-        },
-      };
-    },
-  };
-  const controller = createBrowserWorkbenchController({
-    bridge,
-    openSidePanel: async () => {
-      operations.push("open");
-    },
-    captureCurrentPage: async () => {
-      operations.push("capture");
-      return { url: "https://example.com/docs", title: "Docs", mainText: "Read me" };
-    },
-    createId: (() => {
-      let count = 0;
-      return () => `id_${++count}`;
-    })(),
+
+function projectionFixture(overrides: Partial<PageConversationProjection> = {}): PageConversationProjection {
+  const base = createPageConversationProjection({
+    conversationId: "conversation_1",
+    actionId: "action_1",
+    invocationId: "invocation_1",
+    workspaceProfileId: "profile_1",
+    captureId: "capture_1",
+    source: { url: "https://example.com/docs", title: "Example Docs", capturedAt: "2026-07-14T00:00:00.000Z", truncated: false },
   });
-
-  const started = await controller.summarizeCurrentPage();
-  expect(operations.slice(0, 3)).toEqual(["open", "capture", "start:id_2"]);
-  expect(started).toMatchObject({ invocationId: "id_2", status: "starting" });
-
-  receivedFrame?.({ type: "session_ready", sessionId: "sess_1", tracePath: "/tmp/trace.jsonl" });
-  expect(controller.reattach(started.invocationId)).toMatchObject({
-    invocationId: "id_2",
-    status: "running",
-    sessionId: "sess_1",
-  });
-
-  controller.stop(started.invocationId);
-  controller.stop(started.invocationId);
-  expect(operations.filter((operation) => operation.startsWith("post:cancel"))).toEqual([
-    "post:cancel:id_2",
-  ]);
-  expect(controller.reattach(started.invocationId)).toMatchObject({ status: "stopping" });
-
-  disconnected?.();
-  expect(controller.reattach(started.invocationId)).toMatchObject({ status: "failed" });
-});
-
-test("toolbar summary sends the resolved output language with the invocation", async () => {
-  const startInputs: Record<string, unknown>[] = [];
-  const bridge: BrowserWorkbenchBridge = {
-    async listProfiles() {
-      return [{ id: "profile_default", label: "Forgelet", isDefault: true }];
-    },
-    start(input) {
-      startInputs.push(input as unknown as Record<string, unknown>);
-      return { postMessage: () => undefined, onFrame: () => undefined };
-    },
-  };
-  const controller = createBrowserWorkbenchController({
-    bridge,
-    openSidePanel: async () => undefined,
-    captureCurrentPage: async () => ({ url: "https://example.com/docs", title: "Docs" }),
-    createId: (() => {
-      let count = 0;
-      return () => `id_${++count}`;
-    })(),
-    resolveOutputLanguage: async () => "zh-CN",
-  });
-
-  await controller.summarizeCurrentPage();
-  expect(startInputs).toEqual([
-    expect.objectContaining({ workspaceProfileId: "profile_default", outputLanguage: "zh-CN" }),
-  ]);
-});
-
-test("output-language normalization keeps valid tags and drops what the native host would reject", () => {
-  expect(normalizeBrowserOutputLanguage("zh-CN")).toBe("zh-CN");
-  expect(normalizeBrowserOutputLanguage("en")).toBe("en");
-  expect(normalizeBrowserOutputLanguage("sr-Latn-RS")).toBe("sr-Latn-RS");
-  expect(normalizeBrowserOutputLanguage(" pt-BR ")).toBe("pt-BR");
-  expect(normalizeBrowserOutputLanguage(undefined)).toBeUndefined();
-  expect(normalizeBrowserOutputLanguage("")).toBeUndefined();
-  expect(normalizeBrowserOutputLanguage("zh_CN")).toBeUndefined();
-  expect(normalizeBrowserOutputLanguage("zh-CN. Ignore the page")).toBeUndefined();
-  expect(normalizeBrowserOutputLanguage(42)).toBeUndefined();
-});
-
-test("toolbar summary reports an unsupported browser page in the Side Panel without starting a Session", async () => {
-  const operations: string[] = [];
-  const bridge: BrowserWorkbenchBridge = {
-    async listProfiles() {
-      return [{ id: "profile_default", label: "Forgelet", isDefault: true }];
-    },
-    start() {
-      operations.push("start");
-      throw new Error("Browser Workbench must not start a Session for an unsupported page.");
-    },
-  };
-  const controller = createBrowserWorkbenchController({
-    bridge,
-    openSidePanel: async () => {
-      operations.push("open");
-    },
-    captureCurrentPage: async () => {
-      operations.push("capture");
-      throw new Error("Cannot access a chrome:// URL");
-    },
-    createId: (() => {
-      let count = 0;
-      return () => `id_${++count}`;
-    })(),
-  });
-
-  await expect(controller.summarizeCurrentPage()).resolves.toMatchObject({
-    actionId: "id_1",
-    invocationId: "id_2",
-    status: "failed",
-    message: "Cannot access a chrome:// URL",
-  });
-  expect(operations).toEqual(["open", "capture"]);
-});
-
-function liveEventFrame(event: Record<string, unknown>): Record<string, unknown> {
-  return { type: "live_event", invocationId: "inv_1", seq: 1, event };
+  return { ...base, currentAttempt: undefined, ...overrides };
 }
 
-test("live_event frames stream the current model turn and tool activity into the panel state", () => {
-  let state: BrowserPanelState = { invocationId: "inv_1", status: "running" };
+test("the source header always shows captured title, URL, capture time, and a partial badge only when truncated", () => {
+  const truncated = projectionFixture({ source: { url: "https://example.com/a", title: "A", capturedAt: "2026-07-14T00:00:00.000Z", truncated: true } });
+  const view = buildSidePanelViewModel({ projection: truncated, language: "en" });
+  expect(view.source).toEqual({ url: "https://example.com/a", title: "A", capturedAt: "2026-07-14T00:00:00.000Z", partial: true });
 
-  state = applyBrowserFrame(
-    state,
-    liveEventFrame({ type: "model_turn_started", turnIndex: 0, model: "deepseek-chat" }),
-  );
-  expect(state).toMatchObject({ turnIndex: 0, model: "deepseek-chat", liveText: "" });
-
-  state = applyBrowserFrame(
-    state,
-    liveEventFrame({ type: "model_output_delta", turnIndex: 0, model: "deepseek-chat", text: "First " }),
-  );
-  state = applyBrowserFrame(
-    state,
-    liveEventFrame({ type: "model_output_delta", turnIndex: 0, model: "deepseek-chat", text: "answer." }),
-  );
-  expect(state.liveText).toBe("First answer.");
-
-  state = applyBrowserFrame(
-    state,
-    liveEventFrame({ type: "tool_call_started", toolName: "read_context", target: "notes.md" }),
-  );
-  expect(state.activity).toBe("Tool started: read_context notes.md");
-
-  state = applyBrowserFrame(
-    state,
-    liveEventFrame({ type: "tool_call_finished", toolName: "read_context", ok: true }),
-  );
-  expect(state.activity).toBe("Tool finished: read_context (ok)");
-
-  state = applyBrowserFrame(
-    state,
-    liveEventFrame({ type: "model_turn_started", turnIndex: 1, model: "deepseek-chat" }),
-  );
-  expect(state).toMatchObject({ turnIndex: 1, liveText: "" });
-  expect(state.activity).toBeUndefined();
+  const full = projectionFixture({ source: { url: "https://example.com/b", title: "B", capturedAt: "2026-07-14T00:00:00.000Z", truncated: false } });
+  expect(buildSidePanelViewModel({ projection: full, language: "en" }).source?.partial).toBe(false);
 });
 
-test("completion replaces the streamed text with the structured Learning Pack", () => {
-  const running: BrowserPanelState = {
-    invocationId: "inv_1",
-    status: "running",
-    liveText: "streamed text",
-    activity: "Tool started: read_context",
-  };
-  const pack = {
-    summary: "A concise page summary.",
-    keyConcepts: "- First concept",
-    sourceLinks: "- browser: Example Docs",
-    openQuestions: "- None",
-    reviewPrompts: "- Recall the first concept",
-  };
-
-  const completed = applyBrowserFrame(running, {
-    type: "completed",
-    summary: "## Summary\nA concise page summary.",
-    learningPack: pack,
+test("a Page Brief renders as the root turn with only its two English section titles", () => {
+  const projection = projectionFixture({
+    rootSessionId: "sess_root",
+    headSessionId: "sess_root",
+    turns: [{ invocationId: "invocation_1", sessionId: "sess_root", kind: "root", pageBrief: { summary: "简明摘要", keyConcepts: "- 核心概念" } }],
   });
-
-  expect(completed).toMatchObject({ status: "completed", learningPack: pack });
-  expect(completed.liveText).toBeUndefined();
-  expect(completed.activity).toBeUndefined();
-});
-
-test("completion renders a Page Brief with only its two English section titles", () => {
-  const completed = applyBrowserFrame(
-    { invocationId: "inv_1", status: "running", liveText: "streamed text" },
+  const view = buildSidePanelViewModel({ projection, language: "en" });
+  expect(view.turns).toEqual([
     {
-      type: "completed",
-      summary: "## Summary\n简明摘要",
-      pageBrief: { summary: "简明摘要", keyConcepts: "- 核心概念" },
-    },
-  );
-
-  expect(completed).toMatchObject({
-    status: "completed",
-    pageBrief: { summary: "简明摘要", keyConcepts: "- 核心概念" },
-  });
-  const view = buildSidePanelViewModel(completed);
-  expect(view.packSections?.map((section) => section.title)).toEqual([
-    "Summary",
-    "Key Concepts",
-  ]);
-});
-
-test("a replayed completion carries the persisted Learning Pack and renders the styled sections", () => {
-  const pack = {
-    summary: "A concise page summary.",
-    keyConcepts: "- First concept",
-    sourceLinks: "- browser: Example Docs",
-    openQuestions: "- None",
-    reviewPrompts: "- Recall the first concept",
-  };
-
-  // A replayed run re-emits the identical completed frame from the receipt,
-  // so the panel state and view are indistinguishable from the original run.
-  const replayed = applyBrowserFrame(
-    { invocationId: "inv_1", status: "running" },
-    {
-      type: "completed",
-      summary: "## Summary\nA concise page summary.",
-      learningPack: pack,
-    },
-  );
-
-  expect(replayed).toMatchObject({ status: "completed", learningPack: pack });
-  const view = buildSidePanelViewModel(replayed);
-  expect(view.packSections?.map((section) => section.title)).toEqual([
-    "Summary",
-    "Key Concepts",
-    "Source Links",
-    "Open Questions",
-    "Review Prompts",
-  ]);
-  expect(view.messageText).toBeUndefined();
-});
-
-test("a completion without a usable Learning Pack degrades to the plain summary", () => {
-  // Receipts recorded before Learning Pack persistence replay without a pack.
-  const completed = applyBrowserFrame(
-    { invocationId: "inv_1", status: "running" },
-    { type: "completed", summary: "Plain replay summary" },
-  );
-
-  expect(completed).toMatchObject({ status: "completed", summary: "Plain replay summary" });
-  expect(completed.learningPack).toBeUndefined();
-
-  const malformed = applyBrowserFrame(
-    { invocationId: "inv_1", status: "running" },
-    { type: "completed", summary: "s", learningPack: { summary: 42 } },
-  );
-  expect(malformed.learningPack).toBeUndefined();
-});
-
-test("controller broadcasts every frame but persists only status transitions", async () => {
-  let receivedFrame: ((frame: Record<string, unknown>) => void) | undefined;
-  const persisted: string[] = [];
-  const broadcast: string[] = [];
-  const deltas: { invocationId: string; text: string }[] = [];
-  const bridge: BrowserWorkbenchBridge = {
-    async listProfiles() {
-      return [{ id: "profile_default", label: "Forgelet", isDefault: true }];
-    },
-    start() {
-      return {
-        postMessage: () => undefined,
-        onFrame(listener) {
-          receivedFrame = listener;
-        },
-      };
-    },
-  };
-  const controller = createBrowserWorkbenchController({
-    bridge,
-    openSidePanel: async () => undefined,
-    captureCurrentPage: async () => ({ url: "https://example.com/docs", title: "Docs" }),
-    createId: (() => {
-      let count = 0;
-      return () => `id_${++count}`;
-    })(),
-    persistState: (state) => persisted.push(state.status),
-    broadcastState: (state) => broadcast.push(state.status),
-    broadcastDelta: (delta) => deltas.push(delta),
-  });
-
-  const started = await controller.summarizeCurrentPage();
-  receivedFrame?.({ type: "session_ready", sessionId: "sess_1", tracePath: "/tmp/t.jsonl" });
-  receivedFrame?.(liveEventFrame({ type: "model_turn_started", turnIndex: 0, model: "m" }));
-  receivedFrame?.(liveEventFrame({ type: "model_output_delta", turnIndex: 0, model: "m", text: "Hel" }));
-  receivedFrame?.(liveEventFrame({ type: "model_output_delta", turnIndex: 0, model: "m", text: "lo" }));
-
-  // Mid-run reattach recovers the accumulated stream from the in-memory state.
-  expect(controller.reattach(started.invocationId)).toMatchObject({
-    status: "running",
-    liveText: "Hello",
-  });
-  expect(deltas).toEqual([
-    { invocationId: started.invocationId, text: "Hel" },
-    { invocationId: started.invocationId, text: "lo" },
-  ]);
-
-  receivedFrame?.({ type: "completed", summary: "done" });
-  expect(persisted).toEqual(["starting", "running", "completed"]);
-  expect(broadcast).toEqual(["starting", "running", "running", "completed"]);
-});
-
-test("Stop without a connected transport reports failure instead of silently returning", () => {
-  const persisted: BrowserPanelState[] = [];
-  const controller = createBrowserWorkbenchController({
-    bridge: {
-      async listProfiles() {
-        return [];
-      },
-      start() {
-        throw new Error("unused");
-      },
-    },
-    openSidePanel: async () => undefined,
-    captureCurrentPage: async () => ({}),
-    createId: () => "id_1",
-    persistState: (state) => persisted.push(state),
-  });
-
-  controller.stop("inv_after_service_worker_restart");
-
-  expect(persisted).toEqual([
-    expect.objectContaining({
-      invocationId: "inv_after_service_worker_restart",
-      status: "failed",
-      message: expect.stringContaining("transport"),
-    }),
-  ]);
-  expect(controller.reattach("inv_after_service_worker_restart")).toMatchObject({
-    status: "failed",
-  });
-});
-
-test("Side Panel view model shows a status line and the current turn's stream while running", () => {
-  const view = buildSidePanelViewModel({
-    invocationId: "inv_1",
-    status: "running",
-    liveText: "Streaming so far",
-    turnIndex: 1,
-    model: "deepseek-chat",
-    activity: "Tool started: read_context",
-    sessionId: "sess_1",
-    tracePath: "/tmp/trace.jsonl",
-  });
-
-  expect(view.statusLine).toBe(
-    "Status: running · turn 2 · deepseek-chat · Tool started: read_context",
-  );
-  expect(view.streamText).toBe("Streaming so far");
-  expect(view.packSections).toBeUndefined();
-});
-
-test("Side Panel view model renders the Learning Pack sections and folds the raw summary away", () => {
-  const view = buildSidePanelViewModel({
-    invocationId: "inv_1",
-    status: "completed",
-    sessionId: "sess_1",
-    tracePath: "/tmp/trace.jsonl",
-    summary: "## Summary\nCore idea.\n\nTrace: /tmp/trace.jsonl\nSession: sess_1",
-    learningPack: {
-      summary: "**GLM-4.5** unifies reasoning and coding.",
-      keyConcepts: "- Reasoning\n- [Docs](https://example.com/docs)",
-      sourceLinks: "- browser: Example Docs",
-      openQuestions: "The sources do not state pricing.",
-      reviewPrompts: "- What does GLM-4.5 unify?",
-    },
-  });
-
-  expect(view.statusLine).toBe("Status: completed");
-  expect(view.streamText).toBeUndefined();
-  expect(view.packSections?.map((section) => section.title)).toEqual([
-    "Summary",
-    "Key Concepts",
-    "Source Links",
-    "Open Questions",
-    "Review Prompts",
-  ]);
-  expect(view.packSections?.[0]?.blocks).toEqual([
-    {
-      kind: "paragraph",
-      children: [
-        { kind: "bold", text: "GLM-4.5" },
-        { kind: "text", text: " unifies reasoning and coding." },
+      kind: "root",
+      pageBriefSections: [
+        { title: "Summary", blocks: [{ kind: "paragraph", children: [{ kind: "text", text: "简明摘要" }] }] },
+        { title: "Key Concepts", blocks: [{ kind: "list_item", children: [{ kind: "text", text: "核心概念" }] }] },
       ],
     },
   ]);
-  expect(view.packSections?.[1]?.blocks).toEqual([
-    { kind: "list_item", children: [{ kind: "text", text: "Reasoning" }] },
-    {
-      kind: "list_item",
-      children: [{ kind: "link", text: "Docs", href: "https://example.com/docs" }],
-    },
-  ]);
-  // The raw summary blob (with its Trace/Session lines) lives only in the
-  // collapsed details block; the panel no longer renders those lines itself.
-  expect(view.rawSummary).toContain("Trace: /tmp/trace.jsonl");
-  expect(view.messageText).toBeUndefined();
 });
 
-test("Side Panel view model degrades to plain summary text when no Learning Pack exists", () => {
-  const view = buildSidePanelViewModel({
-    invocationId: "inv_1",
-    status: "completed",
-    summary: "Plain replayed summary\n\nTrace: /tmp/trace.jsonl",
-  });
-
-  expect(view.packSections).toBeUndefined();
-  expect(view.messageText).toBe("Plain replayed summary\n\nTrace: /tmp/trace.jsonl");
-});
-
-test("Side Panel view model lists approved profiles only in the needs_profile state", () => {
-  const needsProfile = buildSidePanelViewModel({
-    invocationId: "inv_1",
-    status: "needs_profile",
-    message: "No default approved workspace profile.",
-    profiles: [
-      { id: "profile_1", label: "Forgelet", isDefault: true },
-      { id: "profile_2", label: "Sandbox", isDefault: false },
+test("a completed follow-up renders Answer and Evidence, and a not-found grounding status shows a deterministic localized message instead of the raw sentinel", () => {
+  const supportedProjection = projectionFixture({
+    rootSessionId: "sess_root",
+    headSessionId: "sess_f1",
+    turns: [
+      { invocationId: "invocation_1", sessionId: "sess_root", kind: "root", pageBrief: { summary: "S", keyConcepts: "- K" } },
+      { invocationId: "invocation_2", sessionId: "sess_f1", kind: "follow_up", question: "Is there a changelog?", pageAnswer: { answer: "Yes, in the docs.", groundingStatus: "supported", evidence: ["A captured passage."] } },
     ],
   });
-  expect(needsProfile.profiles).toEqual(["* Forgelet (profile_1)", "Sandbox (profile_2)"]);
-  expect(needsProfile.messageText).toBe("No default approved workspace profile.");
-
-  const running = buildSidePanelViewModel({
-    invocationId: "inv_1",
-    status: "running",
-    profiles: [{ id: "profile_1", label: "Forgelet", isDefault: true }],
+  const supportedView = buildSidePanelViewModel({ projection: supportedProjection, language: "en" });
+  expect(supportedView.turns[1]).toMatchObject({
+    kind: "follow_up",
+    question: "Is there a changelog?",
+    evidence: { groundingStatus: "supported", excerpts: ["A captured passage."] },
   });
-  expect(running.profiles).toBeUndefined();
+
+  const notFoundProjection = projectionFixture({
+    rootSessionId: "sess_root",
+    headSessionId: "sess_f1",
+    turns: [
+      { invocationId: "invocation_1", sessionId: "sess_root", kind: "root", pageBrief: { summary: "S", keyConcepts: "- K" } },
+      { invocationId: "invocation_2", sessionId: "sess_f1", kind: "follow_up", question: "Any pricing info?", pageAnswer: { answer: "The page does not mention pricing.", groundingStatus: "not_found", evidence: [] } },
+    ],
+  });
+  const notFoundView = buildSidePanelViewModel({ projection: notFoundProjection, language: "en" });
+  expect(notFoundView.turns[1]?.evidence).toEqual({
+    groundingStatus: "not_found",
+    excerpts: [],
+    notFoundMessage: "No supporting passage found in the captured page.",
+  });
+  expect(notFoundView.turns[1]?.evidence?.notFoundMessage).not.toContain("No supporting passage in the captured page.");
+
+  const zhView = buildSidePanelViewModel({ projection: notFoundProjection, language: "zh-CN" });
+  expect(zhView.turns[1]?.evidence?.notFoundMessage).toBe("未在已捕获的页面中找到支持性内容。");
 });
 
-test("Side Panel markdown subset keeps non-http links and unknown syntax as plain text", () => {
-  const blocks = parsePanelMarkdown(
-    "See [evil](javascript:alert(1)) and [ok](https://example.com).",
-  );
+test("input is enabled only after a successful root and disabled again while an attempt runs", () => {
+  const beforeRoot = projectionFixture();
+  expect(buildSidePanelViewModel({ projection: beforeRoot, language: "en" }).inputEnabled).toBe(false);
 
-  expect(blocks).toHaveLength(1);
-  const children = blocks[0]?.children ?? [];
-  expect(children.filter((child) => child.kind === "link")).toEqual([
-    { kind: "link", text: "ok", href: "https://example.com" },
+  const afterRoot = projectionFixture({
+    rootSessionId: "sess_root",
+    headSessionId: "sess_root",
+    turns: [{ invocationId: "invocation_1", sessionId: "sess_root", kind: "root", pageBrief: { summary: "S", keyConcepts: "- K" } }],
+  });
+  expect(buildSidePanelViewModel({ projection: afterRoot, language: "en" }).inputEnabled).toBe(true);
+
+  const running = { ...afterRoot, currentAttempt: { invocationId: "invocation_2", actionId: "action_2", kind: "follow_up" as const, status: "running" as const } };
+  expect(buildSidePanelViewModel({ projection: running, language: "en" }).inputEnabled).toBe(false);
+});
+
+test("follow-up validation rejects blank and oversized input but allows multiline text", () => {
+  expect(validateFollowUpQuestion("   \n  ")).toEqual({ ok: false, message: expect.stringContaining("Enter a question") });
+  expect(validateFollowUpQuestion("Line one\nLine two")).toEqual({ ok: true, question: "Line one\nLine two" });
+  expect(validateFollowUpQuestion("é".repeat(3000))).toEqual({ ok: false, message: expect.stringMatching(/too long/i) });
+});
+
+test("failed and stopped attempts render a terminal card with question, reason, Session ID when present, and a Retry control", () => {
+  const projection = projectionFixture({
+    rootSessionId: "sess_root",
+    headSessionId: "sess_root",
+    turns: [{ invocationId: "invocation_1", sessionId: "sess_root", kind: "root", pageBrief: { summary: "S", keyConcepts: "- K" } }],
+    terminalCards: [
+      { invocationId: "invocation_2", kind: "follow_up", status: "failed", reason: "invalid_page_answer", question: "Why?", sessionId: "sess_f1" },
+      { invocationId: "invocation_3", kind: "follow_up", status: "stopped", reason: "user_stopped", question: "And then?" },
+    ],
+  });
+  const view = buildSidePanelViewModel({ projection, language: "en" });
+  expect(view.terminalCards).toEqual([
+    { invocationId: "invocation_2", kind: "follow_up", status: "failed", question: "Why?", reason: "invalid_page_answer", sessionId: "sess_f1" },
+    { invocationId: "invocation_3", kind: "follow_up", status: "stopped", question: "And then?", reason: "user_stopped" },
   ]);
-  expect(
-    children
-      .filter((child) => child.kind !== "link")
-      .map((child) => child.text)
-      .join(""),
-  ).toBe("See [evil](javascript:alert(1)) and .");
+
+  const doc = fakePanelDocument();
+  const container = doc.createElement("div");
+  const retried: string[] = [];
+  renderSidePanelState(doc, container, view, (invocationId) => retried.push(invocationId));
+  const retryButtons = findNodes(container, (node) => node.tagName === "BUTTON" && node.textContent === "Retry");
+  expect(retryButtons).toHaveLength(2);
+  retryButtons[0]?.dispatchClick?.();
+  expect(retried).toEqual(["invocation_2"]);
+  expect(container.textContent).toContain("sess_f1");
+});
+
+test("a Page Conversation with no attempt in flight renders no stream element, and the evicted-history indicator is visible after eviction", () => {
+  const doc = fakePanelDocument();
+  const container = doc.createElement("div");
+  const projection = projectionFixture({
+    rootSessionId: "sess_root",
+    headSessionId: "sess_root",
+    turns: [{ invocationId: "invocation_1", sessionId: "sess_root", kind: "root", pageBrief: { summary: "S", keyConcepts: "- K" } }],
+    historyEvicted: true,
+  });
+  const view = buildSidePanelViewModel({ projection, language: "en" });
+  const { streamElement } = renderSidePanelState(doc, container, view);
+  expect(streamElement).toBeUndefined();
+  expect(container.textContent).toContain("Earlier turns remain in the Session Traces on disk.");
+});
+
+test("Side Panel renders model/page content as text nodes, never HTML", () => {
+  const doc = fakePanelDocument();
+  const container = doc.createElement("div");
+  const projection = projectionFixture({
+    rootSessionId: "sess_root",
+    headSessionId: "sess_f1",
+    source: { url: "https://example.com", title: "<img src=x onerror=alert(1)>", capturedAt: "2026-07-14T00:00:00.000Z", truncated: false },
+    turns: [
+      { invocationId: "invocation_1", sessionId: "sess_root", kind: "root", pageBrief: { summary: "raw <b>summary</b>", keyConcepts: "- **bold** concept" } },
+      { invocationId: "invocation_2", sessionId: "sess_f1", kind: "follow_up", question: "<script>alert(1)</script>", pageAnswer: { answer: "See <b>the docs</b>.", groundingStatus: "supported", evidence: ["<img src=x>"] } },
+    ],
+  });
+  const view = buildSidePanelViewModel({ projection, language: "en" });
+
+  renderSidePanelState(doc, container, view);
+
+  expect(container.textContent).toContain("<img src=x onerror=alert(1)>");
+  expect(container.textContent).toContain("raw <b>summary</b>");
+  expect(container.textContent).toContain("bold");
+  expect(container.textContent).toContain("<script>alert(1)</script>");
+  expect(container.textContent).toContain("See <b>the docs</b>.");
+  expect(container.textContent).toContain("<img src=x>");
+});
+
+test("Side Panel appends stream deltas to the stream element without a re-render", () => {
+  const doc = fakePanelDocument();
+  const container = doc.createElement("div");
+  const projection = projectionFixture({
+    rootSessionId: "sess_root",
+    headSessionId: "sess_root",
+    turns: [{ invocationId: "invocation_1", sessionId: "sess_root", kind: "root", pageBrief: { summary: "S", keyConcepts: "- K" } }],
+    currentAttempt: { invocationId: "invocation_2", actionId: "action_2", kind: "follow_up", status: "running", liveText: "First " },
+  });
+  const view = buildSidePanelViewModel({ projection, language: "en" });
+
+  const { streamElement } = renderSidePanelState(doc, container, view);
+
+  expect(streamElement?.textContent).toBe("First ");
+  streamElement.textContent += "delta";
+  expect(container.textContent).toContain("First delta");
 });
 
 function fakePanelDocument(): { createElement(tag: string): any } {
   const createElement = (tag: string): any => {
+    const listeners: Record<string, (() => void)[]> = {};
     const node: any = {
       tagName: tag.toUpperCase(),
       children: [],
@@ -1003,11 +688,16 @@ function fakePanelDocument(): { createElement(tag: string): any } {
       setAttribute(name: string, value: string) {
         node.attributes[name] = value;
       },
+      addEventListener(type: string, listener: () => void) {
+        (listeners[type] ??= []).push(listener);
+      },
+      dispatchClick() {
+        for (const listener of listeners.click ?? []) listener();
+      },
     };
     let ownText = "";
     Object.defineProperty(node, "textContent", {
-      get: () =>
-        ownText + node.children.map((child: any) => child.textContent).join("\n"),
+      get: () => ownText + node.children.map((child: any) => child.textContent).join("\n"),
       set: (value: string) => {
         ownText = value;
         node.children.length = 0;
@@ -1023,46 +713,6 @@ function fakePanelDocument(): { createElement(tag: string): any } {
   return { createElement };
 }
 
-test("Side Panel renders model/page content as text nodes, never HTML", () => {
-  const doc = fakePanelDocument();
-  const container = doc.createElement("div");
-
-  renderSidePanelState(doc, container, {
-    invocationId: "inv_1",
-    status: "completed",
-    summary: "raw <b>summary</b>",
-    learningPack: {
-      summary: "<img src=x onerror=alert(1)>",
-      keyConcepts: "- **bold** concept",
-      sourceLinks: "- browser: Example Docs",
-      openQuestions: "(none)",
-      reviewPrompts: "(none)",
-    },
-  });
-
-  expect(container.textContent).toContain("<img src=x onerror=alert(1)>");
-  expect(container.textContent).toContain("bold");
-  expect(container.textContent).toContain("raw <b>summary</b>");
-  const details = findNodes(container, (node) => node.tagName === "DETAILS");
-  expect(details).toHaveLength(1);
-  expect(details[0]?.attributes.open).toBeUndefined();
-});
-
-test("Side Panel appends stream deltas to the stream element without a re-render", () => {
-  const doc = fakePanelDocument();
-  const container = doc.createElement("div");
-
-  const { streamElement } = renderSidePanelState(doc, container, {
-    invocationId: "inv_1",
-    status: "running",
-    liveText: "First ",
-  });
-
-  expect(streamElement?.textContent).toBe("First ");
-  streamElement.textContent += "delta";
-  expect(container.textContent).toContain("First delta");
-});
-
 function findNodes(node: any, matches: (node: any) => boolean): any[] {
   const children: any[] = node.children ?? [];
   return [
@@ -1071,7 +721,7 @@ function findNodes(node: any, matches: (node: any) => boolean): any[] {
   ];
 }
 
-test("Side Panel page uses a fixed dark theme with color tokens", () => {
+test("Side Panel page uses a fixed dark theme with color tokens and a Send composer", () => {
   const html = sidePanelHtml();
 
   expect(html).toContain("--bg:");
@@ -1082,17 +732,19 @@ test("Side Panel page uses a fixed dark theme with color tokens", () => {
   expect(html).toContain('id="output-language"');
   expect(html).toContain('option value="auto"');
   expect(html).toContain('option value="zh-CN"');
+  expect(html).toContain('id="question"');
+  expect(html).toContain('id="send"');
   expect(html).not.toContain("#ffffff");
 });
 
-test("Side Panel keeps settings in a footer below the content and offers a text-size preference", () => {
+test("Side Panel keeps settings in a footer below the content, the composer above it, and offers a text-size preference", () => {
   const html = sidePanelHtml();
 
   expect(html).toContain('id="font-size"');
   expect(html).toContain('option value="medium"');
   expect(html).toContain("--content-font-size");
-  // Settings live at the bottom: both selects come after the content root.
-  expect(html.indexOf('id="workbench-root"')).toBeLessThan(html.indexOf('id="output-language"'));
+  expect(html.indexOf('id="workbench-root"')).toBeLessThan(html.indexOf('id="question"'));
+  expect(html.indexOf('id="question"')).toBeLessThan(html.indexOf('id="output-language"'));
   expect(html.indexOf('id="workbench-root"')).toBeLessThan(html.indexOf('id="font-size"'));
   // The Stop action stays in the header above the content.
   expect(html.indexOf('id="stop"')).toBeLessThan(html.indexOf('id="workbench-root"'));
@@ -1108,10 +760,41 @@ test("font-size normalization keeps known sizes and falls back to medium", () =>
   expect(normalizeFontSizePreference(16)).toBe("medium");
 });
 
+test("Side Panel language normalization only recognizes zh-CN, defaulting everything else to English", () => {
+  expect(normalizeSidePanelLanguage("zh-CN")).toBe("zh-CN");
+  expect(normalizeSidePanelLanguage("en")).toBe("en");
+  expect(normalizeSidePanelLanguage("auto")).toBe("en");
+  expect(normalizeSidePanelLanguage(undefined)).toBe("en");
+});
+
 test("Side Panel tolerates a reattach request when no Service Worker receiver exists", async () => {
   await expect(
-    requestBrowserWorkbenchState(async () => {
+    requestPageConversationProjection(async () => {
       throw new Error("Could not establish connection. Receiving end does not exist.");
-    }),
+    }, 1),
   ).resolves.toBeUndefined();
+});
+
+test("an empty conversation shows the deterministic prompt to use the toolbar action, localized without a model call", () => {
+  const view = buildSidePanelViewModel({ projection: undefined, language: "en" });
+  expect(view.hasConversation).toBe(false);
+  expect(view.emptyMessage).toBe("Click the toolbar action to summarize the current page.");
+
+  const zhView = buildSidePanelViewModel({ projection: undefined, language: "zh-CN" });
+  expect(zhView.emptyMessage).toBe("点击工具栏按钮以总结当前页面。");
+});
+
+test("a notice from the controller (capture unavailable, needs profile, attempt in progress) is surfaced without replacing the conversation view", () => {
+  const projection = projectionFixture({
+    rootSessionId: "sess_root",
+    headSessionId: "sess_root",
+    turns: [{ invocationId: "invocation_1", sessionId: "sess_root", kind: "root", pageBrief: { summary: "S", keyConcepts: "- K" } }],
+  });
+  const view = buildSidePanelViewModel({
+    projection,
+    notice: { kind: "attempt_in_progress", message: "A Browser Workbench attempt is already running in this window. Wait for it to finish or Stop it." },
+    language: "en",
+  });
+  expect(view.noticeMessage).toBe("A Browser Workbench attempt is already running in this window. Wait for it to finish or Stop it.");
+  expect(view.turns).toHaveLength(1);
 });

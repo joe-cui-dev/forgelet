@@ -4,13 +4,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough, Writable } from "node:stream";
 import { loadCurrentBrowserSnapshot } from "../../src/browser/index.js";
+import { approveWorkspaceProfile } from "../../src/browser/workspaceProfiles.js";
 import {
   NativeMessageDecoder,
+  createNativeHostApplication,
   encodeNativeHostMessage,
   handleNativeHostBuffer,
   handleNativeHostMessage,
   runNativeHostStdio,
 } from "../../src/native-host/index.js";
+import type { ModelClient, ModelTurnInput, ModelTurnOutput } from "../../src/types.js";
 
 test("Native Messaging host writes a selected-text browser snapshot", async () => {
   const homeDir = await mkdtemp(join(tmpdir(), "forgelet-native-host-home-"));
@@ -207,3 +210,187 @@ async function waitFor(predicate: () => boolean): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
+
+/** A model turn that hangs until released, or rejects the moment its signal
+ * aborts — the seam needed to drive real concurrent Learning launches
+ * through their in-flight window in a deterministic way. */
+class GateModelClient implements ModelClient {
+  started = false;
+  private release: (() => void) | undefined;
+  private readonly gate = new Promise<void>((resolve) => {
+    this.release = resolve;
+  });
+
+  constructor(private readonly content: string) {}
+
+  open(): void {
+    this.release?.();
+  }
+
+  async createTurn(input: ModelTurnInput): Promise<ModelTurnOutput> {
+    this.started = true;
+    await new Promise<void>((resolve, reject) => {
+      this.gate.then(resolve);
+      input.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+    });
+    return { content: this.content, toolCalls: [] };
+  }
+}
+
+function rootBrowserInvocationMessage(input: {
+  conversationId: string;
+  invocationId: string;
+  workspaceProfileId: string;
+  content: string;
+}): { type: "browserInvocation"; request: Record<string, unknown> } {
+  return {
+    type: "browserInvocation",
+    request: {
+      version: 3,
+      kind: "root",
+      conversationId: input.conversationId,
+      actionId: `${input.invocationId}_action`,
+      invocationId: input.invocationId,
+      workspaceProfileId: input.workspaceProfileId,
+      capture: {
+        url: "https://example.com/page",
+        title: "Example",
+        content: input.content,
+        contentKind: "mainText",
+        contentHash: "a".repeat(64),
+        contentBytes: Buffer.byteLength(input.content, "utf8"),
+        captureId: `${input.invocationId}_capture`,
+        capturedAt: "2026-07-14T00:00:00.000Z",
+        captureReadyMs: 1,
+        truncated: false,
+      },
+    },
+  };
+}
+
+test("Native Host rejects a v2 Browser Workbench invocation with a typed v3 mismatch frame carrying its identity", async () => {
+  const application = createNativeHostApplication({ homeDir: await mkdtemp(join(tmpdir(), "forgelet-native-host-v2-home-")) });
+  const sent: Record<string, unknown>[] = [];
+  await application.handle(
+    {
+      type: "browserInvocation",
+      request: {
+        version: 2,
+        kind: "root",
+        conversationId: "conversation_1",
+        actionId: "action_1",
+        invocationId: "invocation_1",
+        workspaceProfileId: "profile_1",
+      },
+    },
+    { send: async (message) => { sent.push(message as Record<string, unknown>); } },
+    {},
+  );
+  expect(sent).toEqual([
+    {
+      type: "launch_rejected",
+      conversationId: "conversation_1",
+      invocationId: "invocation_1",
+      seq: 0,
+      reason: expect.stringMatching(/rebuild.*reload.*install-host/i),
+    },
+  ]);
+});
+
+test("Native Host runs two Browser Workbench attempts concurrently and scopes cancel to the named invocation", async () => {
+  const homeDir = await mkdtemp(join(tmpdir(), "forgelet-native-host-concurrency-home-"));
+  const workspaceA = await mkdtemp(join(tmpdir(), "forgelet-native-host-workspace-a-"));
+  const workspaceB = await mkdtemp(join(tmpdir(), "forgelet-native-host-workspace-b-"));
+  const profileA = await approveWorkspaceProfile({ homeDir, cwd: workspaceA, name: "A" });
+  const profileB = await approveWorkspaceProfile({ homeDir, cwd: workspaceB, name: "B" });
+
+  const clientA = new GateModelClient("## Summary\nA summary.\n\n## Key Concepts\n- A");
+  const clientB = new GateModelClient("## Summary\nB summary.\n\n## Key Concepts\n- B");
+  const clients = new Map<string, ModelClient>([
+    [profileA.path, clientA],
+    [profileB.path, clientB],
+  ]);
+
+  const application = createNativeHostApplication({
+    homeDir,
+    modelClientForWorkspace: (workspaceRoot) => clients.get(workspaceRoot),
+  });
+
+  const framesA: Record<string, unknown>[] = [];
+  const framesB: Record<string, unknown>[] = [];
+  const responseA = { send: async (message: unknown) => { framesA.push(message as Record<string, unknown>); } };
+  const responseB = { send: async (message: unknown) => { framesB.push(message as Record<string, unknown>); } };
+
+  const handleA = application.handle(
+    rootBrowserInvocationMessage({ conversationId: "conv_a", invocationId: "inv_a", workspaceProfileId: profileA.id, content: "Page A content." }),
+    responseA,
+    { homeDir },
+  );
+  const handleB = application.handle(
+    rootBrowserInvocationMessage({ conversationId: "conv_b", invocationId: "inv_b", workspaceProfileId: profileB.id, content: "Page B content." }),
+    responseB,
+    { homeDir },
+  );
+
+  await waitFor(() => clientA.started && clientB.started);
+
+  await application.handle({ type: "cancel", invocationId: "inv_a" }, { send: async () => {} }, { homeDir });
+  clientA.open();
+  clientB.open();
+
+  await Promise.all([handleA, handleB]);
+
+  expect(framesA.every((frame) => frame.invocationId === "inv_a")).toBe(true);
+  expect(framesB.every((frame) => frame.invocationId === "inv_b")).toBe(true);
+  expect(framesA.at(-1)).toMatchObject({ type: "stopped" });
+  expect(framesB.at(-1)).toMatchObject({ type: "page_brief_completed" });
+
+  // The terminal frame already released invocation A's controller; a stale
+  // cancel for it afterward must be a harmless no-op.
+  await expect(
+    application.handle({ type: "cancel", invocationId: "inv_a" }, { send: async () => {} }, { homeDir }),
+  ).resolves.toBeUndefined();
+});
+
+test("Native Messaging transport loss does not implicitly stop an in-flight attempt", async () => {
+  const stdin = new PassThrough();
+  const outputChunks: Buffer[] = [];
+  const stdout = new Writable({
+    write(chunk, _encoding, callback) {
+      outputChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      callback();
+    },
+  });
+  let releaseHandle: (() => void) | undefined;
+  let handleSettled = false;
+  const runPromise = runNativeHostStdio({
+    stdin,
+    stdout,
+    application: {
+      async handle(_message, response) {
+        await new Promise<void>((resolve) => {
+          releaseHandle = resolve;
+        });
+        handleSettled = true;
+        await response.send({ type: "still_running_after_transport_loss" });
+      },
+    },
+  });
+
+  stdin.write(encodeNativeHostMessage({ type: "invoke", invocationId: "inv_1" }));
+  await waitFor(() => releaseHandle !== undefined);
+
+  // Chrome closing the Native Port ends stdin; that alone must not force
+  // completion or read as an implicit user Stop.
+  stdin.end();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(handleSettled).toBe(false);
+
+  releaseHandle?.();
+  await runPromise;
+
+  expect(handleSettled).toBe(true);
+  expect(decodeFrames(Buffer.concat(outputChunks))).toEqual([
+    { type: "still_running_after_transport_loss" },
+  ]);
+});

@@ -7,55 +7,49 @@ import {
   type CaptureBlock,
 } from "./snapshotProducer.js";
 import {
-  createBrowserWorkbenchController,
-  type BrowserPanelState,
-} from "./workbench.js";
+  createPageConversationController,
+  type PageConversationBridge,
+} from "./pageConversationController.js";
 
 declare const chrome: any;
 
 const NATIVE_HOST_NAME = "com.forgelet.browser_context";
 const SELECTION_CONTEXT_MENU_ID = "forgelet-share-selection";
-const WORKBENCH_STATES_KEY = "forgeletBrowserWorkbenchStates";
-const WORKBENCH_LAST_INVOCATION_KEY = "forgeletBrowserWorkbenchLastInvocation";
-let actionWindowId: number | undefined;
 
-const browserWorkbench = createBrowserWorkbenchController({
-  bridge: {
-    async listProfiles() {
-      try {
-        const response = await chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, {
-          type: "listWorkspaceProfiles",
-        });
-        return Array.isArray(response?.profiles) ? response.profiles : [];
-      } catch {
-        return [];
-      }
-    },
-    start(input) {
-      const port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
-      port.postMessage({
-        type: "browserInvocation",
-        request: {
-          version: 3,
-          kind: "root",
-          conversationId: input.conversationId,
-          actionId: input.actionId,
-          invocationId: input.invocationId,
-          workspaceProfileId: input.workspaceProfileId,
-          ...(input.outputLanguage ? { outputLanguage: input.outputLanguage } : {}),
-          capture: input.capture,
-        },
+const bridge: PageConversationBridge = {
+  async listProfiles() {
+    try {
+      const response = await chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, {
+        type: "listWorkspaceProfiles",
       });
-      return {
-        postMessage: (frame) => port.postMessage(frame),
-        onFrame: (listener) => port.onMessage.addListener(listener),
-        onDisconnect: (listener) => port.onDisconnect.addListener(listener),
-      };
-    },
+      return Array.isArray(response?.profiles) ? response.profiles : [];
+    } catch {
+      return [];
+    }
   },
-  openSidePanel: async () => {
-    if (actionWindowId === undefined) throw new Error("No browser window is available.");
-    await chrome.sidePanel.open({ windowId: actionWindowId });
+  start(request) {
+    const port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
+    port.postMessage({
+      type: "browserInvocation",
+      request: { version: 3, ...request },
+    });
+    return {
+      postMessage: (frame: Record<string, unknown>) => port.postMessage(frame),
+      onFrame: (listener: (frame: Record<string, unknown>) => void) => port.onMessage.addListener(listener),
+      onDisconnect: (listener: () => void) => port.onDisconnect.addListener(listener),
+      disconnect: () => port.disconnect(),
+    };
+  },
+};
+
+const pageConversations = createPageConversationController({
+  bridge,
+  storage: {
+    get: (keys) => chrome.storage.session.get(keys),
+    set: (items) => chrome.storage.session.set(items),
+  },
+  openSidePanel: async (windowId) => {
+    await chrome.sidePanel.open({ windowId });
   },
   captureCurrentPage: async () => captureCurrentPageForWorkbench(),
   createId: () => crypto.randomUUID(),
@@ -74,21 +68,12 @@ const browserWorkbench = createBrowserWorkbenchController({
       return undefined;
     }
   },
-  persistState: (state) => {
-    void chrome.storage.session.get(WORKBENCH_STATES_KEY).then((stored: {
-      forgeletBrowserWorkbenchStates?: Record<string, BrowserPanelState>;
-    }) =>
-      chrome.storage.session.set({
-        [WORKBENCH_STATES_KEY]: {
-          ...(stored[WORKBENCH_STATES_KEY] ?? {}),
-          [state.invocationId]: state,
-        },
-        [WORKBENCH_LAST_INVOCATION_KEY]: state.invocationId,
-      }),
-    );
-  },
-  broadcastState: (state) => sendToPanel({ type: "browserWorkbenchState", state }),
-  broadcastDelta: (delta) => sendToPanel({ type: "browserWorkbenchDelta", ...delta }),
+  broadcastProjection: (windowId, projection) =>
+    sendToPanel({ type: "pageConversationProjection", windowId, projection }),
+  broadcastDelta: (windowId, delta) =>
+    sendToPanel({ type: "pageConversationDelta", windowId, ...delta }),
+  broadcastNotice: (windowId, notice) =>
+    sendToPanel({ type: "pageConversationNotice", windowId, notice }),
 });
 
 // The Side Panel may be closed; a missing receiver is expected, not an error.
@@ -112,33 +97,37 @@ chrome.contextMenus.onClicked.addListener((info: any, tab: any) => {
 });
 
 chrome.action.onClicked.addListener((tab: any) => {
-  actionWindowId = tab?.windowId;
-  browserWorkbench.summarizeCurrentPage().catch((error: unknown) => {
+  if (tab?.windowId === undefined) return;
+  pageConversations.handleToolbarClick(tab.windowId).catch((error: unknown) => {
     console.error(error);
   });
 });
 
 chrome.runtime.onMessage.addListener(
   (message: any, _sender: unknown, sendResponse: (response: unknown) => void) => {
-    if (message?.type === "browserWorkbenchReattach") {
-      const state = browserWorkbench.reattach(message.invocationId);
-      if (state) {
-        sendResponse({ state });
-        return false;
-      }
-      chrome.storage.session
-        .get([WORKBENCH_STATES_KEY, WORKBENCH_LAST_INVOCATION_KEY])
-        .then((stored: {
-          forgeletBrowserWorkbenchStates?: Record<string, BrowserPanelState>;
-          forgeletBrowserWorkbenchLastInvocation?: string;
-        }) => {
-          const invocationId = message.invocationId ?? stored[WORKBENCH_LAST_INVOCATION_KEY];
-          sendResponse({ state: invocationId ? stored[WORKBENCH_STATES_KEY]?.[invocationId] : undefined });
-        });
+    if (message?.type === "pageConversationReattach") {
+      pageConversations
+        .reattach(message.windowId)
+        .then((projection) => sendResponse({ projection }))
+        .catch(() => sendResponse({ projection: undefined }));
       return true;
     }
-    if (message?.type === "browserWorkbenchStop") {
-      browserWorkbench.stop(message.invocationId);
+    if (message?.type === "pageConversationSend") {
+      pageConversations
+        .sendFollowUp(message.windowId, String(message.question ?? ""))
+        .then(() => sendResponse({ ok: true }))
+        .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
+      return true;
+    }
+    if (message?.type === "pageConversationRetry") {
+      pageConversations
+        .retry(message.windowId, message.invocationId)
+        .then(() => sendResponse({ ok: true }))
+        .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
+      return true;
+    }
+    if (message?.type === "pageConversationStop") {
+      pageConversations.stop(message.windowId);
       sendResponse({ ok: true });
       return false;
     }
