@@ -165,6 +165,14 @@ export function createPageConversationController(input: {
   const resolveOutputLanguage = async (): Promise<string | undefined> =>
     normalizeBrowserOutputLanguage(await input.resolveOutputLanguage?.());
 
+  const projectionFor = async (windowId: number): Promise<PageConversationProjection | undefined> => {
+    const inMemory = projections.get(windowId);
+    if (inMemory) return inMemory;
+    const stored = await loadPageConversationProjection(input.storage, windowId);
+    if (stored) projections.set(windowId, stored);
+    return stored;
+  };
+
   return {
     async handleToolbarClick(windowId: number): Promise<void> {
       const current = projections.get(windowId);
@@ -240,11 +248,7 @@ export function createPageConversationController(input: {
     },
 
     async reattach(windowId: number): Promise<PageConversationProjection | undefined> {
-      const inMemory = projections.get(windowId);
-      if (inMemory) return inMemory;
-      const stored = await loadPageConversationProjection(input.storage, windowId);
-      if (stored) projections.set(windowId, stored);
-      return stored;
+      return projectionFor(windowId);
     },
 
     stop(windowId: number): void {
@@ -270,7 +274,10 @@ export function createPageConversationController(input: {
     },
 
     async sendFollowUp(windowId: number, question: string): Promise<void> {
-      const current = projections.get(windowId);
+      // An MV3 Service Worker may restart while the Side Panel stays open.
+      // The panel still displays the projection it received, so recover the
+      // window-scoped state before deciding whether this Send is allowed.
+      const current = await projectionFor(windowId);
       if (!current || current.currentAttempt) return;
       if (!current.rootSessionId || !current.headSessionId) return;
 
@@ -296,7 +303,7 @@ export function createPageConversationController(input: {
     },
 
     async retry(windowId: number, invocationId: string): Promise<void> {
-      const current = projections.get(windowId);
+      const current = await projectionFor(windowId);
       if (!current || current.currentAttempt) return;
       const card = current.terminalCards.find((candidate) => candidate.invocationId === invocationId);
       if (!card) return;

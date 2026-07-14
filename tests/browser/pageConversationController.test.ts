@@ -46,7 +46,7 @@ interface Harness {
   controller: ReturnType<typeof createPageConversationController>;
 }
 
-function harness(options: { evictionByteBudget?: number } = {}): Harness {
+function harness(options: { evictionByteBudget?: number; storage?: PageConversationSessionStorage } = {}): Harness {
   const state: Harness = {
     starts: [],
     ports: new Map<string, PortRecord>(),
@@ -87,7 +87,7 @@ function harness(options: { evictionByteBudget?: number } = {}): Harness {
   };
   state.controller = createPageConversationController({
     bridge,
-    storage: fakeStorage(),
+    storage: options.storage ?? fakeStorage(),
     openSidePanel: async (windowId) => {
       state.openedPanels.push(windowId);
     },
@@ -221,6 +221,29 @@ test("Send starts a follow-up from the current head and Retry starts a fresh att
   expect(h.starts.at(-1)).toMatchObject({ kind: "follow_up_retry", rootSessionId: "sess_root", parentSessionId: "sess_root", question: "Why?" });
   const afterRetry = (await h.controller.reattach(1))!;
   expect(afterRetry.currentAttempt).toMatchObject({ kind: "follow_up_retry", question: "Why?" });
+});
+
+test("Send restores the stored conversation after a service worker restart", async () => {
+  const storage = fakeStorage();
+  const initial = harness({ storage });
+  await initial.controller.handleToolbarClick(1);
+  const rootInvocationId = initial.starts[0]!.invocationId;
+  const rootPort = initial.ports.get(rootInvocationId)!;
+  rootPort.frame({ type: "session_ready", invocationId: rootInvocationId, sessionId: "sess_root" });
+  rootPort.frame({ type: "page_brief_completed", invocationId: rootInvocationId, pageBrief: { summary: "S", keyConcepts: "- K" } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  // The Side Panel retains its projection, but an MV3 service worker can be
+  // restarted between two clicks. Send must recover the stored conversation.
+  const restarted = harness({ storage });
+  await restarted.controller.sendFollowUp(1, "What should I ask next?");
+
+  expect(restarted.starts).toHaveLength(1);
+  expect(restarted.starts[0]).toMatchObject({
+    kind: "follow_up",
+    rootSessionId: "sess_root",
+    parentSessionId: "sess_root",
+  });
 });
 
 test("an unsupported page reports a capture-unavailable notice without starting an attempt", async () => {
