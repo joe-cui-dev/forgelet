@@ -36,22 +36,25 @@ Far-future and not committed: event-triggered Sessions, proactive suggestions, a
 
 ## Next Candidate Slices
 
-1. CLI-first Public Web Tool Provider for Learning:
-   Add the `read_public_web` Capability, `forge learn --web` and preview semantics, separate `web_search` and `web_read` tools proven first through deterministic fakes, one Brave Search Adapter, and one bounded public HTTP Adapter. Enforce the two Public Web Query Scopes structurally, append successful reads to the Session Source Ledger, reject forbidden schemes and private-address redirects, bound requests/bytes/content types/decompression/time, return typed errors and partial search success, and reuse the four-call parallel-read limit with deterministic observation and Trace order. Browser Workbench remains current-page-summary-only until this CLI path is dogfoodable.
+1. Browser Workbench Page Conversations:
+   Let the Side Panel continue from a completed Page Brief with bounded source-grounded follow-ups. Keep each Page Conversation bound to its original persisted capture and approved Workspace Profile; model it as an immutable, linear chain of answer-once Learning Sessions whose children deliver validated `Answer` and `Evidence` Page Answers. Add protocol v3, window-scoped disposable projections, Trace-backed history and identity, strict capture/history integrity checks, and deterministic Stop/Retry behavior. Keep this browser-specific in the first slice: no CLI Learning resume, conversation history browser, cross-Chrome-restart recovery, attachments, Public Web, or workspace reads. Completion requires focused contract tests, typecheck, full tests, build, an expanded deterministic Browser Workbench smoke, and real unpacked-extension/Native-Host/model dogfood covering multi-turn follow-up, reattachment, Stop, and Retry.
 
-2. Diagnose workflow:
+2. CLI-first Public Web Tool Provider for Learning:
+   Add the `read_public_web` Capability, `forge learn --web` and preview semantics, separate `web_search` and `web_read` tools proven first through deterministic fakes, one Brave Search Adapter, and one bounded public HTTP Adapter. Enforce the two Public Web Query Scopes structurally, append successful reads to the Session Source Ledger, reject forbidden schemes and private-address redirects, bound requests/bytes/content types/decompression/time, return typed errors and partial search success, and reuse the four-call parallel-read limit with deterministic observation and Trace order. Browser Workbench Page Conversations remain bound to their original captures rather than gaining implicit public-Web authority.
+
+3. Diagnose workflow:
    Add a debugging workflow that follows reproduce, minimize, hypothesize, instrument, fix, and regression-test stages.
 
-3. Test discovery improvements:
+4. Test discovery improvements:
    Help Coding Sessions find the right verification command before editing.
 
-4. Model pricing and diagnostics:
+5. Model pricing and diagnostics:
    Make provider/model availability, routing, and estimated cost easier to inspect.
 
-5. Local review UI:
+6. Local review UI:
    Add an inspect-and-review web surface after the CLI workflows remain stable. Its primary long-term job is reviewing background Session outcomes and Decision Queue items.
 
-6. Shared types decomposition:
+7. Shared types decomposition:
    Split `src/types.ts` by owning module: model-client contract types move under `src/models`, session and audit types to their owning modules. Unblocked now that the CLI decomposition has landed.
 
 ## Non-Goals

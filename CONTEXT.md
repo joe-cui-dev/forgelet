@@ -204,6 +204,26 @@ _Avoid_: Browser automation, cookie access, hidden page scraping
 The read-only browser surface that turns an explicit browser action into a permissioned Forgelet Session and presents its live outcome. It is a Session caller, not a Workflow or browser automation runtime.
 _Avoid_: Browser Workflow, browser agent, browser automation, Side Panel Workflow
 
+**Page Conversation**:
+A source-bound Browser Workbench conversation created from one explicit immutable page capture, identified independently from its launch attempts and Sessions, and projected in the Side Panel from a linear Session Continuation chain. Its first successful root Session delivers the Page Brief; follow-up turns use the original captured page plus the conversation so far and never silently recapture, read the workspace, or query the public Web.
+_Avoid_: Browser chat, live-page chat, general assistant conversation
+
+**Page Conversation History**:
+The ordered user questions and normalized final answers inherited by each new Session in a Page Conversation. Its complete record remains in ancestor Traces; each child Session may compact older turns inside its own Active Context, and streamed model text never enters the history.
+_Avoid_: Transcript, Trace replay, streamed output, Continuation Context
+
+**Page Conversation Head**:
+The most recent successfully completed Session in a Page Conversation and the parent of its next follow-up. Running, stopped, and failed child Sessions never advance the head.
+_Avoid_: Latest Session, active invocation, newest Trace, cursor
+
+**Page Conversation Projection**:
+The bounded, disposable Side Panel view of one Page Conversation stored per browser window for reattachment during the current browser session. It may contain normalized outcomes and attempt statuses but is never the authority for the capture, Session lineage, or continuation history.
+_Avoid_: Conversation store, transcript, Session state, browser memory
+
+**Page Answer**:
+The normalized final outcome of one Page Conversation follow-up: an `Answer` that addresses the user's question and either up to three Evidence excerpts mechanically verifiable against the original capture or an explicit not-found grounding status. An empty or unverifiable Evidence section is invalid unless it carries the exact not-found signal; streamed text is live presentation, not the Page Answer.
+_Avoid_: Page Brief, chat message, raw model output, Learning Pack
+
 **Workspace Profile**:
 A user-approved binding between a non-CLI Forgelet surface and one local workspace, used to choose where a Session belongs without granting arbitrary workspace access.
 _Avoid_: Recent workspace, cwd, path argument, project selector
