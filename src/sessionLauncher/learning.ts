@@ -41,6 +41,7 @@ export function createBrowserLearningLauncher(input: {
           contentKind: launch.browserSnapshot.contentKind,
           contentHash: launch.browserSnapshot.contentHash,
           contentBytes: launch.browserSnapshot.contentBytes,
+          truncated: launch.browserSnapshot.truncated ?? false,
           content: launch.browserSnapshot.content,
         },
       });

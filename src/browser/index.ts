@@ -25,6 +25,7 @@ export interface LoadedBrowserSnapshot {
   content: string;
   contentBytes: number;
   contentHash: string;
+  truncated?: boolean;
   preview: string;
   screenshotPath?: string;
   /** Where the full capture content is persisted for audit, when it is. */
@@ -105,6 +106,7 @@ export function browserSnapshotToContextAttachment(
       preview: snapshot.preview,
       capturedAt: snapshot.capturedAt,
       ...(snapshot.contentPath ? { contentPath: snapshot.contentPath } : {}),
+      ...(snapshot.truncated !== undefined ? { truncated: snapshot.truncated } : {}),
       trustLevel: "external",
     },
     content: snapshot.content,

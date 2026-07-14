@@ -33,6 +33,7 @@ test("a Workbench-launched Learning Session persists the capture and its Trace a
       content: PAGE_BODY,
       contentBytes: Buffer.byteLength(PAGE_BODY, "utf8"),
       contentHash: "c".repeat(64),
+      truncated: true,
       preview: `${PAGE_BODY.replace(/\s+/g, " ").trim().slice(0, 157)}...`,
     },
     executionPolicy: "answer_once",
@@ -59,6 +60,7 @@ test("a Workbench-launched Learning Session persists the capture and its Trace a
     capturedAt: "2026-07-12T00:00:00.000Z",
     contentKind: "mainText",
     contentHash: "c".repeat(64),
+    truncated: true,
     content: PAGE_BODY,
   });
 
@@ -79,5 +81,6 @@ test("a Workbench-launched Learning Session persists the capture and its Trace a
     contentHash: "c".repeat(64),
     capturedAt: "2026-07-12T00:00:00.000Z",
     contentPath,
+    truncated: true,
   });
 });

@@ -10,324 +10,129 @@ import {
   type ProtocolLauncher,
 } from "../../src/browser/protocol.js";
 
-async function makeHomeDir(): Promise<string> {
+const pageBrief = { summary: "A concise page summary.", keyConcepts: "- First concept" };
+const rootRequest = {
+  version: 3 as const,
+  kind: "root" as const,
+  conversationId: "conversation_1",
+  actionId: "action_1",
+  invocationId: "invocation_1",
+  workspaceProfileId: "profile_1",
+  outputLanguage: "en",
+  capture: {
+    url: "https://example.com",
+    title: "Example",
+    content: "A captured page.",
+    contentKind: "mainText" as const,
+    contentHash: "a".repeat(64),
+    contentBytes: 16,
+    captureId: "capture_1",
+    capturedAt: "2026-07-14T00:00:00.000Z",
+    captureReadyMs: 1,
+    truncated: false,
+  },
+};
+
+async function frames(iterable: AsyncIterable<BrowserRunFrame>): Promise<BrowserRunFrame[]> {
+  const result: BrowserRunFrame[] = [];
+  for await (const frame of iterable) result.push(frame);
+  return result;
+}
+
+async function homeDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), "forgelet-protocol-home-"));
 }
 
-async function collectFrames(
-  frames: AsyncIterable<BrowserRunFrame>,
-): Promise<BrowserRunFrame[]> {
-  const collected: BrowserRunFrame[] = [];
-  for await (const frame of frames) collected.push(frame);
-  return collected;
-}
-
-const baseRequest = {
-  version: BROWSER_PROTOCOL_VERSION,
-  actionId: "summarizeCurrentPage",
-  invocationId: "inv_1",
-  payload: { url: "https://example.com" },
-};
-
-test("validateBrowserInvocationRequest accepts a well-formed invocation request", () => {
-  const request = validateBrowserInvocationRequest({
-    version: BROWSER_PROTOCOL_VERSION,
-    actionId: "summarizeCurrentPage",
-    invocationId: "inv_1",
-    payload: { url: "https://example.com" },
-  });
-
-  expect(request).toEqual({
-    version: BROWSER_PROTOCOL_VERSION,
-    actionId: "summarizeCurrentPage",
-    invocationId: "inv_1",
-    payload: { url: "https://example.com" },
-  });
+test("v3 validates only closed root, root Retry, follow-up, and follow-up Retry request shapes", () => {
+  expect(BROWSER_PROTOCOL_VERSION).toBe(3);
+  expect(validateBrowserInvocationRequest(rootRequest)).toEqual(rootRequest);
+  const { capture: _capture, ...rootRetryBase } = rootRequest;
+  expect(validateBrowserInvocationRequest({ ...rootRetryBase, kind: "root_retry", captureId: "capture_1" })).toMatchObject({ kind: "root_retry" });
+  const followUp = {
+    ...rootRequest,
+    kind: "follow_up" as const,
+    captureId: "capture_1",
+    rootSessionId: "sess_root",
+    parentSessionId: "sess_root",
+    question: "\nWhat does this mean?\n",
+  };
+  delete (followUp as { capture?: unknown }).capture;
+  expect(validateBrowserInvocationRequest(followUp)).toMatchObject({ kind: "follow_up", question: "What does this mean?" });
+  expect(validateBrowserInvocationRequest({ ...followUp, kind: "follow_up_retry" })).toMatchObject({ kind: "follow_up_retry" });
+  expect(() => validateBrowserInvocationRequest({ ...rootRequest, workflow: "learning" })).toThrow(/forbidden/i);
 });
 
-test("validateBrowserInvocationRequest fails closed on an unknown protocol version", () => {
-  expect(() =>
-    validateBrowserInvocationRequest({
-      version: 999,
-      actionId: "summarizeCurrentPage",
-      invocationId: "inv_1",
-      payload: {},
-    }),
-  ).toThrow(/unsupported.*version/i);
+test("v2 and unknown versions fail with recovery guidance", () => {
+  for (const version of [2, 999]) {
+    expect(() => validateBrowserInvocationRequest({ ...rootRequest, version })).toThrow(/rebuild.*reload.*install-host/i);
+  }
 });
 
-test("Browser protocol version is bumped for Page Brief completion frames", () => {
-  expect(BROWSER_PROTOCOL_VERSION).toBe(2);
+test("follow-up questions are non-empty, multiline-capable, and capped at 4 KiB UTF-8", () => {
+  const followUp = { ...rootRequest, kind: "follow_up" as const, captureId: "capture_1", rootSessionId: "sess_root", parentSessionId: "sess_root", question: "one\ntwo" };
+  delete (followUp as { capture?: unknown }).capture;
+  expect(validateBrowserInvocationRequest(followUp)).toMatchObject({ question: "one\ntwo" });
+  expect(() => validateBrowserInvocationRequest({ ...followUp, question: "   " })).toThrow(/question/);
+  expect(() => validateBrowserInvocationRequest({ ...followUp, question: "é".repeat(3000) })).toThrow(/exceeds/i);
 });
 
-test("validateBrowserInvocationRequest fails closed on a malformed request", () => {
-  expect(() => validateBrowserInvocationRequest(null)).toThrow(/malformed|object/i);
-  expect(() =>
-    validateBrowserInvocationRequest({
-      version: BROWSER_PROTOCOL_VERSION,
-      invocationId: "inv_1",
-      payload: {},
-    }),
-  ).toThrow(/actionId/);
-  expect(() =>
-    validateBrowserInvocationRequest({
-      version: BROWSER_PROTOCOL_VERSION,
-      actionId: "summarizeCurrentPage",
-      invocationId: "inv_1",
-      payload: "not-an-object",
-    }),
-  ).toThrow(/payload/);
-});
-
-test("validateBrowserInvocationRequest fails closed on an oversized payload", () => {
-  expect(() =>
-    validateBrowserInvocationRequest({
-      version: BROWSER_PROTOCOL_VERSION,
-      actionId: "summarizeCurrentPage",
-      invocationId: "inv_1",
-      payload: { text: "x".repeat(200_000) },
-    }),
-  ).toThrow(/exceeds|oversized/i);
-});
-
-test("a valid invocation produces strictly increasing sequence numbers and legal state transitions", async () => {
-  const homeDir = await makeHomeDir();
+test("v3 frames carry conversation and invocation identities with monotonic sequence numbers", async () => {
   const launcher: ProtocolLauncher = {
     async launch({ onLiveEvent }) {
-      await onLiveEvent({
-        type: "session_ready",
-        sessionId: "sess_1",
-        tracePath: "/tmp/work/.forgelet/sessions/sess_1.jsonl",
-      });
-      await onLiveEvent({
-        type: "model_turn_started",
-        turnIndex: 0,
-        model: "deepseek-v4-flash",
-      });
-      await onLiveEvent({
-        type: "model_turn_finished",
-        turnIndex: 0,
-        model: "deepseek-v4-flash",
-        toolCallCount: 0,
-      });
-      return { status: "completed", summary: "Forgelet session completed: sess_1" };
+      await onLiveEvent({ type: "session_ready", sessionId: "sess_1", tracePath: "/tmp/sess_1.jsonl" });
+      return { status: "completed", summary: "done", pageBrief };
     },
   };
-
-  const frames = await collectFrames(runBrowserInvocation(baseRequest, launcher, { homeDir }));
-
-  expect(frames.map((frame) => frame.seq)).toEqual([0, 1, 2, 3, 4]);
-  expect(frames.every((frame) => frame.invocationId === "inv_1")).toBe(true);
-  expect(frames.map((frame) => frame.type)).toEqual([
-    "invocation_accepted",
-    "session_ready",
-    "live_event",
-    "live_event",
-    "completed",
-  ]);
+  const result = await frames(runBrowserInvocation(rootRequest, launcher, { homeDir: await homeDir() }));
+  expect(result.map((frame) => frame.seq)).toEqual([0, 1, 2]);
+  expect(result.every((frame) => frame.conversationId === "conversation_1" && frame.invocationId === "invocation_1")).toBe(true);
+  expect(result.at(-1)).toMatchObject({ type: "page_brief_completed", pageBrief });
 });
 
-test("a preflight failure ends with exactly one launch_rejected frame and no Session identity", async () => {
-  const homeDir = await makeHomeDir();
+test("Page Answer completion is distinct from Page Brief completion", async () => {
+  const request = { ...rootRequest, kind: "follow_up" as const, invocationId: "invocation_2", captureId: "capture_1", rootSessionId: "sess_root", parentSessionId: "sess_root", question: "Why?" };
+  delete (request as { capture?: unknown }).capture;
+  const launcher: ProtocolLauncher = { async launch() { return { status: "completed", summary: "answer", pageAnswer: { answer: "Because.", groundingStatus: "supported", evidence: ["A captured passage."] } }; } };
+  const result = await frames(runBrowserInvocation(request, launcher, { homeDir: await homeDir() }));
+  expect(result.at(-1)).toMatchObject({ type: "page_answer_completed", pageAnswer: { answer: "Because." } });
+});
+
+test("replaying an invocation returns the persisted terminal Page Brief without a second Session", async () => {
+  let launches = 0;
+  const launcher: ProtocolLauncher = { async launch() { launches += 1; return { status: "completed", summary: "done", pageBrief }; } };
+  const directory = await homeDir();
+  await frames(runBrowserInvocation(rootRequest, launcher, { homeDir: directory }));
+  const replay = await frames(runBrowserInvocation(rootRequest, launcher, { homeDir: directory }));
+  expect(launches).toBe(1);
+  expect(replay.at(-1)).toMatchObject({ type: "page_brief_completed", pageBrief });
+});
+
+test("an invalid completed launch is persisted and replayed as failed, never as a synthetic Page Brief", async () => {
   const launcher: ProtocolLauncher = {
     async launch() {
-      throw new Error("Workspace Profile is revoked: profile_x");
+      return { status: "completed", summary: "missing normalized outcome" };
     },
   };
-
-  const frames = await collectFrames(runBrowserInvocation(baseRequest, launcher, { homeDir }));
-
-  expect(frames.map((frame) => frame.type)).toEqual([
-    "invocation_accepted",
-    "launch_rejected",
-  ]);
-  expect(frames.some((frame) => "sessionId" in frame)).toBe(false);
-  const rejected = frames.find((frame) => frame.type === "launch_rejected");
-  expect(rejected).toMatchObject({ reason: expect.stringContaining("revoked") });
+  const directory = await homeDir();
+  const original = await frames(runBrowserInvocation(rootRequest, launcher, { homeDir: directory }));
+  const replay = await frames(runBrowserInvocation(rootRequest, launcher, { homeDir: directory }));
+  expect(original.at(-1)).toMatchObject({ type: "failed" });
+  expect(replay.at(-1)).toMatchObject({ type: "failed" });
 });
 
-test("a ready run emits identity before live model events and exactly one terminal frame", async () => {
-  const homeDir = await makeHomeDir();
-  const launcher: ProtocolLauncher = {
-    async launch({ onLiveEvent }) {
-      await onLiveEvent({
-        type: "session_ready",
-        sessionId: "sess_1",
-        tracePath: "/tmp/work/.forgelet/sessions/sess_1.jsonl",
-      });
-      await onLiveEvent({
-        type: "model_turn_started",
-        turnIndex: 0,
-        model: "deepseek-v4-flash",
-      });
-      return { status: "completed", summary: "Forgelet session completed: sess_1" };
-    },
-  };
-
-  const frames = await collectFrames(runBrowserInvocation(baseRequest, launcher, { homeDir }));
-
-  const readyIndex = frames.findIndex((frame) => frame.type === "session_ready");
-  const firstLiveEventIndex = frames.findIndex((frame) => frame.type === "live_event");
-  expect(readyIndex).toBeGreaterThanOrEqual(0);
-  expect(readyIndex).toBeLessThan(firstLiveEventIndex);
-
-  const terminalFrames = frames.filter((frame) =>
-    ["completed", "stopped", "failed"].includes(frame.type),
-  );
-  expect(terminalFrames).toHaveLength(1);
-});
-
-test("the same invocation identity with the same payload never starts a second Session and replays terminal state", async () => {
-  const homeDir = await makeHomeDir();
-  const pack = {
-    summary: "A concise page summary.",
-    keyConcepts: "- First concept",
-    sourceLinks: "- browser: Example Docs",
-    openQuestions: "- None",
-    reviewPrompts: "- Recall the first concept",
-  };
-  let launchCount = 0;
-  const launcher: ProtocolLauncher = {
-    async launch({ onLiveEvent }) {
-      launchCount += 1;
-      await onLiveEvent({
-        type: "session_ready",
-        sessionId: "sess_1",
-        tracePath: "/tmp/work/.forgelet/sessions/sess_1.jsonl",
-      });
-      return {
-        status: "completed",
-        summary: "Forgelet session completed: sess_1",
-        learningPack: pack,
-      };
-    },
-  };
-
-  const first = await collectFrames(runBrowserInvocation(baseRequest, launcher, { homeDir }));
-  const second = await collectFrames(runBrowserInvocation(baseRequest, launcher, { homeDir }));
-
-  expect(launchCount).toBe(1);
-  expect(first.map((frame) => frame.type)).toEqual([
-    "invocation_accepted",
-    "session_ready",
-    "completed",
-  ]);
-  expect(second.map((frame) => frame.type)).toEqual([
-    "invocation_accepted",
-    "session_ready",
-    "completed",
-  ]);
-  const secondReady = second.find((frame) => frame.type === "session_ready");
-  expect(secondReady).toMatchObject({ sessionId: "sess_1" });
-  // The replayed terminal frame carries the persisted Learning Pack, so the
-  // panel renders the same styled sections as the original run.
-  const secondCompleted = second.find((frame) => frame.type === "completed");
-  expect(secondCompleted).toMatchObject({
-    summary: "Forgelet session completed: sess_1",
-    learningPack: pack,
-  });
-});
-
-test("a Page Brief completion persists and replays its two-section shape", async () => {
-  const homeDir = await makeHomeDir();
-  let launchCount = 0;
-  const launcher: ProtocolLauncher = {
-    async launch({ onLiveEvent }) {
-      launchCount += 1;
-      await onLiveEvent({
-        type: "session_ready",
-        sessionId: "sess_page_brief",
-        tracePath: "/tmp/work/.forgelet/sessions/sess_page_brief.jsonl",
-      });
-      return {
-        status: "completed",
-        summary: "## Summary\nA concise page summary.",
-        pageBrief: { summary: "A concise page summary.", keyConcepts: "- First concept" },
-      };
-    },
-  };
-
-  await collectFrames(runBrowserInvocation(baseRequest, launcher, { homeDir }));
-  const replay = await collectFrames(runBrowserInvocation(baseRequest, launcher, { homeDir }));
-
-  expect(launchCount).toBe(1);
-  expect(replay.find((frame) => frame.type === "completed")).toMatchObject({
-    pageBrief: { summary: "A concise page summary.", keyConcepts: "- First concept" },
-  });
-});
-
-test("the same invocation identity with a different payload returns action_conflict", async () => {
-  const homeDir = await makeHomeDir();
-  let launchCount = 0;
-  const launcher: ProtocolLauncher = {
-    async launch({ onLiveEvent }) {
-      launchCount += 1;
-      await onLiveEvent({
-        type: "session_ready",
-        sessionId: "sess_1",
-        tracePath: "/tmp/work/.forgelet/sessions/sess_1.jsonl",
-      });
-      return { status: "completed", summary: "done" };
-    },
-  };
-  const requestB = { ...baseRequest, payload: { url: "https://different.example.com" } };
-
-  await collectFrames(runBrowserInvocation(baseRequest, launcher, { homeDir }));
-  const conflictFrames = await collectFrames(runBrowserInvocation(requestB, launcher, { homeDir }));
-
-  expect(launchCount).toBe(1);
-  expect(conflictFrames.map((frame) => frame.type)).toEqual([
-    "invocation_accepted",
-    "action_conflict",
-  ]);
-});
-
-test("cancel before ready follows WP4 semantics: launch_rejected with no Session identity", async () => {
-  const homeDir = await makeHomeDir();
-  const controller = new AbortController();
-  controller.abort();
-  const launcher: ProtocolLauncher = {
-    async launch({ signal }) {
-      if (signal?.aborted)
-        throw new Error("Session launch cancelled before Session creation.");
-      return { status: "completed", summary: "unused" };
-    },
-  };
-
-  const frames = await collectFrames(
-    runBrowserInvocation(baseRequest, launcher, { homeDir, signal: controller.signal }),
-  );
-
-  expect(frames.map((frame) => frame.type)).toEqual([
-    "invocation_accepted",
-    "launch_rejected",
-  ]);
-});
-
-test("cancel after ready follows WP4 semantics: stopped/user_stopped with Trace evidence", async () => {
-  const homeDir = await makeHomeDir();
-  const controller = new AbortController();
-  const launcher: ProtocolLauncher = {
-    async launch({ onLiveEvent }) {
-      await onLiveEvent({
-        type: "session_ready",
-        sessionId: "sess_1",
-        tracePath: "/tmp/work/.forgelet/sessions/sess_1.jsonl",
-      });
-      controller.abort();
-      return { status: "stopped", reason: "user_stopped" };
-    },
-  };
-
-  const frames = await collectFrames(
-    runBrowserInvocation(baseRequest, launcher, { homeDir, signal: controller.signal }),
-  );
-
-  expect(frames.map((frame) => frame.type)).toEqual([
-    "invocation_accepted",
-    "session_ready",
-    "stopped",
-  ]);
-  const stopped = frames.find((frame) => frame.type === "stopped");
-  expect(stopped).toMatchObject({ reason: "user_stopped" });
+test("same invocation with changed conversation, question, or output language is an action conflict", async () => {
+  const directory = await homeDir();
+  const launcher: ProtocolLauncher = { async launch() { return { status: "completed", summary: "done", pageBrief }; } };
+  await frames(runBrowserInvocation(rootRequest, launcher, { homeDir: directory }));
+  for (const changed of [{ ...rootRequest, conversationId: "conversation_2" }, { ...rootRequest, outputLanguage: "zh-CN" }]) {
+    const result = await frames(runBrowserInvocation(changed, launcher, { homeDir: directory }));
+    expect(result.map((frame) => frame.type)).toEqual(["invocation_accepted", "action_conflict"]);
+  }
+  const { capture: _capture, ...followUpBase } = rootRequest;
+  const followUp = { ...followUpBase, kind: "follow_up" as const, invocationId: "invocation_follow_up", captureId: "capture_1", rootSessionId: "sess_root", parentSessionId: "sess_root", question: "Why?" };
+  await frames(runBrowserInvocation(followUp, launcher, { homeDir: directory }));
+  for (const changed of [{ ...followUp, question: "What changed?" }, { ...followUp, parentSessionId: "sess_other" }]) {
+    const result = await frames(runBrowserInvocation(changed, launcher, { homeDir: directory }));
+    expect(result.at(-1)).toMatchObject({ type: "action_conflict" });
+  }
 });

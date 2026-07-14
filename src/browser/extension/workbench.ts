@@ -19,6 +19,7 @@ export interface BrowserWorkbenchPort {
 export interface BrowserWorkbenchBridge {
   listProfiles(): Promise<BrowserWorkspaceProfileProjection[]>;
   start(input: {
+    conversationId: string;
     actionId: string;
     invocationId: string;
     workspaceProfileId: string;
@@ -104,6 +105,7 @@ export function createBrowserWorkbenchController(input: {
       await input.openSidePanel();
       const actionId = input.createId();
       const invocationId = input.createId();
+      const conversationId = input.createId();
       let capture: Record<string, unknown>;
       try {
         capture = await input.captureCurrentPage();
@@ -132,6 +134,7 @@ export function createBrowserWorkbenchController(input: {
         await input.resolveOutputLanguage?.(),
       );
       const port = input.bridge.start({
+        conversationId,
         actionId,
         invocationId,
         workspaceProfileId: profile.id,
@@ -191,15 +194,24 @@ export function applyBrowserFrame(
   if (frame.type === "live_event") {
     return applyLiveEvent(state, frame.event);
   }
-  if (frame.type === "completed") {
+  if (frame.type === "completed" || frame.type === "page_brief_completed") {
     // The normalized Page Brief or legacy Learning Pack is the authoritative outcome; the streamed
     // text was live presentation only and is replaced entirely.
     return {
       ...state,
       status: "completed",
       summary: typeof frame.summary === "string" ? frame.summary : undefined,
-      learningPack: learningPackFromFrame(frame.learningPack),
+      learningPack: frame.type === "completed" ? learningPackFromFrame(frame.learningPack) : undefined,
       pageBrief: pageBriefFromFrame(frame.pageBrief),
+      liveText: undefined,
+      activity: undefined,
+    };
+  }
+  if (frame.type === "page_answer_completed") {
+    return {
+      ...state,
+      status: "completed",
+      summary: typeof frame.summary === "string" ? frame.summary : undefined,
       liveText: undefined,
       activity: undefined,
     };

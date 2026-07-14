@@ -1,24 +1,72 @@
 import { createHash } from "node:crypto";
 import type { SessionLiveEvent, SessionLiveEventSink } from "../sessionLiveView/index.js";
-import type { LearningPack, PageBrief } from "../workflows/learning.js";
+import type { PageBrief } from "../workflows/learning.js";
 import {
   claimInvocation,
   recordInvocationOutcome,
   type InvocationReceipt,
 } from "./invocations.js";
 
-export const BROWSER_PROTOCOL_VERSION = 2;
+export const BROWSER_PROTOCOL_VERSION = 3;
 const MAX_INVOCATION_PAYLOAD_BYTES = 64 * 1024;
+export const MAX_FOLLOW_UP_QUESTION_BYTES = 4 * 1024;
 
-export interface BrowserInvocationRequest {
-  version: number;
-  actionId: string;
-  invocationId: string;
-  payload: Record<string, unknown>;
+export interface BrowserCaptureRequest {
+  url: string;
+  title: string;
+  content: string;
+  contentKind: "selectedText" | "mainText";
+  contentHash: string;
+  contentBytes: number;
+  captureId: string;
+  capturedAt: string;
+  captureReadyMs: number;
+  truncated: boolean;
 }
 
+interface BrowserInvocationBase {
+  version: typeof BROWSER_PROTOCOL_VERSION;
+  conversationId: string;
+  actionId: string;
+  invocationId: string;
+  workspaceProfileId: string;
+  outputLanguage?: string;
+}
+
+export interface BrowserRootInvocationRequest extends BrowserInvocationBase {
+  kind: "root";
+  capture: BrowserCaptureRequest;
+}
+
+export interface BrowserRootRetryInvocationRequest extends BrowserInvocationBase {
+  kind: "root_retry";
+  captureId: string;
+}
+
+export interface BrowserFollowUpInvocationRequest extends BrowserInvocationBase {
+  kind: "follow_up";
+  captureId: string;
+  rootSessionId: string;
+  parentSessionId: string;
+  question: string;
+}
+
+export interface BrowserFollowUpRetryInvocationRequest extends BrowserInvocationBase {
+  kind: "follow_up_retry";
+  captureId: string;
+  rootSessionId: string;
+  parentSessionId: string;
+  question: string;
+}
+
+export type BrowserInvocationRequest =
+  | BrowserRootInvocationRequest
+  | BrowserRootRetryInvocationRequest
+  | BrowserFollowUpInvocationRequest
+  | BrowserFollowUpRetryInvocationRequest;
+
 export type BrowserProtocolValidationReason =
-  | "unknown_version"
+  | "protocol_mismatch"
   | "oversized"
   | "malformed";
 
@@ -40,40 +88,94 @@ export function validateBrowserInvocationRequest(
     );
   if (raw.version !== BROWSER_PROTOCOL_VERSION)
     throw new BrowserProtocolValidationError(
-      "unknown_version",
-      `Unsupported Browser protocol version: ${String(raw.version)}`,
+      "protocol_mismatch",
+      `Browser Workbench protocol mismatch (received v${String(raw.version)}, expected v3). Rebuild Forgelet, reload the unpacked extension, and rerun forge browser install-host if needed.`,
     );
-  if (typeof raw.actionId !== "string" || raw.actionId.trim() === "")
-    throw new BrowserProtocolValidationError(
-      "malformed",
-      "Invocation request is missing actionId.",
-    );
-  if (typeof raw.invocationId !== "string" || raw.invocationId.trim() === "")
-    throw new BrowserProtocolValidationError(
-      "malformed",
-      "Invocation request is missing invocationId.",
-    );
-  if (!isRecord(raw.payload))
-    throw new BrowserProtocolValidationError(
-      "malformed",
-      "Invocation request payload must be an object.",
-    );
-  const payloadBytes = Buffer.byteLength(JSON.stringify(raw.payload), "utf8");
+  const payloadBytes = Buffer.byteLength(JSON.stringify(raw), "utf8");
   if (payloadBytes > MAX_INVOCATION_PAYLOAD_BYTES)
     throw new BrowserProtocolValidationError(
       "oversized",
       `Invocation payload exceeds ${MAX_INVOCATION_PAYLOAD_BYTES} bytes.`,
     );
-  return {
+  requireOnlyKeys(raw, requestKeys(raw.kind), "Invocation request");
+  const base: BrowserInvocationBase = {
     version: BROWSER_PROTOCOL_VERSION,
-    actionId: raw.actionId,
-    invocationId: raw.invocationId,
-    payload: raw.payload,
+    conversationId: requiredString(raw, "conversationId", "Invocation request"),
+    actionId: requiredString(raw, "actionId", "Invocation request"),
+    invocationId: requiredString(raw, "invocationId", "Invocation request"),
+    workspaceProfileId: requiredString(raw, "workspaceProfileId", "Invocation request"),
+    ...(optionalLanguageTag(raw) ? { outputLanguage: optionalLanguageTag(raw) } : {}),
   };
+  if (raw.kind === "root") return { ...base, kind: "root", capture: parseCapture(raw.capture) };
+  if (raw.kind === "root_retry") return { ...base, kind: "root_retry", captureId: requiredString(raw, "captureId", "Invocation request") };
+  if (raw.kind === "follow_up") {
+    const question = requiredString(raw, "question", "Invocation request").trim();
+    if (Buffer.byteLength(question, "utf8") > MAX_FOLLOW_UP_QUESTION_BYTES)
+      throw new BrowserProtocolValidationError("oversized", `Follow-up question exceeds ${MAX_FOLLOW_UP_QUESTION_BYTES} bytes.`);
+    return {
+      ...base,
+      kind: "follow_up",
+      captureId: requiredString(raw, "captureId", "Invocation request"),
+      rootSessionId: requiredString(raw, "rootSessionId", "Invocation request"),
+      parentSessionId: requiredString(raw, "parentSessionId", "Invocation request"),
+      question,
+    };
+  }
+  if (raw.kind === "follow_up_retry") {
+    const question = requiredString(raw, "question", "Invocation request").trim();
+    if (Buffer.byteLength(question, "utf8") > MAX_FOLLOW_UP_QUESTION_BYTES)
+      throw new BrowserProtocolValidationError("oversized", `Follow-up question exceeds ${MAX_FOLLOW_UP_QUESTION_BYTES} bytes.`);
+    return { ...base, kind: "follow_up_retry", captureId: requiredString(raw, "captureId", "Invocation request"), rootSessionId: requiredString(raw, "rootSessionId", "Invocation request"), parentSessionId: requiredString(raw, "parentSessionId", "Invocation request"), question };
+  }
+  throw new BrowserProtocolValidationError("malformed", "Invocation request has an invalid kind.");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function requestKeys(kind: unknown): string[] {
+  const base = ["version", "kind", "conversationId", "actionId", "invocationId", "workspaceProfileId", "outputLanguage"];
+  if (kind === "root") return [...base, "capture"];
+  if (kind === "root_retry") return [...base, "captureId"];
+  if (kind === "follow_up" || kind === "follow_up_retry") return [...base, "captureId", "rootSessionId", "parentSessionId", "question"];
+  return base;
+}
+
+function requireOnlyKeys(value: Record<string, unknown>, allowed: string[], subject: string): void {
+  const unexpected = Object.keys(value).find((key) => !allowed.includes(key));
+  if (unexpected) throw new BrowserProtocolValidationError("malformed", `${subject} contains forbidden field: ${unexpected}.`);
+}
+
+function requiredString(value: Record<string, unknown>, key: string, subject: string): string {
+  const field = value[key];
+  if (typeof field !== "string" || field.trim() === "")
+    throw new BrowserProtocolValidationError("malformed", `${subject} is missing ${key}.`);
+  return field;
+}
+
+function optionalLanguageTag(value: Record<string, unknown>): string | undefined {
+  const field = value.outputLanguage;
+  if (field === undefined) return undefined;
+  if (typeof field !== "string" || field.length > 35 || !/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{1,8})*$/.test(field))
+    throw new BrowserProtocolValidationError("malformed", "Invocation request has an invalid outputLanguage.");
+  return field;
+}
+
+function parseCapture(raw: unknown): BrowserCaptureRequest {
+  if (!isRecord(raw)) throw new BrowserProtocolValidationError("malformed", "Invocation request is missing capture.");
+  requireOnlyKeys(raw, ["url", "title", "content", "contentKind", "contentHash", "contentBytes", "captureId", "capturedAt", "captureReadyMs", "truncated"], "Browser capture");
+  const content = requiredString(raw, "content", "Browser capture");
+  if (Buffer.byteLength(content, "utf8") > MAX_INVOCATION_PAYLOAD_BYTES)
+    throw new BrowserProtocolValidationError("oversized", `Browser capture exceeds ${MAX_INVOCATION_PAYLOAD_BYTES} bytes.`);
+  const contentKind = requiredString(raw, "contentKind", "Browser capture");
+  if (contentKind !== "selectedText" && contentKind !== "mainText")
+    throw new BrowserProtocolValidationError("malformed", "Browser capture has an invalid contentKind.");
+  const contentBytes = raw.contentBytes;
+  const captureReadyMs = raw.captureReadyMs;
+  if (typeof contentBytes !== "number" || !Number.isFinite(contentBytes) || contentBytes < 0 || typeof captureReadyMs !== "number" || !Number.isFinite(captureReadyMs) || captureReadyMs < 0 || typeof raw.truncated !== "boolean")
+    throw new BrowserProtocolValidationError("malformed", "Browser capture has invalid metadata.");
+  return { url: requiredString(raw, "url", "Browser capture"), title: requiredString(raw, "title", "Browser capture"), content, contentKind, contentHash: requiredString(raw, "contentHash", "Browser capture"), contentBytes, captureId: requiredString(raw, "captureId", "Browser capture"), capturedAt: requiredString(raw, "capturedAt", "Browser capture"), captureReadyMs, truncated: raw.truncated };
 }
 
 // The transport envelope from ADR 0039: invocation_accepted, then exactly one
@@ -81,30 +183,45 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 // terminal frame. SessionLiveEvent is wrapped inside live_event; it is not
 // the protocol itself.
 export type BrowserRunFrame =
-  | { type: "invocation_accepted"; invocationId: string; seq: number }
-  | { type: "launch_rejected"; invocationId: string; seq: number; reason: string }
+  | { type: "invocation_accepted"; conversationId: string; invocationId: string; seq: number }
+  | { type: "launch_rejected"; conversationId: string; invocationId: string; seq: number; reason: string }
   | {
       type: "session_ready";
+      conversationId: string;
       invocationId: string;
       seq: number;
       sessionId: string;
       tracePath: string;
     }
-  | { type: "live_event"; invocationId: string; seq: number; event: SessionLiveEvent }
+  | { type: "live_event"; conversationId: string; invocationId: string; seq: number; event: SessionLiveEvent }
   | {
-      type: "completed";
+      type: "page_brief_completed";
+      conversationId: string;
       invocationId: string;
       seq: number;
       summary: string;
-      learningPack?: LearningPack;
-      pageBrief?: PageBrief;
+      pageBrief: PageBrief;
     }
-  | { type: "stopped"; invocationId: string; seq: number; reason: string }
-  | { type: "failed"; invocationId: string; seq: number; message: string }
-  | { type: "action_conflict"; invocationId: string; seq: number };
+  | {
+      type: "page_answer_completed";
+      conversationId: string;
+      invocationId: string;
+      seq: number;
+      summary: string;
+      pageAnswer: BrowserPageAnswer;
+    }
+  | { type: "stopped"; conversationId: string; invocationId: string; seq: number; reason: string }
+  | { type: "failed"; conversationId: string; invocationId: string; seq: number; message: string }
+  | { type: "action_conflict"; conversationId: string; invocationId: string; seq: number };
+
+export interface BrowserPageAnswer {
+  answer: string;
+  groundingStatus: "supported" | "not_found";
+  evidence: string[];
+}
 
 export type ProtocolLaunchResult =
-  | { status: "completed"; summary: string; learningPack?: LearningPack; pageBrief?: PageBrief }
+  | { status: "completed"; summary: string; pageBrief?: PageBrief; pageAnswer?: BrowserPageAnswer }
   | { status: "stopped"; reason: string }
   | { status: "failed"; message: string };
 
@@ -113,9 +230,7 @@ export type ProtocolLaunchResult =
  * (no Trace/Session ever existed), matching `runKernelSession` (ADR 0036). */
 export interface ProtocolLauncher {
   launch(input: {
-    actionId: string;
-    invocationId: string;
-    payload: Record<string, unknown>;
+    request: BrowserInvocationRequest;
     signal?: AbortSignal;
     onLiveEvent: SessionLiveEventSink;
   }): Promise<ProtocolLaunchResult>;
@@ -137,6 +252,7 @@ export function runBrowserInvocation(
   const emit = (frame: Record<string, unknown> & { type: string }): void => {
     queue.push({
       ...frame,
+      conversationId: request.conversationId,
       invocationId: request.invocationId,
       seq: seq++,
     } as BrowserRunFrame);
@@ -153,13 +269,16 @@ async function driveInvocation(
   options: RunBrowserInvocationOptions,
   emit: (frame: Record<string, unknown> & { type: string }) => void,
 ): Promise<void> {
+  let sessionStarted = false;
   emit({ type: "invocation_accepted" });
 
-  const payloadHash = hashPayload(request.payload);
+  const payloadHash = hashPayload(request);
   const claim = await claimInvocation({
     homeDir: options.homeDir,
     actionId: request.actionId,
     invocationId: request.invocationId,
+    conversationId: request.conversationId,
+    attemptKind: request.kind,
     payloadHash,
     now: options.now,
   });
@@ -176,12 +295,11 @@ async function driveInvocation(
 
   try {
     const result = await launcher.launch({
-      actionId: request.actionId,
-      invocationId: request.invocationId,
-      payload: request.payload,
+      request,
       signal: options.signal,
       onLiveEvent: async (event) => {
         if (event.type === "session_ready") {
+          sessionStarted = true;
           await recordInvocationOutcome({
             homeDir: options.homeDir,
             actionId: request.actionId,
@@ -202,33 +320,33 @@ async function driveInvocation(
       },
     });
 
+    const finalResult = result.status === "completed" && !result.pageBrief && !result.pageAnswer
+      ? { status: "failed" as const, message: "Browser invocation completed without a Page Brief or Page Answer." }
+      : result;
     await recordInvocationOutcome({
       homeDir: options.homeDir,
       actionId: request.actionId,
       invocationId: request.invocationId,
-      state: result.status,
-      ...(result.status === "completed" ? { summary: result.summary } : {}),
-      ...(result.status === "completed" && result.learningPack
-        ? { learningPack: result.learningPack }
+      state: finalResult.status,
+      ...(finalResult.status === "completed" ? { summary: finalResult.summary } : {}),
+      ...(finalResult.status === "completed" && finalResult.pageBrief
+        ? { pageBrief: finalResult.pageBrief }
         : {}),
-      ...(result.status === "completed" && result.pageBrief
-        ? { pageBrief: result.pageBrief }
+      ...(finalResult.status === "completed" && finalResult.pageAnswer
+        ? { pageAnswer: finalResult.pageAnswer }
         : {}),
-      ...(result.status === "stopped" ? { reason: result.reason } : {}),
-      ...(result.status === "failed" ? { reason: result.message } : {}),
+      ...(finalResult.status === "stopped" ? { reason: finalResult.reason } : {}),
+      ...(finalResult.status === "failed" ? { reason: finalResult.message } : {}),
       now: options.now,
     });
     emit(
-      result.status === "completed"
-        ? {
-            type: "completed",
-            summary: result.summary,
-            ...(result.learningPack ? { learningPack: result.learningPack } : {}),
-            ...(result.pageBrief ? { pageBrief: result.pageBrief } : {}),
-          }
-        : result.status === "stopped"
-          ? { type: "stopped", reason: result.reason }
-          : { type: "failed", message: result.message },
+      finalResult.status === "completed" && finalResult.pageAnswer
+        ? { type: "page_answer_completed", summary: finalResult.summary, pageAnswer: finalResult.pageAnswer }
+        : finalResult.status === "completed" && finalResult.pageBrief
+          ? { type: "page_brief_completed", summary: finalResult.summary, pageBrief: finalResult.pageBrief }
+        : finalResult.status === "stopped"
+          ? { type: "stopped", reason: finalResult.reason }
+          : { type: "failed", message: finalResult.status === "failed" ? finalResult.message : "Browser invocation failed." },
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -236,11 +354,11 @@ async function driveInvocation(
       homeDir: options.homeDir,
       actionId: request.actionId,
       invocationId: request.invocationId,
-      state: "rejected",
+      state: sessionStarted ? "failed" : "rejected",
       reason: message,
       now: options.now,
     });
-    emit({ type: "launch_rejected", reason: message });
+    emit(sessionStarted ? { type: "failed", message } : { type: "launch_rejected", reason: message });
   }
 }
 
@@ -256,10 +374,10 @@ function replayReceipt(
     });
   if (receipt.state === "completed")
     emit({
-      type: "completed",
       summary: receipt.summary ?? "",
-      ...(receipt.learningPack ? { learningPack: receipt.learningPack } : {}),
-      ...(receipt.pageBrief ? { pageBrief: receipt.pageBrief } : {}),
+      ...(receipt.pageAnswer
+        ? { type: "page_answer_completed", pageAnswer: receipt.pageAnswer }
+        : { type: "page_brief_completed", pageBrief: receipt.pageBrief as PageBrief }),
     });
   else if (receipt.state === "stopped")
     emit({ type: "stopped", reason: receipt.reason ?? "" });
@@ -267,11 +385,10 @@ function replayReceipt(
     emit({ type: "failed", message: receipt.reason ?? "" });
   else if (receipt.state === "rejected")
     emit({ type: "launch_rejected", reason: receipt.reason ?? "" });
-  // "pending"/"ready" with no terminal state yet: the client sees identity
-  // (if known) and no terminal frame, and may check again later.
+  else emit({ type: "failed", message: "Browser invocation is already in progress; reattach to its active Side Panel." });
 }
 
-function hashPayload(payload: Record<string, unknown>): string {
+function hashPayload(payload: unknown): string {
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
 }
 

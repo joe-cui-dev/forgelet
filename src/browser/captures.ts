@@ -14,6 +14,7 @@ export interface BrowserWorkbenchCapture {
   contentKind: BrowserSnapshotContentKind;
   contentHash: string;
   contentBytes: number;
+  truncated: boolean;
   content: string;
 }
 

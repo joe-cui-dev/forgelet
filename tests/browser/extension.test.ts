@@ -51,6 +51,26 @@ test("browser extension selected-text share builds a minimal snapshot payload", 
   });
 });
 
+test("v3 Page Brief terminal frame replaces streamed text with the normalized outcome", () => {
+  const next = applyBrowserFrame(
+    { invocationId: "invocation_1", status: "running", liveText: "partial model text" },
+    {
+      type: "page_brief_completed",
+      conversationId: "conversation_1",
+      invocationId: "invocation_1",
+      seq: 2,
+      summary: "done",
+      pageBrief: { summary: "Brief", keyConcepts: "- Key" },
+    },
+  );
+
+  expect(next).toMatchObject({
+    status: "completed",
+    liveText: undefined,
+    pageBrief: { summary: "Brief" },
+  });
+});
+
 test("browser extension whole-page share prefers primary content text", () => {
   const mainText = extractMainTextFromPage({
     primaryTextCandidates: [
@@ -111,6 +131,7 @@ test("injected page capture is self-contained when Chrome serializes only its fu
     primaryBlocks: [],
     bodyBlocks: [],
     primaryRootText: "",
+    primaryRootTextTruncated: false,
   });
 });
 
@@ -179,6 +200,7 @@ function executeCollectPageContext(document: unknown, window: unknown): {
   primaryBlocks: { kind: string; text?: string }[];
   bodyBlocks: { kind: string; text?: string }[];
   primaryRootText: string;
+  primaryRootTextTruncated: boolean;
 } {
   const run = new Function(
     "document",
@@ -406,6 +428,53 @@ test("browser capture excludes boilerplate and enforces UTF-8 block and total li
   expect(capture.content).not.toContain("Navigation");
   expect(capture.content).not.toContain("secret");
   expect(capture.content).not.toContain("hidden");
+  expect(capture.truncated).toBe(true);
+});
+
+test("browser capture marks a selected source truncated at the total UTF-8 limit", async () => {
+  const capture = await createBrowserCapture({
+    capturedAt: "2026-07-12T00:00:00.000Z",
+    captureId: "capture_truncated_selection",
+    captureReadyMs: 5,
+    selectionText: "ééé",
+    primaryBlocks: [],
+    bodyBlocks: [],
+    limits: { maxTotalBytes: 5 },
+  });
+
+  expect(capture).toMatchObject({
+    contentKind: "selectedText",
+    content: "éé",
+    truncated: true,
+  });
+});
+
+test("browser capture marks fallback source text truncated at the total UTF-8 limit", async () => {
+  const capture = await createBrowserCapture({
+    capturedAt: "2026-07-12T00:00:00.000Z",
+    captureId: "capture_truncated_fallback",
+    captureReadyMs: 5,
+    primaryBlocks: [{ kind: "link", text: "short", href: "https://example.com" }],
+    bodyBlocks: [],
+    primaryRootText: "A source body that requires fallback.",
+    limits: { maxTotalBytes: 12 },
+  });
+
+  expect(capture).toMatchObject({ content: "A source bod", truncated: true });
+});
+
+test("browser capture preserves source coverage metadata when page collection already capped fallback text", async () => {
+  const capture = await createBrowserCapture({
+    capturedAt: "2026-07-12T00:00:00.000Z",
+    captureId: "capture_collector_capped",
+    captureReadyMs: 5,
+    primaryBlocks: [],
+    bodyBlocks: [],
+    primaryRootText: "The first bounded portion of a page.",
+    primaryRootTextTruncated: true,
+  });
+
+  expect(capture).toMatchObject({ truncated: true });
 });
 
 test("Browser Workbench manifest uses a Side Panel and a clear toolbar action without a popup", () => {

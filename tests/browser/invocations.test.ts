@@ -25,6 +25,48 @@ test("claiming a new invocation identity succeeds exactly once", async () => {
   expect(first.outcome).toBe("claimed");
 });
 
+test("v3 receipts preserve conversation identity, attempt kind, and normalized Page Answer for replay", async () => {
+  const homeDir = await makeHomeDir();
+  await claimInvocation({
+    homeDir,
+    conversationId: "conversation_1",
+    actionId: "action_1",
+    invocationId: "invocation_1",
+    attemptKind: "follow_up",
+    payloadHash: "hash_a",
+  });
+  await recordInvocationOutcome({
+    homeDir,
+    actionId: "action_1",
+    invocationId: "invocation_1",
+    state: "completed",
+    summary: "Answer",
+    pageAnswer: {
+      answer: "It is supported.",
+      groundingStatus: "supported",
+      evidence: ["A captured passage."],
+    },
+  });
+
+  const replay = await claimInvocation({
+    homeDir,
+    conversationId: "conversation_1",
+    actionId: "action_1",
+    invocationId: "invocation_1",
+    attemptKind: "follow_up",
+    payloadHash: "hash_a",
+  });
+  expect(replay).toMatchObject({
+    outcome: "replay",
+    receipt: {
+      schemaVersion: 3,
+      conversationId: "conversation_1",
+      attemptKind: "follow_up",
+      pageAnswer: { answer: "It is supported." },
+    },
+  });
+});
+
 test("re-claiming the same identity with the same payload replays instead of starting a second Session", async () => {
   const homeDir = await makeHomeDir();
   const pack = {
@@ -123,10 +165,13 @@ test("the receipt store contains no page body, only IDs, payload hash, state, Se
   expect(Object.keys(replay.receipt).sort()).toEqual(
     [
       "actionId",
+      "attemptKind",
+      "conversationId",
       "createdAt",
       "invocationId",
       "learningPack",
       "payloadHash",
+      "schemaVersion",
       "sessionId",
       "state",
       "summary",

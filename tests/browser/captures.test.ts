@@ -20,6 +20,7 @@ test("a Workbench capture persists as an auditable file keyed by captureId", asy
       contentKind: "mainText",
       contentHash: "a".repeat(64),
       contentBytes: 36,
+      truncated: true,
       content: "# Example Docs\n\nUseful page content.",
     },
   });
@@ -38,6 +39,7 @@ test("a Workbench capture persists as an auditable file keyed by captureId", asy
     contentKind: "mainText",
     contentHash: "a".repeat(64),
     contentBytes: 36,
+    truncated: true,
     content: "# Example Docs\n\nUseful page content.",
   });
 });
@@ -56,6 +58,7 @@ test("a capture with a path-traversal captureId is rejected before any file is w
         contentKind: "mainText",
         contentHash: "a".repeat(64),
         contentBytes: 36,
+        truncated: false,
         content: "# Example Docs\n\nUseful page content.",
       },
     }),

@@ -30,6 +30,7 @@ export interface BrowserCapture {
   captureId: string;
   capturedAt: string;
   captureReadyMs: number;
+  truncated: boolean;
 }
 
 export interface BrowserCaptureInput {
@@ -40,6 +41,7 @@ export interface BrowserCaptureInput {
   primaryBlocks: CaptureBlock[];
   bodyBlocks: CaptureBlock[];
   primaryRootText?: string;
+  primaryRootTextTruncated?: boolean;
   limits?: {
     maxBlockBytes?: number;
     maxTotalBytes?: number;
@@ -107,6 +109,7 @@ export function collectPageContext(): {
   primaryBlocks: CaptureBlock[];
   bodyBlocks: CaptureBlock[];
   primaryRootText: string;
+  primaryRootTextTruncated: boolean;
 } {
   const boilerplateSelectors =
     "script,style,nav,header,footer,aside,[role='navigation'],[aria-hidden='true']";
@@ -154,7 +157,7 @@ export function collectPageContext(): {
   const primaryRoot = selectors
     .map((selector) => document.querySelector(selector))
     .find((element: any) => Boolean(element));
-  const collectPrimaryRootText = (): string => {
+  const collectPrimaryRootText = (): { text: string; truncated: boolean } => {
     const maxBytes = 48 * 1024;
     // Walks the live DOM (a detached clone's innerText degrades to
     // textContent, losing block separators and hidden-element filtering):
@@ -174,7 +177,7 @@ export function collectPageContext(): {
     };
     const text = visibleText(primaryRoot ?? document.body);
     const encoder = new TextEncoder();
-    if (encoder.encode(text).byteLength <= maxBytes) return text;
+    if (encoder.encode(text).byteLength <= maxBytes) return { text, truncated: false };
     let capped = "";
     let usedBytes = 0;
     for (const character of text) {
@@ -183,14 +186,16 @@ export function collectPageContext(): {
       capped += character;
       usedBytes += characterBytes;
     }
-    return capped;
+    return { text: capped, truncated: true };
   };
+  const primaryRootText = collectPrimaryRootText();
   return {
     title: document.title || window.location.href,
     selectionText: window.getSelection?.()?.toString() ?? "",
     primaryBlocks: collectBlocks(primaryRoot),
     bodyBlocks: collectBlocks(document.body),
-    primaryRootText: collectPrimaryRootText(),
+    primaryRootText: primaryRootText.text,
+    primaryRootTextTruncated: primaryRootText.truncated,
   };
 }
 
@@ -205,18 +210,19 @@ export async function createBrowserCapture(input: BrowserCaptureInput): Promise<
   };
   const selectedText = normalizePreservingLineBreaks(input.selectionText);
   const contentKind = selectedText ? "selectedText" : "mainText";
-  const content = selectedText
-    ? truncateUtf8(selectedText, limits.maxTotalBytes)
+  const serialized = selectedText
+    ? truncateWithMetadata(selectedText, limits.maxTotalBytes)
     : serializeMainText(input, limits);
 
   return {
     contentKind,
-    content,
-    contentBytes: utf8ByteLength(content),
-    contentHash: await sha256Hex(content),
+    content: serialized.content,
+    contentBytes: utf8ByteLength(serialized.content),
+    contentHash: await sha256Hex(serialized.content),
     captureId: input.captureId,
     capturedAt: input.capturedAt,
     captureReadyMs: input.captureReadyMs,
+    truncated: serialized.truncated,
   };
 }
 
@@ -312,35 +318,47 @@ const MAIN_TEXT_COVERAGE_RATIO = 0.6;
 function serializeMainText(
   input: BrowserCaptureInput,
   limits: { maxBlockBytes: number; maxTotalBytes: number },
-): string {
+): { content: string; truncated: boolean } {
   const sourceBlocks = input.primaryBlocks.some(isIncludedBlock)
     ? input.primaryBlocks
     : input.bodyBlocks;
   const structured = serializeBlocks(sourceBlocks, limits);
   const rootText = normalizePreservingLineBreaks(input.primaryRootText);
   const coveredEnough =
-    utf8ByteLength(structured) >= MAIN_TEXT_COVERAGE_RATIO * utf8ByteLength(rootText);
-  return coveredEnough ? structured : truncateUtf8(rootText, limits.maxTotalBytes);
+    utf8ByteLength(structured.content) >= MAIN_TEXT_COVERAGE_RATIO * utf8ByteLength(rootText);
+  if (coveredEnough) return structured;
+  const fallback = truncateWithMetadata(rootText, limits.maxTotalBytes);
+  return { ...fallback, truncated: fallback.truncated || input.primaryRootTextTruncated === true };
 }
 
 function serializeBlocks(
   blocks: CaptureBlock[],
   limits: { maxBlockBytes: number; maxTotalBytes: number },
-): string {
+): { content: string; truncated: boolean } {
   const serialized: string[] = [];
   let totalBytes = 0;
+  let truncated = false;
   for (const block of blocks) {
     if (!isIncludedBlock(block)) continue;
-    const text = truncateUtf8(serializeBlock(block), limits.maxBlockBytes);
+    const original = serializeBlock(block);
+    const text = truncateUtf8(original, limits.maxBlockBytes);
+    if (text !== original) truncated = true;
     if (!text) continue;
     const separator = serialized.length === 0 ? "" : "\n\n";
     const remainingBytes = limits.maxTotalBytes - totalBytes - utf8ByteLength(separator);
-    if (remainingBytes <= 0) break;
-    if (utf8ByteLength(text) > remainingBytes) break;
+    if (remainingBytes <= 0 || utf8ByteLength(text) > remainingBytes) {
+      truncated = true;
+      break;
+    }
     serialized.push(text);
     totalBytes += utf8ByteLength(separator) + utf8ByteLength(text);
   }
-  return serialized.join("\n\n");
+  return { content: serialized.join("\n\n"), truncated };
+}
+
+function truncateWithMetadata(value: string, maxBytes: number): { content: string; truncated: boolean } {
+  const content = truncateUtf8(value, maxBytes);
+  return { content, truncated: content !== value };
 }
 
 function isIncludedBlock(block: CaptureBlock): boolean {

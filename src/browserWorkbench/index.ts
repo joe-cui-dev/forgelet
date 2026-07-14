@@ -42,9 +42,17 @@ export function createBrowserWorkbench(input: {
   startLearning: BrowserLearningLauncher["startLearning"];
 }): ProtocolLauncher {
   return {
-    async launch({ actionId, invocationId, payload, signal, onLiveEvent }): Promise<ProtocolLaunchResult> {
+    async launch({ request, signal, onLiveEvent }): Promise<ProtocolLaunchResult> {
       if (signal?.aborted) throw new Error("Session launch cancelled before Session creation.");
-      const invocation = parseBrowserSummaryInvocation(payload, actionId, invocationId);
+      if (request.kind !== "root")
+        throw new Error("Page Conversation follow-ups are not available until the conversation launcher is installed.");
+      const invocation = {
+        actionId: request.actionId,
+        invocationId: request.invocationId,
+        workspaceProfileId: request.workspaceProfileId,
+        ...(request.outputLanguage ? { outputLanguage: request.outputLanguage } : {}),
+        capture: { ...request.capture, preview: makePreview(request.capture.content) },
+      };
       const profile = await input.resolveProfile(invocation.workspaceProfileId);
       if (signal?.aborted) throw new Error("Session launch cancelled before Session creation.");
       return input.startLearning({

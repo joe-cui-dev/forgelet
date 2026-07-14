@@ -129,6 +129,8 @@ export interface ContextAttachment {
   contentHash: string;
   preview: string;
   capturedAt?: string;
+  /** Whether source capture limits omitted part of the attachment. */
+  truncated?: boolean;
   /** Where the full attachment content is persisted for audit, when it is. */
   contentPath?: string;
   trustLevel: "user-provided" | "workspace" | "external";

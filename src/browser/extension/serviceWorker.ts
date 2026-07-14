@@ -36,14 +36,14 @@ const browserWorkbench = createBrowserWorkbenchController({
       port.postMessage({
         type: "browserInvocation",
         request: {
-          version: 2,
+          version: 3,
+          kind: "root",
+          conversationId: input.conversationId,
           actionId: input.actionId,
           invocationId: input.invocationId,
-          payload: {
-            workspaceProfileId: input.workspaceProfileId,
-            ...(input.outputLanguage ? { outputLanguage: input.outputLanguage } : {}),
-            capture: input.capture,
-          },
+          workspaceProfileId: input.workspaceProfileId,
+          ...(input.outputLanguage ? { outputLanguage: input.outputLanguage } : {}),
+          capture: input.capture,
         },
       });
       return {
@@ -198,6 +198,7 @@ async function captureActiveTab(): Promise<{
     primaryBlocks: pageContext.primaryBlocks,
     bodyBlocks: pageContext.bodyBlocks,
     primaryRootText: pageContext.primaryRootText,
+    primaryRootTextTruncated: pageContext.primaryRootTextTruncated,
   });
   return { tab, pageContext, capturedAt, capture };
 }
@@ -251,6 +252,7 @@ async function collectActiveTabPageContext(tabId: number): Promise<{
   primaryBlocks: CaptureBlock[];
   bodyBlocks: CaptureBlock[];
   primaryRootText: string;
+  primaryRootTextTruncated: boolean;
 }> {
   const [result] = await chrome.scripting.executeScript({
     target: { tabId },
@@ -269,6 +271,7 @@ function isPageContext(value: unknown): value is {
   primaryBlocks: CaptureBlock[];
   bodyBlocks: CaptureBlock[];
   primaryRootText: string;
+  primaryRootTextTruncated: boolean;
 } {
   if (typeof value !== "object" || value === null) return false;
   const record = value as Record<string, unknown>;
@@ -276,6 +279,7 @@ function isPageContext(value: unknown): value is {
     typeof record.title === "string" &&
     typeof record.selectionText === "string" &&
     typeof record.primaryRootText === "string" &&
+    typeof record.primaryRootTextTruncated === "boolean" &&
     Array.isArray(record.primaryBlocks) &&
     record.primaryBlocks.every(isCaptureBlock) &&
     Array.isArray(record.bodyBlocks) &&
