@@ -104,7 +104,15 @@ export async function runKernelSession<TCompletion = void>(
   const baselineDirtyPaths = input.act
     ? await gitStatusPaths(input.workspaceRoot)
     : new Set<string>();
-  const sourceLedger = createSessionSourceLedger();
+  const sourceLedger = createSessionSourceLedger({
+    workspaceRoot: input.workspaceRoot,
+    sessionId,
+  });
+  if (
+    input.definition.capabilities({ act: input.act === true, readScope }).includes("read_public_web") &&
+    !input.publicWeb
+  )
+    throw new Error("Public Web adapters are required when read_public_web is granted.");
   const attachmentPlan = await input.definition.loadAttachments({
     workspaceRoot: input.workspaceRoot,
     contextFiles: input.contextFiles,
@@ -290,7 +298,8 @@ export async function runKernelSession<TCompletion = void>(
         session,
         continuationAttachment,
         contextAttachments,
-        sourceLedger: sourceLedger.view,
+        sourceLedger,
+        publicWeb: input.publicWeb,
         durableMemory,
         workspaceRoot: input.workspaceRoot,
         route,

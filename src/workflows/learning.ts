@@ -109,6 +109,7 @@ export function runLearningSession(
     task: input.task,
     contextFiles: input.contextFiles,
     browserSnapshot: input.browserSnapshot,
+    publicWeb: input.publicWeb,
     model: input.model,
     budgetUsd: input.budgetUsd,
     homeDir: input.homeDir,

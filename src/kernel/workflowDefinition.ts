@@ -3,6 +3,7 @@ import type { EffectEnvelope } from "../permissions/envelope.js";
 import type { SessionLiveEventSink } from "../sessionLiveView/index.js";
 import type { SessionSourceLedger, SessionSourceLedgerView } from "../sourceLedger/index.js";
 import type { ApprovalHandler } from "../tools/toolRegistry.js";
+import type { PublicWebAdapters } from "../publicWeb/index.js";
 import type {
   AgentSession,
   Capability,
@@ -102,6 +103,7 @@ export interface RunKernelSessionInput<TCompletion = void> {
   task: string;
   contextFiles: string[];
   browserSnapshot?: LoadedBrowserSnapshot;
+  publicWeb?: PublicWebAdapters;
   readScopeRequest?: string[];
   model?: string;
   budgetUsd?: number;

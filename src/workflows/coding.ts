@@ -28,6 +28,7 @@ export function runCodingSession(
     task: input.task,
     contextFiles: input.contextFiles,
     browserSnapshot: input.browserSnapshot,
+    publicWeb: input.publicWeb,
     model: input.model,
     budgetUsd: input.budgetUsd,
     maxWallClockMs: input.maxWallClockMs,
