@@ -87,7 +87,7 @@ test("a follow-up Page Answer advances head but leaves root unchanged, and a not
 });
 
 test.each(["stopped", "failed"] as const)(
-  "a %s follow-up attempt leaves the head unchanged, drops partial streamed text, and files a terminal card",
+  "a %s follow-up attempt leaves the head unchanged and preserves its streamed draft in a terminal card",
   (terminal) => {
     let projection = startRoot();
     projection = applyPageConversationFrame(projection, { type: "session_ready", invocationId: "invocation_1", sessionId: "sess_root" });
@@ -114,7 +114,15 @@ test.each(["stopped", "failed"] as const)(
     expect(projection.turns).toHaveLength(1);
     expect(projection.currentAttempt).toBeUndefined();
     expect(projection.terminalCards).toEqual([
-      { invocationId: "invocation_2", kind: "follow_up", status: terminal, reason: terminal === "stopped" ? "user_stopped" : "invalid_page_answer", question: "Why?", sessionId: "sess_f1" },
+      {
+        invocationId: "invocation_2",
+        kind: "follow_up",
+        status: terminal,
+        reason: terminal === "stopped" ? "user_stopped" : "invalid_page_answer",
+        question: "Why?",
+        sessionId: "sess_f1",
+        streamedText: "partial streamed text",
+      },
     ]);
   },
 );

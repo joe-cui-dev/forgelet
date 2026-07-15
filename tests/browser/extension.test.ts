@@ -617,6 +617,37 @@ test("failed and stopped attempts render a terminal card with question, reason, 
   expect(container.textContent).toContain("sess_f1");
 });
 
+test("a failed attempt renders its streamed text as an explicitly unverified draft", () => {
+  const projection = projectionFixture({
+    rootSessionId: "sess_root",
+    headSessionId: "sess_root",
+    turns: [{ invocationId: "invocation_1", sessionId: "sess_root", kind: "root", pageBrief: { summary: "S", keyConcepts: "- K" } }],
+    terminalCards: [
+      {
+        invocationId: "invocation_2",
+        kind: "follow_up",
+        status: "failed",
+        reason: "invalid_page_answer",
+        question: "Why?",
+        sessionId: "sess_f1",
+        streamedText: "A partially streamed answer.",
+      },
+    ],
+  });
+
+  const view = buildSidePanelViewModel({ projection, language: "en" });
+  expect(view.terminalCards[0]).toMatchObject({
+    streamedText: "A partially streamed answer.",
+    streamedTextLabel: "Unverified streamed draft",
+  });
+
+  const doc = fakePanelDocument();
+  const container = doc.createElement("div");
+  renderSidePanelState(doc, container, view);
+  expect(container.textContent).toContain("Unverified streamed draft");
+  expect(container.textContent).toContain("A partially streamed answer.");
+});
+
 test("a Page Conversation with no attempt in flight renders no stream element, and the evicted-history indicator is visible after eviction", () => {
   const doc = fakePanelDocument();
   const container = doc.createElement("div");

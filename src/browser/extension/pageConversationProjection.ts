@@ -40,6 +40,10 @@ export interface PageConversationTerminalCard {
   reason: string;
   question?: string;
   sessionId?: string;
+  /** Model text already shown while the attempt was running. It is display
+   * only: terminal drafts never become a successful turn or continuation
+   * history. */
+  streamedText?: string;
 }
 
 export type PageConversationAttemptStatus = "starting" | "running" | "stopping";
@@ -259,6 +263,9 @@ function terminalCardFrom(
     reason,
     ...(current.question !== undefined ? { question: current.question } : {}),
     ...(current.sessionId !== undefined ? { sessionId: current.sessionId } : {}),
+    ...(current.liveText !== undefined && current.liveText.length > 0
+      ? { streamedText: current.liveText }
+      : {}),
   };
 }
 

@@ -18,6 +18,7 @@ interface SidePanelStrings {
   notFoundEvidence: string;
   historyEvicted: string;
   noConversation: string;
+  unverifiedStreamedDraft: string;
 }
 
 const STRINGS: Record<SidePanelLanguage, SidePanelStrings> = {
@@ -25,11 +26,13 @@ const STRINGS: Record<SidePanelLanguage, SidePanelStrings> = {
     notFoundEvidence: "No supporting passage found in the captured page.",
     historyEvicted: "Earlier turns remain in the Session Traces on disk.",
     noConversation: "Click the toolbar action to summarize the current page.",
+    unverifiedStreamedDraft: "Unverified streamed draft",
   },
   "zh-CN": {
     notFoundEvidence: "未在已捕获的页面中找到支持性内容。",
     historyEvicted: "更早的对话内容仍保存在磁盘上的 Session Trace 中。",
     noConversation: "点击工具栏按钮以总结当前页面。",
+    unverifiedStreamedDraft: "未验证的流式草稿",
   },
 };
 
@@ -81,6 +84,8 @@ export interface SidePanelTerminalCardView {
   question?: string;
   reason: string;
   sessionId?: string;
+  streamedText?: string;
+  streamedTextLabel?: string;
 }
 
 export interface SidePanelCurrentAttemptView {
@@ -128,7 +133,7 @@ export function buildSidePanelViewModel(input: {
       partial: projection.source.truncated,
     },
     turns: projection.turns.map((turn) => turnView(turn, strings)),
-    terminalCards: projection.terminalCards.map(terminalCardView),
+    terminalCards: projection.terminalCards.map((card) => terminalCardView(card, strings)),
     ...(projection.currentAttempt ? { currentAttempt: currentAttemptView(projection.currentAttempt) } : {}),
     ...(input.notice ? { noticeMessage: input.notice.message } : {}),
     // Send is available only once a root Page Brief has succeeded and no
@@ -167,7 +172,7 @@ function turnView(turn: PageConversationSuccessfulTurn, strings: SidePanelString
   };
 }
 
-function terminalCardView(card: PageConversationTerminalCard): SidePanelTerminalCardView {
+function terminalCardView(card: PageConversationTerminalCard, strings: SidePanelStrings): SidePanelTerminalCardView {
   return {
     invocationId: card.invocationId,
     kind: card.kind,
@@ -175,6 +180,9 @@ function terminalCardView(card: PageConversationTerminalCard): SidePanelTerminal
     ...(card.question !== undefined ? { question: card.question } : {}),
     reason: card.reason,
     ...(card.sessionId !== undefined ? { sessionId: card.sessionId } : {}),
+    ...(card.streamedText !== undefined
+      ? { streamedText: card.streamedText, streamedTextLabel: strings.unverifiedStreamedDraft }
+      : {}),
   };
 }
 
@@ -326,6 +334,13 @@ export function renderSidePanelState(
     if (card.question !== undefined) appendText(doc, wrapper, "p", card.question, "question");
     appendText(doc, wrapper, "p", card.reason, "reason");
     if (card.sessionId !== undefined) appendText(doc, wrapper, "p", `Session: ${card.sessionId}`, "session-id");
+    if (card.streamedText !== undefined) {
+      appendText(doc, wrapper, "p", card.streamedTextLabel ?? "Unverified streamed draft", "unverified-draft-label");
+      const draft = doc.createElement("pre");
+      draft.setAttribute("class", "stream unverified-draft");
+      draft.textContent = card.streamedText;
+      wrapper.appendChild(draft);
+    }
     const retry = doc.createElement("button");
     retry.setAttribute("type", "button");
     retry.setAttribute("class", "retry");
