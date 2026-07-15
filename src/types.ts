@@ -31,6 +31,7 @@ export type Capability =
   | "write_workspace"
   | "run_safe_command"
   | "git_read"
+  | "read_public_web"
   | "update_plan"
   | "model_generate_text";
 
@@ -121,7 +122,7 @@ export interface AuditRisk {
 
 export interface ContextAttachment {
   id: string;
-  source: "user" | "file" | "browser" | "clipboard" | "issue";
+  source: "user" | "file" | "browser" | "clipboard" | "issue" | "web";
   title?: string;
   uri?: string;
   mimeType: string;
@@ -233,13 +234,19 @@ export interface ToolResult {
   summary: string;
   data?: unknown;
   error?: string;
+  errorCode?: ToolObservationErrorCode;
 }
 
 export type ToolObservationErrorCode =
   | "unknown_tool"
   | "permission_denied"
   | "invalid_input"
-  | "tool_failed";
+  | "tool_failed"
+  | "web_egress_denied"
+  | "web_fetch_failed"
+  | "web_content_rejected"
+  | "web_budget_exhausted"
+  | "web_search_failed";
 
 export interface ToolObservation {
   ok: boolean;
@@ -275,6 +282,16 @@ export interface ToolObservation {
     durationMs?: number;
     timedOut?: boolean;
     scopeConstrained?: boolean;
+    url?: string;
+    finalUrl?: string;
+    httpStatus?: number;
+    fetchedBytes?: number;
+    storedBytes?: number;
+    contentType?: string;
+    sourceId?: string;
+    deduplicated?: boolean;
+    requestedCount?: number;
+    returnedCount?: number;
   };
 }
 
@@ -306,6 +323,18 @@ export type ToolTarget =
       kind: "command";
       command: string;
       classification: "safe_configured" | "unsafe";
+    }
+  | {
+      kind: "url";
+      url: string;
+      classification:
+        | "ordinary"
+        | "malformed"
+        | "non_https_scheme"
+        | "non_443_port"
+        | "userinfo"
+        | "local_hostname"
+        | "private_ip";
     };
 
 export type PermissionDecisionKind = "allow" | "confirm" | "deny";

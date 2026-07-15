@@ -43,11 +43,14 @@ const deniedTargetReason = (request: ToolRequest): string | undefined => {
     return `${target.path} was dirty at Session start`;
   if (target.kind === "path")
     return `${target.path} is ${target.classification}`;
+  if (target.kind === "url")
+    return `${target.url} is ${target.classification}`;
   return `${target.command} is ${target.classification}`;
 };
 
 const isDeniedTarget = (target: ToolTarget): boolean => {
   if (target.kind === "path") return target.classification !== "ordinary";
+  if (target.kind === "url") return target.classification !== "ordinary";
   return target.classification !== "safe_configured";
 };
 

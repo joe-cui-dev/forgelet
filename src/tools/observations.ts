@@ -40,6 +40,17 @@ export const toolResultToObservation = (
   if (typeof data.timedOut === "boolean") metadata.timedOut = data.timedOut;
   if (typeof data.scopeConstrained === "boolean")
     metadata.scopeConstrained = data.scopeConstrained;
+  copyStringMetadata(data, metadata, "url");
+  copyStringMetadata(data, metadata, "finalUrl");
+  copyNumberMetadata(data, metadata, "httpStatus");
+  copyNumberMetadata(data, metadata, "fetchedBytes");
+  copyNumberMetadata(data, metadata, "storedBytes");
+  copyStringMetadata(data, metadata, "contentType");
+  copyStringMetadata(data, metadata, "sourceId");
+  if (typeof data.deduplicated === "boolean")
+    metadata.deduplicated = data.deduplicated;
+  copyNumberMetadata(data, metadata, "requestedCount");
+  copyNumberMetadata(data, metadata, "returnedCount");
   if (content) metadata.preview = content.slice(0, TRACE_PREVIEW_CHARS);
   return {
     ok: result.ok,
@@ -49,7 +60,10 @@ export const toolResultToObservation = (
     content,
     error: result.ok
       ? undefined
-      : { code: "tool_failed", message: result.error ?? result.summary },
+      : {
+          code: result.errorCode ?? "tool_failed",
+          message: result.error ?? result.summary,
+        },
     metadata,
   };
 };
@@ -108,4 +122,23 @@ type NumberMetadataKey =
   | "returnedEndByte"
   | "returnedStartLine"
   | "returnedEndLine"
-  | "nextOffsetBytes";
+  | "nextOffsetBytes"
+  | "httpStatus"
+  | "fetchedBytes"
+  | "storedBytes"
+  | "requestedCount"
+  | "returnedCount";
+
+const copyStringMetadata = (
+  data: Record<string, unknown>,
+  metadata: ToolObservation["metadata"],
+  key: StringMetadataKey,
+): void => {
+  if (typeof data[key] === "string") metadata[key] = data[key];
+};
+
+type StringMetadataKey =
+  | "url"
+  | "finalUrl"
+  | "contentType"
+  | "sourceId";

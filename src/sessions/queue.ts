@@ -32,7 +32,12 @@ export async function listPausedSessions(
       task: snapshot.task,
       pendingToolName: snapshot.pendingToolCall.name,
       pendingTargets: (snapshot.pendingToolRequest.targets ?? []).map(
-        (target) => (target.kind === "path" ? target.path : target.command),
+        (target) =>
+          target.kind === "path"
+            ? target.path
+            : target.kind === "command"
+              ? target.command
+              : target.url,
       ),
       pausedAt: snapshot.pausedAt,
     });

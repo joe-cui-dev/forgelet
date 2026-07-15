@@ -42,6 +42,7 @@ Do not default to reading deleted or historical planning docs from git history. 
 - Project Memory Review read model, Compatibility Import, and decision-log records: `src/memoryReview/`
 - Context attachments loaded into a session: `src/context/`
 - Session source identity and source-ledger views: `src/sourceLedger/`
+- Public-Web policy, adapters, and tool provider: `src/publicWeb/`
 - Active context compaction (rolling summary, fact ledger, fold): `src/conversation/`
 - Live terminal presentation: `src/sessionLiveView/`
 - Smoke commands: `src/smoke/`

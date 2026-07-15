@@ -64,7 +64,7 @@ export const widenEnvelopeForRequest = (
   const allowedCommands = new Set(envelope.allowedCommands);
   for (const target of request.targets ?? []) {
     if (target.kind === "path") writeScopePrefixes.add(dirname(target.path));
-    else allowedCommands.add(target.command);
+    if (target.kind === "command") allowedCommands.add(target.command);
   }
   return {
     writeScopePrefixes: [...writeScopePrefixes],
@@ -76,7 +76,9 @@ const citeEnvelope = (request: ToolRequest): string => {
   const citations = (request.targets ?? []).map((target) =>
     target.kind === "path"
       ? `${target.path} is within the declared write scope`
-      : `${target.command} is in the declared command allowlist`,
+      : target.kind === "command"
+        ? `${target.command} is in the declared command allowlist`
+        : `${target.url} is not governed by the Effect Envelope`,
   );
   return citations.length > 0
     ? `Auto-approved by the declared Effect Envelope: ${citations.join("; ")}.`
@@ -102,6 +104,7 @@ const isTargetWithinEnvelope = (
         isPathUnderPrefix(target.path, prefix),
       )
     );
+  if (target.kind === "url") return false;
   return (
     target.classification === "safe_configured" &&
     envelope.allowedCommands.includes(target.command)
