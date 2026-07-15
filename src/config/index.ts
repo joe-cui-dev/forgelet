@@ -30,6 +30,7 @@ export interface ForgeletConfig {
     openai: ProviderSettings;
     anthropic: ProviderSettings;
   };
+  publicWeb: { provider: "brave" | "fake"; apiKeyEnv: string };
   budgets: {
     maxModelTurns: number;
     maxInputTokens: number;
@@ -49,7 +50,7 @@ export interface ForgeletConfig {
 }
 
 type WritableConfig = Partial<
-  Omit<ForgeletConfig, "activeContext" | "providers">
+  Omit<ForgeletConfig, "activeContext" | "providers" | "publicWeb">
 > & {
   activeContext?: Partial<ForgeletConfig["activeContext"]>;
   providers?: {
@@ -57,6 +58,7 @@ type WritableConfig = Partial<
     openai?: Partial<ProviderSettings>;
     anthropic?: Partial<ProviderSettings>;
   };
+  publicWeb?: Partial<ForgeletConfig["publicWeb"]>;
 };
 
 export const defaultConfig: ForgeletConfig = {
@@ -83,6 +85,7 @@ export const defaultConfig: ForgeletConfig = {
     openai: { apiKeyEnv: "OPENAI_API_KEY" },
     anthropic: { apiKeyEnv: "ANTHROPIC_API_KEY" },
   },
+  publicWeb: { provider: "brave", apiKeyEnv: "BRAVE_SEARCH_API_KEY" },
   budgets: {
     maxModelTurns: 12,
     maxInputTokens: 120000,
@@ -217,10 +220,16 @@ function applySupportedConfigValue(
         anthropic: { ...config.providers?.anthropic, apiKeyEnv: value },
       },
     };
+  if (key === "publicWeb.provider") {
+    if (value !== "brave" && value !== "fake") throw new Error("publicWeb.provider must be brave or fake.");
+    return { ...config, publicWeb: { ...config.publicWeb, provider: value } };
+  }
+  if (key === "publicWeb.apiKeyEnv")
+    return { ...config, publicWeb: { ...config.publicWeb, apiKeyEnv: value } };
   throw new Error(
     [
       `Unsupported config key for V1: ${key}`,
-      "Supported keys: memoryFile, activeContext.maxConversationBytes, activeContext.observationDigestPreviewBytes, activeContext.protectedRecentTurns, providers.deepseek.apiKeyEnv, providers.openai.apiKeyEnv, providers.anthropic.apiKeyEnv",
+      "Supported keys: memoryFile, activeContext.maxConversationBytes, activeContext.observationDigestPreviewBytes, activeContext.protectedRecentTurns, providers.deepseek.apiKeyEnv, providers.openai.apiKeyEnv, providers.anthropic.apiKeyEnv, publicWeb.provider, publicWeb.apiKeyEnv",
     ].join("\n"),
   );
 }
@@ -245,6 +254,7 @@ function mergeConfig(
         ...override.providers?.anthropic,
       },
     },
+    publicWeb: { ...base.publicWeb, ...override.publicWeb },
     budgets: {
       ...base.budgets,
       ...override.budgets,

@@ -19,6 +19,7 @@ export type ForgeCommand =
       task: string;
       contextFiles: string[];
       withBrowser?: boolean;
+      publicWeb?: boolean;
       continuationFile?: string;
       projectSlug?: string;
       allowedReadPaths?: string[];
@@ -447,6 +448,7 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
   let act = false;
   let debug = false;
   let withBrowser = false;
+  let publicWeb = false;
   const writeScopePrefixes: string[] = [];
   const allowedCommands: string[] = [];
   let maxWallClockMs: number | undefined;
@@ -465,6 +467,12 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
     if (arg === "--with-browser") {
       rejectOptionAfterTask(taskParts, arg);
       withBrowser = true;
+      continue;
+    }
+    if (arg === "--web") {
+      rejectOptionAfterTask(taskParts, arg);
+      if (workflow !== "learning") throw new Error("--web is only available for the learning workflow.");
+      publicWeb = true;
       continue;
     }
     if (arg === "--continue") {
@@ -609,8 +617,10 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
           ? 'Usage: forge learn --context <source> "<task>"'
           : 'Usage: forge code "<task>"',
     );
-  if (workflow === "learning" && contextFiles.length === 0 && !withBrowser)
-    throw new Error("forge learn requires --context or --with-browser.");
+  if (workflow === "learning" && contextFiles.length === 0 && !withBrowser && !publicWeb)
+    throw new Error("forge learn requires --context, --with-browser, or --web.");
+  if (publicWeb && withBrowser)
+    throw new Error("--web cannot be combined with --with-browser: the task-only Public Web Query Scope excludes Browser Context.");
   if (creativeStyle && workflowVariant !== "creative")
     throw new Error("--style is only available with --creative.");
   if (continuationFile && workflow !== "writing")
@@ -642,6 +652,7 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
     task,
     contextFiles,
     ...(withBrowser ? { withBrowser } : {}),
+    ...(publicWeb ? { publicWeb } : {}),
     ...(continuationFile ? { continuationFile } : {}),
     ...(projectSlug ? { projectSlug } : {}),
     ...(allowedReadPaths.length > 0 ? { allowedReadPaths } : {}),

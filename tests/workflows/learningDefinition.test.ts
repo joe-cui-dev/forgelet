@@ -40,6 +40,13 @@ test("learning definition grants source-backed text capabilities", () => {
   ]);
 });
 
+test("Public Web authority is an orthogonal Learning input", () => {
+  const definition = createLearningWorkflowDefinition(undefined, true);
+  expect(definition.capabilities({ act: false })).toContain("read_public_web");
+  expect(definition.systemPrompt({ act: false })).toContain("Search candidates are not sources");
+  expect(createPageBriefWorkflowDefinition().capabilities({ act: false })).not.toContain("read_public_web");
+});
+
 test("learning definition renders the Learning Workflow system prompt", () => {
   const definition = createLearningWorkflowDefinition();
 

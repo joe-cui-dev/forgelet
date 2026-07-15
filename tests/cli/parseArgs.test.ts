@@ -444,9 +444,21 @@ test("parses a browser-backed learning workflow task", () => {
   });
 });
 
+test("parses a Public Web-backed learning workflow task and excludes Browser Context", () => {
+  expect(parseArgs(["learn", "--web", "research this topic"])).toMatchObject({
+    kind: "run",
+    workflow: "learning",
+    publicWeb: true,
+    task: "research this topic",
+  });
+  expect(() => parseArgs(["learn", "--web", "--with-browser", "research this"])).toThrow(
+    /task-only Public Web Query Scope/,
+  );
+});
+
 test("rejects learning workflow runs without an explicit source", () => {
   expect(() => parseArgs(["learn", "teach me"])).toThrow(
-    /forge learn requires --context or --with-browser/,
+    /forge learn requires --context, --with-browser, or --web/,
   );
 });
 

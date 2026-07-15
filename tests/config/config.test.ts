@@ -26,6 +26,21 @@ test("defaults the active observation working-set target", async () => {
   expect(config.activeContext.protectedRecentTurns).toBe(3);
 });
 
+test("defaults and persists Public Web provider settings", async () => {
+  const homeDir = await mkdtemp(join(tmpdir(), "forgelet-public-web-config-"));
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-public-web-workspace-"));
+  expect((await loadConfig({ workspaceRoot })).publicWeb).toEqual({
+    provider: "brave",
+    apiKeyEnv: "BRAVE_SEARCH_API_KEY",
+  });
+  await setGlobalConfigValue({ homeDir, key: "publicWeb.provider", value: "fake" });
+  await setGlobalConfigValue({ homeDir, key: "publicWeb.apiKeyEnv", value: "TEST_BRAVE_KEY" });
+  expect((await loadConfig({ homeDir, workspaceRoot })).publicWeb).toEqual({
+    provider: "fake",
+    apiKeyEnv: "TEST_BRAVE_KEY",
+  });
+});
+
 test("rejects an invalid protected recent turns count", async () => {
   const workspaceRoot = await mkdtemp(
     join(tmpdir(), "forgelet-protected-turns-invalid-"),

@@ -2,6 +2,12 @@ import { createHash } from "node:crypto";
 import { createInterface } from "node:readline/promises";
 import { loadConfig, routeModel } from "../config/index.js";
 import { loadDotEnv } from "../config/env.js";
+import {
+  createBoundedPublicWebReader,
+  createBraveSearchProvider,
+  createFakePublicWebAdapters,
+  type PublicWebAdapters,
+} from "../publicWeb/index.js";
 import { DeepSeekModelClient } from "../models/providers/deepseek.js";
 import { modelRunnability } from "../models/routing.js";
 import type {
@@ -40,6 +46,23 @@ export async function createDeepSeekLiveModelClient(
       `${apiKeyEnv} is required for model-backed Sessions. Set it in .env, or run forge code --preview "<task>" to inspect routing without calling a model.`,
     );
   return new DeepSeekModelClient({ apiKey, model: route.model });
+}
+
+export async function createCliPublicWebAdapters(input: {
+  workspaceRoot: string;
+  homeDir?: string;
+  env: NodeJS.ProcessEnv;
+}): Promise<PublicWebAdapters> {
+  await loadDotEnv({ workspaceRoot: input.workspaceRoot, env: input.env });
+  const config = await loadConfig({ workspaceRoot: input.workspaceRoot, homeDir: input.homeDir });
+  if (config.publicWeb.provider === "fake") return createFakePublicWebAdapters();
+  const apiKey = input.env[config.publicWeb.apiKeyEnv];
+  if (!apiKey)
+    throw new Error(`${config.publicWeb.apiKeyEnv} is required for forge learn --web with the brave Public Web provider.`);
+  return {
+    searchProvider: createBraveSearchProvider(apiKey),
+    reader: createBoundedPublicWebReader(),
+  };
 }
 
 export function createDeferredLiveModelClient(

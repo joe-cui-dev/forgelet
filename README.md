@@ -106,12 +106,13 @@ Notes
 ```bash
 forge learn --context paper.md "teach me the core ideas"
 forge learn --with-browser "turn this article into study notes"
+forge learn --web "research the current web standard"
 forge learn --preview --context paper.md "teach me the core ideas"
 forge notes create --scope project --from-session <learning-session-id>
 forge notes search --scope project --limit 5 "workflow graph design"
 ```
 
-Learning Sessions require explicit source material from `--context` or `--with-browser`. They return a Learning Pack with `Summary`, `Key Concepts`, `Source Links`, `Open Questions`, and `Review Prompts`. Knowledge Notes are explicit project-scope promotions from completed, source-backed Learning Sessions into `.forgelet/knowledge/`.
+Learning Sessions require explicit source material from `--context`, `--with-browser`, or `--web`. `--web` grants bounded Public Web search and reading: search results remain candidates until `web_read` succeeds and records a Web Source in the Session ledger; it cannot be combined with Browser Context. Configure the default Brave provider with `publicWeb.provider` and `publicWeb.apiKeyEnv` (default `BRAVE_SEARCH_API_KEY`); `publicWeb.provider=fake` is an offline test/smoke provider. They return a Learning Pack with `Summary`, `Key Concepts`, `Source Links`, `Open Questions`, and `Review Prompts`. Knowledge Notes are explicit project-scope promotions from completed, source-backed Learning Sessions into `.forgelet/knowledge/`.
 
 ## Chrome Browser Workbench
 

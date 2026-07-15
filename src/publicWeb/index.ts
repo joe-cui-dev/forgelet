@@ -1,4 +1,5 @@
 import { PublicWebPolicy, classifyPublicWebUrl } from "./policy.js";
+import { PublicWebFetchError } from "./http.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -14,7 +15,10 @@ export interface PublicWebSearchCandidate {
 }
 
 export interface PublicWebSearchProvider {
-  search(input: { query: string; count: number }): Promise<PublicWebSearchCandidate[]>;
+  search(input: { query: string; count: number }): Promise<PublicWebSearchCandidate[] | {
+    candidates: PublicWebSearchCandidate[];
+    degraded?: string;
+  }>;
 }
 
 export interface PublicWebReader {
@@ -38,6 +42,16 @@ export interface PublicWebAdapters {
 export interface PublicWebSessionState {
   searchCalls: number;
   readAttempts: number;
+}
+
+/** Deterministic pair for smoke and CLI contract tests. It is deliberately
+ * selected as a pair so a fake search result can always be read offline. */
+export function createFakePublicWebAdapters(): PublicWebAdapters {
+  const url = "https://example.test/forgelet-public-web-fixture";
+  return {
+    searchProvider: { async search() { return [{ title: "Forgelet Public Web fixture", url, snippet: "Deterministic fixture source." }]; } },
+    reader: { async read() { return { title: "Forgelet Public Web fixture", url, finalUrl: url, httpStatus: 200, fetchedBytes: 70, contentType: "text/plain", text: "Forgelet Public Web fixture source. It is deterministic and source-backed." }; } },
+  };
 }
 
 export function createPublicWebTools(input: {
@@ -115,7 +129,8 @@ async function executeSearch(
     return webFailure("web_budget_exhausted", `Public Web search budget exhausted (${PublicWebPolicy.maxSearchCalls} calls).`);
   input.state.searchCalls += 1;
   try {
-    const candidates = await input.adapters.searchProvider.search({ query, count: requestedCount });
+    const response = await input.adapters.searchProvider.search({ query, count: requestedCount });
+    const candidates = Array.isArray(response) ? response : response.candidates;
     const returned = candidates.slice(0, requestedCount);
     return {
       ok: true,
@@ -124,6 +139,7 @@ async function executeSearch(
         content: JSON.stringify(returned),
         requestedCount,
         returnedCount: returned.length,
+        ...(!Array.isArray(response) && response.degraded ? { degraded: response.degraded } : {}),
       },
     };
   } catch (error) {
@@ -167,6 +183,8 @@ async function executeRead(
       },
     };
   } catch (error) {
+    if (error instanceof PublicWebFetchError)
+      return webFailure(error.code, error.message, { url, ...error.metadata });
     return webFailure("web_fetch_failed", errorMessage(error), { url });
   }
 }
@@ -201,3 +219,5 @@ function errorMessage(error: unknown): string {
 }
 
 export { PublicWebPolicy } from "./policy.js";
+export { createBoundedPublicWebReader, PublicWebFetchError } from "./http.js";
+export { createBraveSearchProvider } from "./brave.js";

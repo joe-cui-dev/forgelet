@@ -92,7 +92,9 @@ export function formatPreviewBrowserContext(
 
 export function formatPreviewCapabilities(command: RunCommand): string {
   if (command.workflow === "learning")
-    return "source context, model text generation, and plan updates; no workspace, Git, patch, command, note-writing, or browser automation tools";
+    return command.publicWeb
+      ? "source context, bounded public Web search/read, model text generation, and plan updates; no workspace, Git, patch, command, note-writing, or browser automation tools"
+      : "source context, model text generation, and plan updates; no workspace, Git, patch, command, note-writing, or browser automation tools";
   if (command.workflow === "writing")
     return "model text generation and plan updates; no workspace, Git, patch, or command tools";
   if (command.act)

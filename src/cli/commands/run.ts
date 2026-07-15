@@ -17,6 +17,7 @@ import {
 } from "../present/preview.js";
 import {
   createDeepSeekLiveModelClient,
+  createCliPublicWebAdapters,
   createDeferredLiveModelClient,
   createTerminalApprovalHandler,
 } from "../wiring.js";
@@ -56,6 +57,13 @@ export async function runRunCommand(
     });
     return formatSessionPreview(command, config, browserSnapshot);
   }
+  const publicWeb = command.publicWeb
+    ? await createCliPublicWebAdapters({
+        workspaceRoot,
+        homeDir: options.homeDir,
+        env: options.env ?? process.env,
+      })
+    : undefined;
   const modelClient = createDeferredLiveModelClient(
     {
       workflow: command.workflow,
@@ -105,6 +113,7 @@ export async function runRunCommand(
             task: command.task,
             contextFiles: command.contextFiles,
             browserSnapshot,
+            ...(publicWeb ? { publicWeb } : {}),
             allowedReadPaths: command.allowedReadPaths,
             model: command.model,
             budgetUsd: command.budgetUsd,

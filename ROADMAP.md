@@ -12,6 +12,7 @@ Current implemented surfaces:
 - `forge queue` and `forge decide <sessionId>` for the Decision Queue: listing paused Sessions and deciding (approve/deny/approve-and-widen/stop) to resume them in place.
 - `forge write` for prose revision, creative drafting, browser-backed writing, saved Writing Artifacts, artifact continuation, Writing Project continuity, and artifact catalog search.
 - `forge learn` for source-backed Learning Packs from files or browser context.
+- `forge learn --web` for bounded, source-ledger-backed Public Web Learning through Brave Search or an offline fake provider.
 - Browser Workbench for one-gesture current-page Page Briefs with a user-chosen output language.
 - `forge notes create/search` for project-scope Knowledge Notes promoted from completed Learning Sessions.
 - `forge browser read-current` and `forge browser install-host` for read-only browser snapshots.
@@ -39,22 +40,19 @@ Far-future and not committed: event-triggered Sessions, proactive suggestions, a
 1. Browser Workbench Page Conversations:
    Let the Side Panel continue from a completed Page Brief with bounded source-grounded follow-ups. Keep each Page Conversation bound to its original persisted capture and approved Workspace Profile; model it as an immutable, linear chain of answer-once Learning Sessions whose children deliver validated `Answer` and `Evidence` Page Answers. Add protocol v3, window-scoped disposable projections, Trace-backed history and identity, strict capture/history integrity checks, and deterministic Stop/Retry behavior. Keep this browser-specific in the first slice: no CLI Learning resume, conversation history browser, cross-Chrome-restart recovery, attachments, Public Web, or workspace reads. Completion requires focused contract tests, typecheck, full tests, build, an expanded deterministic Browser Workbench smoke, and real unpacked-extension/Native-Host/model dogfood covering multi-turn follow-up, reattachment, Stop, and Retry.
 
-2. CLI-first Public Web Tool Provider for Learning:
-   Add the `read_public_web` Capability, `forge learn --web`, and separate `web_search` and `web_read` tools proven first through deterministic fakes, with one Brave Search Adapter and one bounded public HTTP Adapter. Introduce the Session Source Ledger (ADR 0038) as the module owning source identity for the whole Session: initial Context Attachments and browser snapshots enter through it, stable source IDs and canonical-URL/content-hash deduplication live inside it, and Source Links and Trace metadata read from it. Search results are bounded-preview candidates; only a successful `web_read` promotes one into the ledger. Web source text enters Active Context as append-only conversation material after the bounded receipt observation, never by growing the stable attachment prefix (ADR 0032), under its own byte bounds; compaction digests keep the source ID and hash, since full text stays recoverable from the ledger. Enforce the task-only Public Web Query Scope structurally by rejecting browser context in `--web` Sessions at launch preflight; the separately approved task-and-browser-context scope and its phased acquisition are a later slice (ADR 0037 unchanged). Egress bounds — forbidden schemes, private-address rejection re-checked per redirect hop against resolved addresses, and request/byte/content-type/decompression/time limits — live inside the bounded public HTTP Adapter, while request URLs classify as a new `url` ToolTarget kind so the Permission Policy remains the single denial-evidence point. `read_public_web` is allow-tier under the explicit `--web` grant but does not silently join the never-approval local parallel-read class: web reads run serially in this slice and ledger appends commit in tool-call order, deferring reuse of the four-call parallel-read limit until ledger ordering under concurrency is proven. Return typed errors through named web observation metadata (URL, final URL, status, fetched bytes, content type, source ID) and report partial search success as success with an explicit degradation field. Web authority is an orthogonal input to the source-backed Learning definition, not a fourth deliverable shape; `pageBrief`/`pageAnswer` inputs cannot carry it by type, so Browser Workbench Page Conversations stay bound to their original captures. The Brave API key follows the `apiKeyEnv` convention and resolves at launch preflight with a typed missing-key error. Completion requires contract tests through the fakes, a local-HTTP-server egress suite against the real Adapter (redirect chains to private addresses, decompression bombs, slow responses), typecheck, full tests, build, a deterministic smoke with a CLI-selectable fake provider, and real-key dogfood.
-
-3. Diagnose workflow:
+2. Diagnose workflow:
    Add a debugging workflow that follows reproduce, minimize, hypothesize, instrument, fix, and regression-test stages.
 
-4. Test discovery improvements:
+3. Test discovery improvements:
    Help Coding Sessions find the right verification command before editing.
 
-5. Model pricing and diagnostics:
+4. Model pricing and diagnostics:
    Make provider/model availability, routing, and estimated cost easier to inspect.
 
-6. Local review UI:
+5. Local review UI:
    Add an inspect-and-review web surface after the CLI workflows remain stable. Its primary long-term job is reviewing background Session outcomes and Decision Queue items.
 
-7. Shared types decomposition:
+6. Shared types decomposition:
    Split `src/types.ts` by owning module: model-client contract types move under `src/models`, session and audit types to their owning modules. Unblocked now that the CLI decomposition has landed.
 
 ## Non-Goals
