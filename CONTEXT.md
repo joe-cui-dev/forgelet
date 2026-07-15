@@ -229,9 +229,17 @@ A user-approved binding between a non-CLI Forgelet surface and one local workspa
 _Avoid_: Recent workspace, cwd, path argument, project selector
 
 **Public Web Query Scope**:
-The Session authority that limits what information may shape queries sent to public Web providers: task-only by default, or task-and-browser-context after separate explicit approval.
-_Avoid_: Web flag, prompt instruction, browser permission
+The Session authority that limits what information may shape queries sent to public Web providers. The default task-only scope admits the user's task and the sources the user explicitly attached when launching the Session, and excludes Browser Context; the task-and-browser-context scope may also expose Browser Context, after separate explicit approval. Attaching sources and granting public Web access in the same launch gesture is what makes those sources task-scope information.
+_Avoid_: Web flag, prompt instruction, browser permission, context allowlist
 
 **Session Source Ledger**:
 The ordered, Session-owned collection of source material accepted into a Workflow, including initial Context Attachments and sources acquired during tool use. Each entry keeps stable source identity and provenance for Active Context, source-linked outputs, and Trace metadata.
 _Avoid_: Tool observation history, Trace, source-links section
+
+**Web Source**:
+Public page content acquired by a successful bounded public Web read and accepted into the Session Source Ledger as extracted text. Its identity is its canonical URL and the hash of that text; a repeated read of the same content resolves to the existing entry. A Web Source is one origin of Context Attachments, distinct from the search results that merely pointed to it.
+_Avoid_: Search result, raw HTML, cached page, bookmark
+
+**Search Candidate**:
+A bounded preview — title, URL, snippet — returned by a public Web search. A Search Candidate is a lead, not a source: it carries no authority, never enters the Session Source Ledger, and only becomes a Web Source through a successful public Web read.
+_Avoid_: Source, citation, result page
