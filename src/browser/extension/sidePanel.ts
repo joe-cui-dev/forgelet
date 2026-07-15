@@ -71,6 +71,7 @@ export interface SidePanelEvidenceView {
 
 export interface SidePanelTurnView {
   kind: "root" | "follow_up";
+  order?: number;
   question?: string;
   pageBriefSections?: { title: string; blocks: PanelBlockNode[] }[];
   answerBlocks?: PanelBlockNode[];
@@ -81,6 +82,7 @@ export interface SidePanelTerminalCardView {
   invocationId: string;
   kind: PageConversationAttemptKind;
   status: PageConversationTerminalCard["status"];
+  order?: number;
   question?: string;
   reason: string;
   sessionId?: string;
@@ -91,6 +93,7 @@ export interface SidePanelTerminalCardView {
 export interface SidePanelCurrentAttemptView {
   invocationId: string;
   statusLine: string;
+  question?: string;
   streamText?: string;
 }
 
@@ -146,7 +149,8 @@ export function buildSidePanelViewModel(input: {
 function turnView(turn: PageConversationSuccessfulTurn, strings: SidePanelStrings): SidePanelTurnView {
   if (turn.kind === "root" && turn.pageBrief) {
     return {
-      kind: "root",
+    kind: "root",
+      ...(turn.order !== undefined ? { order: turn.order } : {}),
       pageBriefSections: [
         { title: "Summary", blocks: parsePanelMarkdown(turn.pageBrief.summary) },
         { title: "Key Concepts", blocks: parsePanelMarkdown(turn.pageBrief.keyConcepts) },
@@ -156,6 +160,7 @@ function turnView(turn: PageConversationSuccessfulTurn, strings: SidePanelString
   const answer = turn.pageAnswer;
   return {
     kind: "follow_up",
+    ...(turn.order !== undefined ? { order: turn.order } : {}),
     ...(turn.question !== undefined ? { question: turn.question } : {}),
     answerBlocks: answer ? parsePanelMarkdown(answer.answer) : [],
     ...(answer
@@ -177,6 +182,7 @@ function terminalCardView(card: PageConversationTerminalCard, strings: SidePanel
     invocationId: card.invocationId,
     kind: card.kind,
     status: card.status,
+    ...(card.order !== undefined ? { order: card.order } : {}),
     ...(card.question !== undefined ? { question: card.question } : {}),
     reason: card.reason,
     ...(card.sessionId !== undefined ? { sessionId: card.sessionId } : {}),
@@ -194,6 +200,7 @@ function currentAttemptView(attempt: PageConversationCurrentAttempt): SidePanelC
   return {
     invocationId: attempt.invocationId,
     statusLine: parts.join(" · "),
+    ...(attempt.question !== undefined ? { question: attempt.question } : {}),
     ...(attempt.liveText !== undefined ? { streamText: attempt.liveText } : {}),
   };
 }
@@ -294,33 +301,29 @@ export function renderSidePanelState(
     container.appendChild(header);
   }
 
-  for (const turn of view.turns) {
-    if (turn.kind === "root") {
-      for (const section of turn.pageBriefSections ?? []) {
-        appendHeading(doc, container, section.title);
-        appendBlocks(doc, container, section.blocks);
-      }
+  const completedItems = [
+    ...view.turns.map((turn, index) => ({ kind: "turn" as const, order: turn.order ?? index, value: turn })),
+    // Older stored projections predate per-attempt order. Their terminal
+    // cards are necessarily older than a newly started attempt, so place
+    // them before ordered turns until the projection is refreshed naturally.
+    ...view.terminalCards.map((card, index) => ({ kind: "card" as const, order: card.order ?? index, value: card })),
+  ].sort((left, right) => left.order - right.order);
+  for (const item of completedItems) {
+    if (item.kind === "turn") {
+      renderTurn(doc, container, item.value);
       continue;
     }
-    if (turn.question !== undefined) appendText(doc, container, "p", turn.question, "question");
-    appendHeading(doc, container, "Answer");
-    appendBlocks(doc, container, turn.answerBlocks ?? []);
-    appendHeading(doc, container, "Evidence");
-    if (turn.evidence?.groundingStatus === "not_found") {
-      appendText(doc, container, "p", turn.evidence.notFoundMessage ?? "", "evidence-not-found");
-    } else {
-      const list = doc.createElement("ul");
-      for (const excerpt of turn.evidence?.excerpts ?? []) {
-        const item = doc.createElement("li");
-        item.textContent = excerpt;
-        list.appendChild(item);
-      }
-      container.appendChild(list);
-    }
+    renderTerminalCard(doc, container, item.value, onRetry);
   }
 
+  // A current attempt is the newest item in the conversation timeline. Render
+  // it after all completed attempts so its question, status, and streamed
+  // answer never appear above a prior attempt.
   let streamElement: any;
   if (view.currentAttempt) {
+    if (view.currentAttempt.question !== undefined) {
+      appendText(doc, container, "p", view.currentAttempt.question, "question");
+    }
     appendText(doc, container, "div", view.currentAttempt.statusLine, "status-line");
     streamElement = doc.createElement("pre");
     streamElement.setAttribute("class", "stream");
@@ -328,7 +331,17 @@ export function renderSidePanelState(
     container.appendChild(streamElement);
   }
 
-  for (const card of view.terminalCards) {
+  if (view.historyEvictedMessage) appendText(doc, container, "div", view.historyEvictedMessage, "history-evicted");
+
+  return { streamElement };
+}
+
+function renderTerminalCard(
+  doc: PanelDocument,
+  container: { appendChild(child: any): any },
+  card: SidePanelTerminalCardView,
+  onRetry?: (invocationId: string) => void,
+): void {
     const wrapper = doc.createElement("div");
     wrapper.setAttribute("class", `terminal-card terminal-card-${card.status}`);
     if (card.question !== undefined) appendText(doc, wrapper, "p", card.question, "question");
@@ -350,11 +363,35 @@ export function renderSidePanelState(
     }
     wrapper.appendChild(retry);
     container.appendChild(wrapper);
+}
+
+function renderTurn(
+  doc: PanelDocument,
+  container: { appendChild(child: any): any },
+  turn: SidePanelTurnView,
+): void {
+  if (turn.kind === "root") {
+    for (const section of turn.pageBriefSections ?? []) {
+      appendHeading(doc, container, section.title);
+      appendBlocks(doc, container, section.blocks);
+    }
+    return;
   }
-
-  if (view.historyEvictedMessage) appendText(doc, container, "div", view.historyEvictedMessage, "history-evicted");
-
-  return { streamElement };
+  if (turn.question !== undefined) appendText(doc, container, "p", turn.question, "question");
+  appendHeading(doc, container, "Answer");
+  appendBlocks(doc, container, turn.answerBlocks ?? []);
+  appendHeading(doc, container, "Evidence");
+  if (turn.evidence?.groundingStatus === "not_found") {
+    appendText(doc, container, "p", turn.evidence.notFoundMessage ?? "", "evidence-not-found");
+    return;
+  }
+  const list = doc.createElement("ul");
+  for (const excerpt of turn.evidence?.excerpts ?? []) {
+    const item = doc.createElement("li");
+    item.textContent = excerpt;
+    list.appendChild(item);
+  }
+  container.appendChild(list);
 }
 
 function appendHeading(doc: PanelDocument, container: { appendChild(child: any): any }, text: string): void {

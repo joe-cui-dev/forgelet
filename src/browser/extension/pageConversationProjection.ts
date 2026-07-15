@@ -28,6 +28,8 @@ export interface PageConversationSuccessfulTurn {
   invocationId: string;
   sessionId: string;
   kind: "root" | "follow_up";
+  /** Monotonic presentation order shared with terminal attempts. */
+  order?: number;
   question?: string;
   pageBrief?: PageBrief;
   pageAnswer?: PageAnswer;
@@ -38,6 +40,8 @@ export interface PageConversationTerminalCard {
   kind: PageConversationAttemptKind;
   status: "stopped" | "failed" | "rejected";
   reason: string;
+  /** Monotonic presentation order shared with successful turns. */
+  order?: number;
   question?: string;
   sessionId?: string;
   /** Model text already shown while the attempt was running. It is display
@@ -54,6 +58,8 @@ export interface PageConversationCurrentAttempt {
   invocationId: string;
   actionId: string;
   kind: PageConversationAttemptKind;
+  /** Monotonic presentation order for this in-flight attempt. */
+  order?: number;
   status: PageConversationAttemptStatus;
   question?: string;
   sessionId?: string;
@@ -74,6 +80,8 @@ export interface PageConversationProjection {
   headSessionId?: string;
   turns: PageConversationSuccessfulTurn[];
   terminalCards: PageConversationTerminalCard[];
+  /** The order to assign to the next attempt. */
+  nextAttemptOrder?: number;
   currentAttempt?: PageConversationCurrentAttempt;
   historyEvicted: boolean;
 }
@@ -97,10 +105,12 @@ export function createPageConversationProjection(input: {
     source: input.source,
     turns: [],
     terminalCards: [],
+    nextAttemptOrder: 1,
     currentAttempt: {
       invocationId: input.invocationId,
       actionId: input.actionId,
       kind: "root",
+      order: 0,
       status: "starting",
     },
     historyEvicted: false,
@@ -120,12 +130,15 @@ export function startPageConversationAttempt(
     question?: string;
   },
 ): PageConversationProjection {
+  const order = projection.nextAttemptOrder ?? projection.turns.length + projection.terminalCards.length;
   return {
     ...projection,
+    nextAttemptOrder: order + 1,
     currentAttempt: {
       invocationId: input.invocationId,
       actionId: input.actionId,
       kind: input.kind,
+      order,
       status: "starting",
       ...(input.question !== undefined ? { question: input.question } : {}),
     },
@@ -176,6 +189,7 @@ export function applyPageConversationFrame(
       invocationId: current.invocationId,
       sessionId,
       kind: "root",
+      ...(current.order !== undefined ? { order: current.order } : {}),
       pageBrief: frame.pageBrief as PageBrief,
     };
     return {
@@ -193,6 +207,7 @@ export function applyPageConversationFrame(
       invocationId: current.invocationId,
       sessionId,
       kind: "follow_up",
+      ...(current.order !== undefined ? { order: current.order } : {}),
       ...(current.question !== undefined ? { question: current.question } : {}),
       pageAnswer: frame.pageAnswer as PageAnswer,
     };
@@ -261,6 +276,7 @@ function terminalCardFrom(
     kind: current.kind,
     status,
     reason,
+    ...(current.order !== undefined ? { order: current.order } : {}),
     ...(current.question !== undefined ? { question: current.question } : {}),
     ...(current.sessionId !== undefined ? { sessionId: current.sessionId } : {}),
     ...(current.liveText !== undefined && current.liveText.length > 0

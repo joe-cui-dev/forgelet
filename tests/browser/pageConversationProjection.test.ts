@@ -37,7 +37,8 @@ test("a new projection is schema v3 and carries source, capture, and profile ide
     source,
     turns: [],
     terminalCards: [],
-    currentAttempt: { invocationId: "invocation_1", actionId: "action_1", kind: "root", status: "starting" },
+    nextAttemptOrder: 1,
+    currentAttempt: { invocationId: "invocation_1", actionId: "action_1", kind: "root", order: 0, status: "starting" },
   });
   expect(projection.rootSessionId).toBeUndefined();
   expect(projection.headSessionId).toBeUndefined();
@@ -58,7 +59,7 @@ test("a successful Page Brief advances root and head and appends the normalized 
   expect(projection.headSessionId).toBe("sess_root");
   expect(projection.currentAttempt).toBeUndefined();
   expect(projection.turns).toEqual([
-    { invocationId: "invocation_1", sessionId: "sess_root", kind: "root", pageBrief: { summary: "A brief.", keyConcepts: "- Concept" } },
+    { invocationId: "invocation_1", sessionId: "sess_root", kind: "root", order: 0, pageBrief: { summary: "A brief.", keyConcepts: "- Concept" } },
   ]);
 });
 
@@ -117,6 +118,7 @@ test.each(["stopped", "failed"] as const)(
       {
         invocationId: "invocation_2",
         kind: "follow_up",
+        order: 1,
         status: terminal,
         reason: terminal === "stopped" ? "user_stopped" : "invalid_page_answer",
         question: "Why?",
@@ -137,7 +139,7 @@ test("a pre-Session launch rejection files a terminal card without a Session ide
 
   expect(projection.currentAttempt).toBeUndefined();
   expect(projection.terminalCards).toEqual([
-    { invocationId: "invocation_2", kind: "follow_up", status: "rejected", reason: "source_unavailable", question: "Why?" },
+    { invocationId: "invocation_2", kind: "follow_up", status: "rejected", order: 1, reason: "source_unavailable", question: "Why?" },
   ]);
 });
 
@@ -157,6 +159,26 @@ test("a Retry starts a fresh attempt identity from the unchanged source, capture
   expect(retried.source).toEqual(beforeRetry.source);
   // Retry never reopens the failed attempt: its terminal card stays as history.
   expect(retried.terminalCards).toEqual(beforeRetry.terminalCards);
+});
+
+test("successful turns and terminal cards retain their shared attempt order", () => {
+  let projection = startRoot();
+  projection = applyPageConversationFrame(projection, { type: "session_ready", invocationId: "invocation_1", sessionId: "sess_root" });
+  projection = applyPageConversationFrame(projection, { type: "page_brief_completed", invocationId: "invocation_1", pageBrief: { summary: "A brief.", keyConcepts: "- Concept" } });
+
+  projection = startPageConversationAttempt(projection, { kind: "follow_up", actionId: "action_2", invocationId: "invocation_2", question: "Failed question" });
+  projection = applyPageConversationFrame(projection, { type: "failed", invocationId: "invocation_2", message: "invalid_page_answer" });
+
+  projection = startPageConversationAttempt(projection, { kind: "follow_up", actionId: "action_3", invocationId: "invocation_3", question: "Newest question" });
+  projection = applyPageConversationFrame(projection, { type: "session_ready", invocationId: "invocation_3", sessionId: "sess_newest" });
+  projection = applyPageConversationFrame(projection, {
+    type: "page_answer_completed",
+    invocationId: "invocation_3",
+    pageAnswer: { answer: "Newest answer", groundingStatus: "supported", evidence: ["Newest evidence"] },
+  });
+
+  expect(projection.turns.map((turn) => turn.order)).toEqual([0, 2]);
+  expect(projection.terminalCards.map((card) => card.order)).toEqual([1]);
 });
 
 test("Stop marks only the named in-flight attempt as stopping and is a no-op for any other invocation", () => {

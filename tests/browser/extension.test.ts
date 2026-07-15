@@ -705,6 +705,53 @@ test("Side Panel appends stream deltas to the stream element without a re-render
   expect(container.textContent).toContain("First delta");
 });
 
+test("Side Panel places a new streaming follow-up below every earlier attempt card", () => {
+  const doc = fakePanelDocument();
+  const container = doc.createElement("div");
+  const projection = projectionFixture({
+    rootSessionId: "sess_root",
+    headSessionId: "sess_root",
+    turns: [{ invocationId: "invocation_1", sessionId: "sess_root", kind: "root", pageBrief: { summary: "S", keyConcepts: "- K" } }],
+    terminalCards: [
+      { invocationId: "invocation_2", kind: "follow_up", status: "failed", reason: "invalid_page_answer", question: "Earlier question" },
+    ],
+    currentAttempt: { invocationId: "invocation_3", actionId: "action_3", kind: "follow_up", status: "running", question: "Newest question", liveText: "Newest streamed answer" },
+  });
+
+  renderSidePanelState(doc, container, buildSidePanelViewModel({ projection, language: "en" }));
+
+  const classes = container.children.map((node: any) => node.attributes.class);
+  expect(classes.indexOf("terminal-card terminal-card-failed")).toBeLessThan(classes.indexOf("status-line"));
+  expect(classes.indexOf("question")).toBeLessThan(classes.indexOf("status-line"));
+});
+
+test("Side Panel keeps a newly completed follow-up below every earlier attempt card", () => {
+  const doc = fakePanelDocument();
+  const container = doc.createElement("div");
+  const projection = projectionFixture({
+    rootSessionId: "sess_root",
+    headSessionId: "sess_newest",
+    turns: [
+      { invocationId: "invocation_1", sessionId: "sess_root", kind: "root", order: 0, pageBrief: { summary: "S", keyConcepts: "- K" } },
+      { invocationId: "invocation_2", sessionId: "sess_prior", kind: "follow_up", order: 1, question: "Earlier successful question", pageAnswer: { answer: "Earlier answer", groundingStatus: "supported", evidence: ["Earlier evidence"] } },
+      { invocationId: "invocation_4", sessionId: "sess_newest", kind: "follow_up", order: 3, question: "Newest completed question", pageAnswer: { answer: "Newest completed answer", groundingStatus: "supported", evidence: ["Newest evidence"] } },
+    ],
+    terminalCards: [
+      { invocationId: "invocation_3", kind: "follow_up", status: "failed", order: 2, reason: "invalid_page_answer", question: "Earlier failed question" },
+    ],
+  });
+
+  renderSidePanelState(doc, container, buildSidePanelViewModel({ projection, language: "en" }));
+
+  const terminalCardIndex = container.children.findIndex(
+    (node: any) => node.attributes.class === "terminal-card terminal-card-failed",
+  );
+  const newestQuestionIndex = container.children.findIndex(
+    (node: any) => node.textContent === "Newest completed question",
+  );
+  expect(terminalCardIndex).toBeLessThan(newestQuestionIndex);
+});
+
 function fakePanelDocument(): { createElement(tag: string): any } {
   const createElement = (tag: string): any => {
     const listeners: Record<string, (() => void)[]> = {};
