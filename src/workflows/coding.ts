@@ -73,11 +73,12 @@ export type { ResumeDecision };
 export function createCodingWorkflowDefinition(): WorkflowDefinition {
   return {
     kind: "coding",
-    async loadAttachments({ workspaceRoot, contextFiles }) {
+    async loadAttachments({ workspaceRoot, contextFiles, sourceLedger }) {
       return {
         contextAttachments: await loadContextAttachments(
           workspaceRoot,
           contextFiles,
+          { sourceLedger },
         ),
       };
     },

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { LoadedContextAttachment } from "../types.js";
+import type { SessionSourceLedger } from "../sourceLedger/index.js";
 
 const BROWSER_SNAPSHOT_TTL_MS = 15 * 60 * 1000;
 
@@ -92,11 +93,11 @@ export function currentBrowserSnapshotPath(homeDir?: string): string {
 
 export function browserSnapshotToContextAttachment(
   snapshot: LoadedBrowserSnapshot,
-  id: string,
+  sourceLedger: SessionSourceLedger,
 ): LoadedContextAttachment {
-  return {
+  const loaded: LoadedContextAttachment = {
     attachment: {
-      id,
+      id: sourceLedger.nextContextId(),
       source: "browser",
       title: snapshot.title,
       uri: snapshot.url,
@@ -111,6 +112,8 @@ export function browserSnapshotToContextAttachment(
     },
     content: snapshot.content,
   };
+  sourceLedger.append(loaded);
+  return loaded;
 }
 
 function parseBrowserSnapshot(raw: string): BrowserSnapshot {

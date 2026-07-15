@@ -220,11 +220,12 @@ function createSourceBackedLearningDefinition<T>(input: {
         ...input.startTraceExtras,
       },
     },
-    async loadAttachments({ workspaceRoot, contextFiles }) {
+    async loadAttachments({ workspaceRoot, contextFiles, sourceLedger }) {
       return {
         contextAttachments: await loadContextAttachments(
           workspaceRoot,
           contextFiles,
+          { sourceLedger },
         ),
       };
     },
@@ -249,8 +250,11 @@ function createSourceBackedLearningDefinition<T>(input: {
         input.pageConversationHistory ?? [],
       );
     },
-    normalizeFinalContent(content, { contextAttachments }) {
-      return input.normalize(content, [...contextAttachments]);
+    normalizeFinalContent(content, { contextAttachments, sourceLedger }) {
+      return input.normalize(
+        content,
+        [...(sourceLedger?.contextAttachments() ?? contextAttachments)],
+      );
     },
     async onCompleted({ finalContent }) {
       return {

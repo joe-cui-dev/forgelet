@@ -1,6 +1,7 @@
 import type { LoadedBrowserSnapshot } from "../browser/index.js";
 import type { EffectEnvelope } from "../permissions/envelope.js";
 import type { SessionLiveEventSink } from "../sessionLiveView/index.js";
+import type { SessionSourceLedger, SessionSourceLedgerView } from "../sourceLedger/index.js";
 import type { ApprovalHandler } from "../tools/toolRegistry.js";
 import type {
   AgentSession,
@@ -58,6 +59,7 @@ export interface WorkflowDefinition<TCompletion = void> {
   loadAttachments(ctx: {
     workspaceRoot: string;
     contextFiles: string[];
+    sourceLedger: SessionSourceLedger;
   }): Promise<AttachmentLoadPlan>;
 
   capabilities(ctx: { act: boolean; readScope?: string[] }): Capability[];
@@ -79,7 +81,10 @@ export interface WorkflowDefinition<TCompletion = void> {
 
   normalizeFinalContent?(
     content: string,
-    ctx: { contextAttachments: readonly LoadedContextAttachment[] },
+    ctx: {
+      contextAttachments: readonly LoadedContextAttachment[];
+      sourceLedger?: SessionSourceLedgerView;
+    },
   ): string;
 
   onCompleted?(ctx: {
@@ -87,6 +92,7 @@ export interface WorkflowDefinition<TCompletion = void> {
     session: AgentSession;
     finalContent: string;
     contextAttachments: readonly LoadedContextAttachment[];
+    sourceLedger?: SessionSourceLedgerView;
     appendTrace: AppendTrace;
   }): Promise<CompletionEffects<TCompletion> | undefined>;
 }

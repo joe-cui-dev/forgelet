@@ -11,6 +11,10 @@ import type {
 import { createHash } from "node:crypto";
 import { relative } from "node:path";
 import { browserSnapshotToContextAttachment } from "../browser/index.js";
+import {
+  createSessionSourceLedger,
+  type SessionSourceLedgerView,
+} from "../sourceLedger/index.js";
 import { loadConfig, routeModel } from "../config/index.js";
 import { maxConversationBytesForRoute } from "../models/routing.js";
 import { loadDurableMemory } from "../memory/index.js";
@@ -100,25 +104,17 @@ export async function runKernelSession<TCompletion = void>(
   const baselineDirtyPaths = input.act
     ? await gitStatusPaths(input.workspaceRoot)
     : new Set<string>();
+  const sourceLedger = createSessionSourceLedger();
   const attachmentPlan = await input.definition.loadAttachments({
     workspaceRoot: input.workspaceRoot,
     contextFiles: input.contextFiles,
+    sourceLedger,
   });
-  const loadedContextAttachments = [
-    ...(attachmentPlan.continuationAttachment
-      ? [attachmentPlan.continuationAttachment]
-      : []),
-    ...attachmentPlan.contextAttachments,
+  if (input.browserSnapshot)
+    browserSnapshotToContextAttachment(input.browserSnapshot, sourceLedger);
+  const allLoadedContextAttachments = [
+    ...sourceLedger.view.contextAttachments(),
   ];
-  const allLoadedContextAttachments = input.browserSnapshot
-    ? [
-        ...loadedContextAttachments,
-        browserSnapshotToContextAttachment(
-          input.browserSnapshot,
-          `ctx_${loadedContextAttachments.length + 1}`,
-        ),
-      ]
-    : loadedContextAttachments;
   const continuationAttachment = attachmentPlan.continuationAttachment;
   const contextAttachments = attachmentPlan.continuationAttachment
     ? allLoadedContextAttachments.slice(1)
@@ -294,6 +290,7 @@ export async function runKernelSession<TCompletion = void>(
         session,
         continuationAttachment,
         contextAttachments,
+        sourceLedger: sourceLedger.view,
         durableMemory,
         workspaceRoot: input.workspaceRoot,
         route,
@@ -414,6 +411,7 @@ export async function runKernelSession<TCompletion = void>(
       execution,
       definition: input.definition,
       contextAttachments,
+      sourceLedger: sourceLedger.view,
       workspaceRoot: input.workspaceRoot,
       traceWriter,
       debugTranscript,
@@ -693,6 +691,7 @@ async function finalizeKernelExecution<TCompletion>(input: {
   execution: ReactNodeFinishResult;
   definition: WorkflowDefinition<TCompletion>;
   contextAttachments: LoadedContextAttachment[];
+  sourceLedger?: SessionSourceLedgerView;
   workspaceRoot: string;
   traceWriter: TraceWriter;
   debugTranscript?: DebugTranscriptWriter;
@@ -704,6 +703,7 @@ async function finalizeKernelExecution<TCompletion>(input: {
     execution,
     definition,
     contextAttachments,
+    sourceLedger,
     workspaceRoot,
     traceWriter,
     debugTranscript,
@@ -715,6 +715,7 @@ async function finalizeKernelExecution<TCompletion>(input: {
       session,
       finalContent: execution.finalContent,
       contextAttachments,
+      sourceLedger,
       appendTrace: (type, payload) =>
         traceWriter.append(
           createTraceEvent(sessionId, type, new Date().toISOString(), payload),

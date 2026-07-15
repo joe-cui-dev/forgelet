@@ -120,12 +120,13 @@ export function createWritingWorkflowDefinition(
         ? { startTraceExtras: { projectSlug: input.project.slug } }
         : {}),
     },
-    async loadAttachments({ workspaceRoot, contextFiles }) {
+    async loadAttachments({ workspaceRoot, contextFiles, sourceLedger }) {
       if (!input.continuationFile)
         return {
           contextAttachments: await loadContextAttachments(
             workspaceRoot,
             contextFiles,
+            { sourceLedger },
           ),
         };
 
@@ -133,7 +134,7 @@ export function createWritingWorkflowDefinition(
       try {
         continuationAttachments = await loadContextAttachments(workspaceRoot, [
           input.continuationFile,
-        ]);
+        ], { sourceLedger });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(
@@ -145,7 +146,7 @@ export function createWritingWorkflowDefinition(
         contextAttachments: await loadContextAttachments(
           workspaceRoot,
           contextFiles,
-          { startIndex: continuationAttachments.length },
+          { sourceLedger },
         ),
       };
     },

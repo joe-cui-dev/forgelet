@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
 import type { ContextAttachment, LoadedContextAttachment } from "../types.js";
+import type { SessionSourceLedger } from "../sourceLedger/index.js";
 
 export type { ContextAttachment, LoadedContextAttachment } from "../types.js";
 
@@ -15,10 +16,9 @@ const supportedMimeTypes: Record<string, string> = {
 export async function loadContextAttachments(
   workspaceRoot: string,
   contextFiles: string[],
-  options: { startIndex?: number } = {},
+  options: { sourceLedger?: SessionSourceLedger } = {},
 ): Promise<LoadedContextAttachment[]> {
   const attachments: LoadedContextAttachment[] = [];
-  const startIndex = options.startIndex ?? 0;
 
   for (let index = 0; index < contextFiles.length; index += 1) {
     const filePath = contextFiles[index] ?? "";
@@ -31,7 +31,7 @@ export async function loadContextAttachments(
 
     const content = await readFile(resolvedPath, "utf8");
     const attachment: ContextAttachment = {
-      id: `ctx_${startIndex + index + 1}`,
+      id: options.sourceLedger?.nextContextId() ?? `ctx_${index + 1}`,
       source: "file",
       title: basename(filePath),
       uri: filePath,
@@ -41,7 +41,9 @@ export async function loadContextAttachments(
       preview: makePreview(content),
       trustLevel: isInsideWorkspace(workspaceRoot, resolvedPath) ? "workspace" : "user-provided"
     };
-    attachments.push({ attachment, content });
+    const loaded = { attachment, content };
+    options.sourceLedger?.append(loaded);
+    attachments.push(loaded);
   }
 
   return attachments;

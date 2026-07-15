@@ -43,6 +43,7 @@ import {
 } from "../tools/toolRegistry.js";
 import { buildMessages } from "./messages.js";
 import type { ExecutionPolicy, WorkflowDefinition } from "./workflowDefinition.js";
+import type { SessionSourceLedgerView } from "../sourceLedger/index.js";
 
 export interface ActLoopRoute {
   workflow: WorkflowKind;
@@ -56,6 +57,7 @@ export interface ReactNodeInput {
   session: AgentSession;
   continuationAttachment?: LoadedContextAttachment;
   contextAttachments: LoadedContextAttachment[];
+  sourceLedger?: SessionSourceLedgerView;
   durableMemory?: LoadedDurableMemory;
   workspaceRoot: string;
   route: ActLoopRoute;
@@ -795,7 +797,10 @@ export const runReactNode = async (
     if (output.toolCalls.length === 0 && budgetWrapupReason) {
       const wrapupContent = input.definition.normalizeFinalContent?.(
         output.content ?? "",
-        { contextAttachments: input.contextAttachments },
+        {
+          contextAttachments: input.contextAttachments,
+          sourceLedger: input.sourceLedger,
+        },
       ) ?? (output.content ?? "");
       input.session.stage = "final";
       const summary = formatBudgetWrapupSummary(
@@ -823,7 +828,10 @@ export const runReactNode = async (
       if (input.signal?.aborted) return cancelledStopResult(input, usage);
       finalContent = input.definition.normalizeFinalContent?.(
         output.content ?? "",
-        { contextAttachments: input.contextAttachments },
+        {
+          contextAttachments: input.contextAttachments,
+          sourceLedger: input.sourceLedger,
+        },
       ) ?? (output.content ?? "");
       input.plan.items = input.plan.items.map((item) => ({
         ...item,
