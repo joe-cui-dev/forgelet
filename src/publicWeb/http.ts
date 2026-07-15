@@ -1,6 +1,7 @@
+import type { LookupAddress } from "node:dns";
 import { lookup as resolveDns } from "node:dns/promises";
 import { request as httpsRequest } from "node:https";
-import { isIP } from "node:net";
+import type { LookupFunction } from "node:net";
 import { Transform } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import { PublicWebPolicy, classifyPublicWebUrl, isForbiddenIpAddress } from "./policy.js";
@@ -73,8 +74,6 @@ async function requestOneHop(url: string, deadline: number): Promise<{ status: n
   );
   if (addresses.length === 0 || addresses.some(({ address }) => isForbiddenIpAddress(address)))
     throw new PublicWebFetchError("web_egress_denied", "Public Web hostname resolved to a forbidden address.", { url });
-  const address = addresses[0]?.address;
-  if (!address) throw new PublicWebFetchError("web_egress_denied", "Public Web hostname did not resolve to an address.", { url });
   const remainingMs = deadline - Date.now();
   if (remainingMs <= 0)
     throw new PublicWebFetchError("web_fetch_failed", `Public Web request timed out after ${PublicWebPolicy.requestTimeoutMs}ms.`, { url });
@@ -93,7 +92,7 @@ async function requestOneHop(url: string, deadline: number): Promise<{ status: n
     );
     const request = httpsRequest(parsed, {
       headers: { "accept-encoding": "gzip, deflate, br" },
-      lookup: (_hostname, _options, callback) => callback(null, address, isIP(address)),
+      lookup: pinnedAddressLookup(addresses),
     }, (response) => {
       const status = response.statusCode ?? 0;
       const contentType = normalizeContentType(response.headers["content-type"]);
@@ -148,6 +147,25 @@ async function requestOneHop(url: string, deadline: number): Promise<{ status: n
     request.on("error", (error) => fail(new PublicWebFetchError("web_fetch_failed", error.message, { url })));
     request.end();
   });
+}
+
+/** Pins the socket to addresses that already passed the forbidden-address
+ * screen, so connect cannot re-resolve past the DNS-rebinding check. Node
+ * calls this with `options.all` set when autoSelectFamily is enabled (the
+ * default since Node 20) and requires the address-array callback shape there. */
+export function pinnedAddressLookup(addresses: LookupAddress[]): LookupFunction {
+  return (_hostname, options, callback) => {
+    if (options.all) {
+      callback(null, addresses);
+      return;
+    }
+    const pinned = addresses[0];
+    if (!pinned) {
+      callback(new Error("No pinned address available."), "", 0);
+      return;
+    }
+    callback(null, pinned.address, pinned.family);
+  };
 }
 
 async function beforeDeadline<T>(promise: Promise<T>, deadline: number, url: string): Promise<T> {
