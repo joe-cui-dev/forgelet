@@ -561,12 +561,12 @@ test("a completed follow-up renders Answer and Evidence, and a not-found groundi
   expect(notFoundView.turns[1]?.evidence).toEqual({
     groundingStatus: "not_found",
     excerpts: [],
-    notFoundMessage: "No supporting passage found in the captured page.",
+    notFoundMessage: "Not backed by a passage in the captured page.",
   });
   expect(notFoundView.turns[1]?.evidence?.notFoundMessage).not.toContain("No supporting passage in the captured page.");
 
   const zhView = buildSidePanelViewModel({ projection: notFoundProjection, language: "zh-CN" });
-  expect(zhView.turns[1]?.evidence?.notFoundMessage).toBe("未在已捕获的页面中找到支持性内容。");
+  expect(zhView.turns[1]?.evidence?.notFoundMessage).toBe("并非源自已捕获页面中的段落。");
 });
 
 test("input is enabled only after a successful root and disabled again while an attempt runs", () => {

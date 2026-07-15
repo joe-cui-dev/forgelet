@@ -23,13 +23,13 @@ interface SidePanelStrings {
 
 const STRINGS: Record<SidePanelLanguage, SidePanelStrings> = {
   en: {
-    notFoundEvidence: "No supporting passage found in the captured page.",
+    notFoundEvidence: "Not backed by a passage in the captured page.",
     historyEvicted: "Earlier turns remain in the Session Traces on disk.",
     noConversation: "Click the toolbar action to summarize the current page.",
     unverifiedStreamedDraft: "Unverified streamed draft",
   },
   "zh-CN": {
-    notFoundEvidence: "未在已捕获的页面中找到支持性内容。",
+    notFoundEvidence: "并非源自已捕获页面中的段落。",
     historyEvicted: "更早的对话内容仍保存在磁盘上的 Session Trace 中。",
     noConversation: "点击工具栏按钮以总结当前页面。",
     unverifiedStreamedDraft: "未验证的流式草稿",

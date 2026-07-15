@@ -222,6 +222,57 @@ test("Page Answer definition requests the Answer/Evidence shape and forbids tool
   );
 });
 
+test("Page Answer definition allows the Answer to draw on background knowledge beyond the captured page", () => {
+  const definition = createPageAnswerWorkflowDefinition();
+  const prompt = definition.systemPrompt({ act: false });
+
+  expect(prompt).toContain(
+    "The Answer may go beyond the captured page and draw on your own background knowledge to inform, explain, or contextualize the response; Evidence still only verifies the parts of the Answer that come from the captured page.",
+  );
+  expect(prompt).not.toContain(
+    "State only facts the attachment content itself states; if the attachments do not state something, say the sources do not state it instead of filling the gap.",
+  );
+});
+
+test("Page Answer definition asks for depth matched to the question instead of always being terse", () => {
+  const definition = createPageAnswerWorkflowDefinition();
+  const prompt = definition.systemPrompt({ act: false });
+
+  expect(prompt).toContain(
+    "Match the Answer's depth to the question: give a thorough, detailed answer for open-ended questions, and a direct, concise answer for narrow factual questions without padding.",
+  );
+});
+
+test("Page Answer definition forbids Markdown headings inside the Answer body", () => {
+  const definition = createPageAnswerWorkflowDefinition();
+  const prompt = definition.systemPrompt({ act: false });
+
+  expect(prompt).toContain(
+    "Do not use Markdown headings inside the Answer; organize a longer Answer with paragraphs and `- ` list items instead.",
+  );
+});
+
+test("Page Answer definition reframes the not-found sentinel as unsupported grounding, not an unanswerable question", () => {
+  const definition = createPageAnswerWorkflowDefinition();
+  const prompt = definition.systemPrompt({ act: false });
+
+  expect(prompt).toContain(
+    `If no passage in the captured page supports the Answer — including when the Answer relies on background knowledge instead of the page — write exactly "${PAGE_ANSWER_NOT_FOUND_SENTINEL}" as the entire Evidence section and nothing else; this does not mean the question is unanswerable.`,
+  );
+});
+
+test("Page Brief and Learning Pack definitions still require every claim to be grounded in the attached sources", () => {
+  const pageBriefPrompt = createPageBriefWorkflowDefinition().systemPrompt({ act: false });
+  const learningPackPrompt = createLearningWorkflowDefinition().systemPrompt({ act: false });
+
+  expect(pageBriefPrompt).toContain(
+    "State only facts the attachment content itself states; if the attachments do not state something, say the sources do not state it instead of filling the gap.",
+  );
+  expect(learningPackPrompt).toContain(
+    "State only facts the attachment content itself states; if the attachments do not state something, say the sources do not state it instead of filling the gap.",
+  );
+});
+
 test("Page Answer snapshots the requested output language into its model instruction", () => {
   const definition = createPageAnswerWorkflowDefinition(undefined, [], "zh-CN");
 
