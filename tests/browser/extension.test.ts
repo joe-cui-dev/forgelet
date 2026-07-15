@@ -815,6 +815,14 @@ test("Side Panel page uses a fixed dark theme with color tokens and a Send compo
   expect(html).not.toContain("#ffffff");
 });
 
+test("Side Panel footer offers a Debug toggle alongside output language and text size", () => {
+  const html = sidePanelHtml();
+
+  expect(html).toContain('type="checkbox" id="debug"');
+  expect(html).toContain('for="debug"');
+  expect(html.indexOf('id="workbench-root"')).toBeLessThan(html.indexOf('id="debug"'));
+});
+
 test("Side Panel keeps settings in a footer below the content, the composer above it, and offers a text-size preference", () => {
   const html = sidePanelHtml();
 

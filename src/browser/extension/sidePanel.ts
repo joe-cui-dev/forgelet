@@ -490,15 +490,17 @@ async function initializeSidePanel(): Promise<void> {
   const stop = document.getElementById("stop");
   const outputLanguage = document.getElementById("output-language");
   const fontSize = document.getElementById("font-size");
+  const debug = document.getElementById("debug");
   const question = document.getElementById("question");
   const send = document.getElementById("send");
-  if (!output || !stop || !outputLanguage || !fontSize || !question || !send) return;
+  if (!output || !stop || !outputLanguage || !fontSize || !debug || !question || !send) return;
 
   const windowId: number = (await chrome.windows.getCurrent()).id;
 
   const storedPreferences = await chrome.storage.local.get([
     "forgeletBrowserWorkbenchOutputLanguage",
     "forgeletBrowserWorkbenchFontSize",
+    "forgeletBrowserWorkbenchDebug",
   ]);
   let languagePreference = normalizeOutputLanguagePreference(
     storedPreferences.forgeletBrowserWorkbenchOutputLanguage,
@@ -521,6 +523,12 @@ async function initializeSidePanel(): Promise<void> {
     fontSize.value = preference;
     document.body.setAttribute("data-font-size", preference);
     await chrome.storage.local.set({ forgeletBrowserWorkbenchFontSize: preference });
+  });
+  debug.checked = storedPreferences.forgeletBrowserWorkbenchDebug === true;
+  debug.addEventListener("change", async () => {
+    // Toggling Debug only affects the next Send/toolbar gesture's Session;
+    // it never rewrites a Debug Transcript for an attempt already in flight.
+    await chrome.storage.local.set({ forgeletBrowserWorkbenchDebug: debug.checked === true });
   });
 
   let latestProjection: PageConversationProjection | undefined;

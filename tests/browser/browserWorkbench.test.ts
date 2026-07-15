@@ -34,6 +34,26 @@ test("Browser Workbench resolves an approved profile and launches answer-once Pa
   expect(frames.at(-1)).toMatchObject({ type: "page_brief_completed", pageBrief: { summary: "Brief" } });
 });
 
+test("Browser Workbench forwards an explicit debug flag to the Learning Session Launcher", async () => {
+  let debug: boolean | undefined;
+  const workbench = createBrowserWorkbench({
+    async resolveProfile(id) { return { id, label: "Forgelet", path: "/workspace" }; },
+    async startLearning(input) { debug = input.debug; return { status: "completed", summary: "done", pageBrief: { summary: "Brief", keyConcepts: "- Key" } }; },
+    async startPageAnswer() { throw new Error("unexpected"); },
+  });
+  await collect(runBrowserInvocation({ ...request, actionId: "action_debug", invocationId: "invocation_debug", debug: true }, workbench, { homeDir: await home() }));
+  expect(debug).toBe(true);
+
+  let debugOmitted: boolean | undefined = true;
+  const workbenchWithoutDebug = createBrowserWorkbench({
+    async resolveProfile(id) { return { id, label: "Forgelet", path: "/workspace" }; },
+    async startLearning(input) { debugOmitted = input.debug; return { status: "completed", summary: "done", pageBrief: { summary: "Brief", keyConcepts: "- Key" } }; },
+    async startPageAnswer() { throw new Error("unexpected"); },
+  });
+  await collect(runBrowserInvocation({ ...request, actionId: "action_no_debug", invocationId: "invocation_no_debug" }, workbenchWithoutDebug, { homeDir: await home() }));
+  expect(debugOmitted).toBeUndefined();
+});
+
 test("Browser Workbench snapshots the requested output language into its Page Brief task", async () => {
   let task = "";
   const workbench = createBrowserWorkbench({ async resolveProfile(id) { return { id, label: "Forgelet", path: "/workspace" }; }, async startLearning(input) { task = input.task; return { status: "completed", summary: "done", pageBrief: { summary: "简明", keyConcepts: "- 概念" } }; }, async startPageAnswer() { throw new Error("unexpected"); } });

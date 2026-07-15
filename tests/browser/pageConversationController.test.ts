@@ -46,7 +46,7 @@ interface Harness {
   controller: ReturnType<typeof createPageConversationController>;
 }
 
-function harness(options: { evictionByteBudget?: number; storage?: PageConversationSessionStorage } = {}): Harness {
+function harness(options: { evictionByteBudget?: number; storage?: PageConversationSessionStorage; resolveDebug?: () => boolean | undefined } = {}): Harness {
   const state: Harness = {
     starts: [],
     ports: new Map<string, PortRecord>(),
@@ -96,6 +96,7 @@ function harness(options: { evictionByteBudget?: number; storage?: PageConversat
       return state.captureImpl();
     },
     createId: idFactory(),
+    ...(options.resolveDebug ? { resolveDebug: options.resolveDebug } : {}),
     broadcastProjection: (windowId, projection) => state.projections.push({ windowId, projection }),
     broadcastDelta: (windowId, delta) => state.deltas.push({ windowId, ...delta }),
     broadcastNotice: (windowId, notice) => state.notices.push({ windowId, notice }),
@@ -115,6 +116,16 @@ test("an idle toolbar gesture opens the panel, captures the page, and starts a f
   const last = h.projections.at(-1);
   expect(last?.windowId).toBe(1);
   expect(last?.projection.currentAttempt).toMatchObject({ kind: "root", status: "starting" });
+});
+
+test("a resolved Debug preference is forwarded on the root start request and omitted when off", async () => {
+  const on = harness({ resolveDebug: () => true });
+  await on.controller.handleToolbarClick(1);
+  expect(on.starts[0]).toMatchObject({ kind: "root", debug: true });
+
+  const off = harness({ resolveDebug: () => false });
+  await off.controller.handleToolbarClick(1);
+  expect(off.starts[0]).not.toHaveProperty("debug");
 });
 
 test("a second toolbar gesture while an attempt runs performs no capture, launch, or implicit Stop", async () => {

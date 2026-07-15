@@ -39,6 +39,7 @@ export type PageConversationStartRequest =
       invocationId: string;
       workspaceProfileId: string;
       outputLanguage?: string;
+      debug?: boolean;
       capture: Record<string, unknown>;
     }
   | {
@@ -48,6 +49,7 @@ export type PageConversationStartRequest =
       invocationId: string;
       workspaceProfileId: string;
       outputLanguage?: string;
+      debug?: boolean;
       captureId: string;
       rootSessionId: string;
     }
@@ -58,6 +60,7 @@ export type PageConversationStartRequest =
       invocationId: string;
       workspaceProfileId: string;
       outputLanguage?: string;
+      debug?: boolean;
       captureId: string;
       rootSessionId: string;
       parentSessionId: string;
@@ -93,6 +96,7 @@ export function createPageConversationController(input: {
   captureCurrentPage(): Promise<Record<string, unknown>>;
   createId(): string;
   resolveOutputLanguage?(): string | undefined | Promise<string | undefined>;
+  resolveDebug?(): boolean | undefined | Promise<boolean | undefined>;
   broadcastProjection?(windowId: number, projection: PageConversationProjection): void;
   broadcastDelta?(windowId: number, delta: { invocationId: string; text: string }): void;
   broadcastNotice?(windowId: number, notice: PageConversationNotice): void;
@@ -165,6 +169,9 @@ export function createPageConversationController(input: {
   const resolveOutputLanguage = async (): Promise<string | undefined> =>
     normalizeBrowserOutputLanguage(await input.resolveOutputLanguage?.());
 
+  const resolveDebug = async (): Promise<boolean | undefined> =>
+    (await input.resolveDebug?.()) === true ? true : undefined;
+
   const projectionFor = async (windowId: number): Promise<PageConversationProjection | undefined> => {
     const inMemory = projections.get(windowId);
     if (inMemory) return inMemory;
@@ -235,6 +242,7 @@ export function createPageConversationController(input: {
       save(windowId, projection);
 
       const outputLanguage = await resolveOutputLanguage();
+      const debug = await resolveDebug();
       const port = input.bridge.start({
         kind: "root",
         conversationId,
@@ -242,6 +250,7 @@ export function createPageConversationController(input: {
         invocationId,
         workspaceProfileId: profile.id,
         ...outputLanguageField(outputLanguage),
+        ...debugField(debug),
         capture,
       });
       attachPort(windowId, invocationId, port);
@@ -287,6 +296,7 @@ export function createPageConversationController(input: {
       save(windowId, next);
 
       const outputLanguage = await resolveOutputLanguage();
+      const debug = await resolveDebug();
       const port = input.bridge.start({
         kind: "follow_up",
         conversationId: current.conversationId,
@@ -294,6 +304,7 @@ export function createPageConversationController(input: {
         invocationId,
         workspaceProfileId: current.workspaceProfileId,
         ...outputLanguageField(outputLanguage),
+        ...debugField(debug),
         captureId: current.captureId,
         rootSessionId: current.rootSessionId,
         parentSessionId: current.headSessionId,
@@ -323,6 +334,7 @@ export function createPageConversationController(input: {
       save(windowId, next);
 
       const outputLanguage = await resolveOutputLanguage();
+      const debug = await resolveDebug();
       const port =
         retryKind === "root_retry"
           ? input.bridge.start({
@@ -332,6 +344,7 @@ export function createPageConversationController(input: {
               invocationId: newInvocationId,
               workspaceProfileId: current.workspaceProfileId,
               ...outputLanguageField(outputLanguage),
+              ...debugField(debug),
               captureId: current.captureId,
               rootSessionId: rootRetrySessionId as string,
             })
@@ -342,6 +355,7 @@ export function createPageConversationController(input: {
               invocationId: newInvocationId,
               workspaceProfileId: current.workspaceProfileId,
               ...outputLanguageField(outputLanguage),
+              ...debugField(debug),
               captureId: current.captureId,
               rootSessionId: current.rootSessionId ?? "",
               parentSessionId: current.headSessionId ?? "",
@@ -359,4 +373,8 @@ function stringField(record: Record<string, unknown>, key: string): string {
 
 function outputLanguageField(outputLanguage: string | undefined): { outputLanguage?: string } {
   return outputLanguage ? { outputLanguage } : {};
+}
+
+function debugField(debug: boolean | undefined): { debug?: boolean } {
+  return debug ? { debug } : {};
 }

@@ -65,6 +65,12 @@ test("v3 validates only closed root, root Retry, follow-up, and follow-up Retry 
   expect(() => validateBrowserInvocationRequest({ ...rootRequest, workflow: "learning" })).toThrow(/forbidden/i);
 });
 
+test("an optional debug flag round-trips as a boolean and rejects non-boolean values", () => {
+  expect(validateBrowserInvocationRequest({ ...rootRequest, debug: true })).toMatchObject({ debug: true });
+  expect(validateBrowserInvocationRequest(rootRequest)).not.toHaveProperty("debug");
+  expect(() => validateBrowserInvocationRequest({ ...rootRequest, debug: "true" })).toThrow(/debug/i);
+});
+
 test("v2 and unknown versions fail with recovery guidance", () => {
   for (const version of [2, 999]) {
     expect(() => validateBrowserInvocationRequest({ ...rootRequest, version })).toThrow(/rebuild.*reload.*install-host/i);

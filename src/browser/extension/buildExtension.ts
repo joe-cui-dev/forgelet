@@ -208,7 +208,8 @@ export function sidePanelHtml(): string {
       .panel-settings {
         flex: none;
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: 1fr 1fr auto;
+        align-items: end;
         gap: 10px;
         padding: 10px 14px 12px;
         border-top: 1px solid var(--border);
@@ -221,6 +222,19 @@ export function sidePanelHtml(): string {
         text-transform: uppercase;
         letter-spacing: 0.06em;
         margin-bottom: 4px;
+      }
+      .panel-settings .toggle {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+      }
+      .panel-settings .toggle label {
+        margin-bottom: 0;
+      }
+      #debug:focus-visible {
+        outline: 1px solid var(--accent);
+        outline-offset: 1px;
       }
       select {
         width: 100%;
@@ -301,6 +315,10 @@ export function sidePanelHtml(): string {
           <option value="large">Large</option>
           <option value="xlarge">Extra large</option>
         </select>
+      </div>
+      <div class="toggle">
+        <input type="checkbox" id="debug">
+        <label for="debug">Debug</label>
       </div>
     </footer>
     <script type="module" src="sidePanel.js"></script>

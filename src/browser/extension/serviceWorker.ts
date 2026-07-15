@@ -68,6 +68,15 @@ const pageConversations = createPageConversationController({
       return undefined;
     }
   },
+  resolveDebug: async () => {
+    try {
+      const stored = await chrome.storage.local.get("forgeletBrowserWorkbenchDebug");
+      return stored.forgeletBrowserWorkbenchDebug === true;
+    } catch {
+      // A storage failure must not silently turn Debug on; fail closed.
+      return false;
+    }
+  },
   broadcastProjection: (windowId, projection) =>
     sendToPanel({ type: "pageConversationProjection", windowId, projection }),
   broadcastDelta: (windowId, delta) =>

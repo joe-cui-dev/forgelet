@@ -10,6 +10,7 @@ function fakeElement(id: string) {
   return {
     id,
     value: "",
+    checked: false,
     disabled: false,
     attributes: {} as Record<string, string>,
     addEventListener(type: string, listener: () => void) {
@@ -35,6 +36,7 @@ test("clicking Send after a successful root Page Brief sends pageConversationSen
     stop: fakeElement("stop"),
     "output-language": fakeElement("output-language"),
     "font-size": fakeElement("font-size"),
+    debug: fakeElement("debug"),
     question: fakeElement("question"),
     send: fakeElement("send"),
   };

@@ -31,6 +31,7 @@ interface BrowserInvocationBase {
   invocationId: string;
   workspaceProfileId: string;
   outputLanguage?: string;
+  debug?: boolean;
 }
 
 export interface BrowserRootInvocationRequest extends BrowserInvocationBase {
@@ -120,6 +121,7 @@ export function validateBrowserInvocationRequest(
     invocationId: requiredString(raw, "invocationId", "Invocation request"),
     workspaceProfileId: requiredString(raw, "workspaceProfileId", "Invocation request"),
     ...(optionalLanguageTag(raw) ? { outputLanguage: optionalLanguageTag(raw) } : {}),
+    ...(optionalDebugFlag(raw) !== undefined ? { debug: optionalDebugFlag(raw) } : {}),
   };
   if (raw.kind === "root") return { ...base, kind: "root", capture: parseCapture(raw.capture) };
   if (raw.kind === "root_retry") return { ...base, kind: "root_retry", captureId: requiredString(raw, "captureId", "Invocation request"), rootSessionId: requiredString(raw, "rootSessionId", "Invocation request") };
@@ -150,7 +152,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function requestKeys(kind: unknown): string[] {
-  const base = ["version", "kind", "conversationId", "actionId", "invocationId", "workspaceProfileId", "outputLanguage"];
+  const base = ["version", "kind", "conversationId", "actionId", "invocationId", "workspaceProfileId", "outputLanguage", "debug"];
   if (kind === "root") return [...base, "capture"];
   if (kind === "root_retry") return [...base, "captureId", "rootSessionId"];
   if (kind === "follow_up" || kind === "follow_up_retry") return [...base, "captureId", "rootSessionId", "parentSessionId", "question"];
@@ -174,6 +176,14 @@ function optionalLanguageTag(value: Record<string, unknown>): string | undefined
   if (field === undefined) return undefined;
   if (typeof field !== "string" || field.length > 35 || !/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{1,8})*$/.test(field))
     throw new BrowserProtocolValidationError("malformed", "Invocation request has an invalid outputLanguage.");
+  return field;
+}
+
+function optionalDebugFlag(value: Record<string, unknown>): boolean | undefined {
+  const field = value.debug;
+  if (field === undefined) return undefined;
+  if (typeof field !== "boolean")
+    throw new BrowserProtocolValidationError("malformed", "Invocation request has an invalid debug flag.");
   return field;
 }
 

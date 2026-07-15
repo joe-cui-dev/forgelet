@@ -97,6 +97,7 @@ export function createBrowserLearningLauncher(input: {
         homeDir: input.homeDir,
         executionPolicy: launch.executionPolicy,
         startTraceExtras: browserSessionTraceExtras(launch.trigger),
+        debug: launch.debug,
         signal: launch.signal,
         onLiveEvent: async (event) => {
           if (event.type === "session_finished") {
@@ -130,6 +131,7 @@ export function createBrowserLearningLauncher(input: {
         pageConversationHistory: launch.pageConversationHistory,
         outputLanguage: launch.trigger.outputLanguage,
         startTraceExtras: browserSessionTraceExtras(launch.trigger),
+        debug: launch.debug,
         signal: launch.signal,
         onLiveEvent: async (event) => {
           if (event.type === "session_finished") {
