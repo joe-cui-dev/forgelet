@@ -84,6 +84,10 @@ _Avoid_: Chat summary, progress report, checkpoint chain, durable memory, transc
 The deterministic, machine-assembled part of a Rolling Summary that carries facts forward from folded Observation Digests, such as files read with their ranges and hashes, files changed, and commands run with their outcomes. A Fact Ledger never passes through a model and is deterministically bounded; evicted entries remain recoverable from the Trace.
 _Avoid_: Model summary, durable memory, trace event, transaction log
 
+**Session Budget**:
+The per-Session resource limits the Agent Kernel enforces, each guarding one distinct resource: model turns guard progress, estimated cost guards money, and wall clock guards the user's time. Estimated cost is a lower bound whenever any turn's usage went unpriced — unknown cost is never counted as zero. Any budget dimension that can stop a Session is visible to the model in Turn Status.
+_Avoid_: Token budget, rate limit, quota, context limit
+
 **Turn Status**:
 The volatile per-turn state the Agent Kernel reports to the model — plan progress, budget consumption, compaction status, and wrapup notices — kept distinct from the task context, which does not change from turn to turn. Turn Status is rendered after the conversation so the Active Context ahead of it stays stable across turns.
 _Avoid_: Budget line, status prompt, system reminder
