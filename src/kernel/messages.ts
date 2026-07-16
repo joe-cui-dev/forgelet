@@ -45,6 +45,7 @@ export const buildMessages = (
   rollingSummary?: ModelMessage,
   finalOnly = false,
   finalToolTurn = false,
+  elapsedWallClockMs = 0,
 ): ModelMessage[] => {
   const continuationSourceLines = continuationAttachment
     ? formatContextAttachmentsForPrompt(
@@ -104,7 +105,7 @@ export const buildMessages = (
       "Current plan:",
       ...plan.items.map((item) => `- ${item.status}: ${item.step}`),
       "",
-      `Budget: ${usage.modelTurns}/${limits.maxModelTurns} model turns, $${usage.estimatedCostUsd.toFixed(4)}/$${limits.maxEstimatedCostUsd.toFixed(4)} estimated.`,
+      formatBudgetStatus(usage, limits, elapsedWallClockMs),
       ...(compactionStatus ? [compactionStatus] : []),
       ...(finalToolTurn
         ? [
@@ -122,6 +123,17 @@ export const buildMessages = (
     ].join("\n"),
   });
   return messages;
+};
+
+const formatBudgetStatus = (
+  usage: BudgetUsage,
+  limits: BudgetLimits,
+  elapsedWallClockMs: number,
+): string => {
+  const cost = usage.unpricedTurns > 0
+    ? `≥$${usage.estimatedCostUsd.toFixed(4)}/$${limits.maxEstimatedCostUsd.toFixed(4)} (${usage.unpricedTurns} turns unpriced)`
+    : `$${usage.estimatedCostUsd.toFixed(4)}/$${limits.maxEstimatedCostUsd.toFixed(4)} estimated`;
+  return `Budget: ${usage.modelTurns}/${limits.maxModelTurns} model turns, ${cost}, ${Math.floor(elapsedWallClockMs / 60_000)}/${Math.floor(limits.maxWallClockMs / 60_000)} min elapsed.`;
 };
 
 const conversationForFinalAnswer = (

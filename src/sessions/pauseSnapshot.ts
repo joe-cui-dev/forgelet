@@ -135,8 +135,13 @@ export async function readPauseSnapshot(
       }.`,
     );
   const { version, sessionState, ...rest } = parsed as SerializedPauseSnapshot;
+  const { maxInputTokens: _retiredInputTokenBudget, ...limits } = rest.limits as BudgetLimits & {
+    maxInputTokens?: unknown;
+  };
   return {
     ...rest,
+    usage: { ...rest.usage, unpricedTurns: rest.usage.unpricedTurns ?? 0 },
+    limits,
     sessionState: {
       baselineDirtyPaths: new Set(sessionState.baselineDirtyPaths),
       ...(sessionState.continuationOwnedDirtyPaths

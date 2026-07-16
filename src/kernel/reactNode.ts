@@ -311,8 +311,8 @@ export const runReactNode = async (
   const priorWallClockMs = input.resume?.activeWallClockMs ?? 0;
   const elapsedWallClockMs = (): number => priorWallClockMs + (now() - runStartedAtMs);
   const usage: BudgetUsage = input.resume
-    ? { ...input.resume.usage }
-    : { modelTurns: 0, inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0 };
+    ? { ...input.resume.usage, unpricedTurns: input.resume.usage.unpricedTurns ?? 0 }
+    : { modelTurns: 0, inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0, unpricedTurns: 0 };
   const grantedCapabilities = input.definition.capabilities({
     act: input.act,
     readScope: input.readScope,
@@ -450,7 +450,12 @@ export const runReactNode = async (
     ;
     turnIndex += 1
   ) {
-    const stopReason = budgetStopReason(usage, input.limits, elapsedWallClockMs());
+    const currentElapsedWallClockMs = elapsedWallClockMs();
+    const stopReason = budgetStopReason(
+      usage,
+      input.limits,
+      currentElapsedWallClockMs,
+    );
     if (stopReason) {
       const summary = formatStoppedSummary(
         input.session,
@@ -470,7 +475,7 @@ export const runReactNode = async (
     const budgetWrapupReason = finalOnly
       ? undefined
       : (forcedStopReason ??
-        budgetWrapupStopReason(usage, input.limits, elapsedWallClockMs()));
+        budgetWrapupStopReason(usage, input.limits, currentElapsedWallClockMs));
     forcedStopReason = undefined;
     if (budgetWrapupReason)
       await input.appendTrace("budget_wrapup_triggered", {
@@ -479,7 +484,7 @@ export const runReactNode = async (
         usage,
         limits: input.limits,
         reserveFraction: BUDGET_WRAPUP_RESERVE_FRACTION,
-        elapsedWallClockMs: elapsedWallClockMs(),
+        elapsedWallClockMs: currentElapsedWallClockMs,
       });
     const wrapupOnly = finalOnly || budgetWrapupReason !== undefined;
     const compaction = compactConversationInPlace(conversation, {
@@ -560,12 +565,13 @@ export const runReactNode = async (
       usage.inputTokens += foldResult.usage.inputTokens;
       usage.outputTokens += foldResult.usage.outputTokens;
       usage.estimatedCostUsd += foldResult.usage.estimatedCostUsd;
+      usage.unpricedTurns += foldResult.usage.unpricedTurns;
       await input.appendTrace("conversation_folded", { ...foldResult.trace });
       if (foldResult.trace.narrativeClipped)
         await input.appendTrace("conversation_fold_narrative_clipped", {
           maxConversationBytes: input.maxConversationBytes,
         });
-      const foldBudgetStopReason = tokenOrCostBudgetStopReason(
+      const foldBudgetStopReason = costBudgetStopReason(
         usage,
         input.limits,
       );
@@ -601,6 +607,7 @@ export const runReactNode = async (
       rollingSummaryMessage(rollingSummary),
       wrapupOnly,
       finalToolTurn,
+      currentElapsedWallClockMs,
     );
     if (input.signal?.aborted) return cancelledStopResult(input, usage);
 
@@ -712,6 +719,7 @@ export const runReactNode = async (
     usage.inputTokens += output.usage?.inputTokens ?? 0;
     usage.outputTokens += output.usage?.outputTokens ?? 0;
     usage.estimatedCostUsd += output.usage?.estimatedCostUsd ?? 0;
+    if (output.usage?.estimatedCostUsd === undefined) usage.unpricedTurns += 1;
 
     await input.appendTrace("model_turn", {
       turnIndex,
@@ -733,7 +741,7 @@ export const runReactNode = async (
     });
     await input.appendTrace("budget_update", { usage, limits: input.limits });
 
-    const hardBudgetStopReason = tokenOrCostBudgetStopReason(
+    const hardBudgetStopReason = costBudgetStopReason(
       usage,
       input.limits,
     );
@@ -1434,22 +1442,20 @@ const budgetStopReason = (
   if (usage.modelTurns >= limits.maxModelTurns) return "max_model_turns";
   if (elapsedWallClockMs >= limits.maxWallClockMs)
     return "wall_clock_limit_exceeded";
-  return tokenOrCostBudgetStopReason(usage, limits);
+  return costBudgetStopReason(usage, limits);
 };
 
-const tokenOrCostBudgetStopReason = (
+const costBudgetStopReason = (
   usage: BudgetUsage,
   limits: BudgetLimits,
 ): SessionStopReason | undefined => {
-  if (usage.inputTokens >= limits.maxInputTokens)
-    return "input_token_limit_exceeded";
   if (usage.estimatedCostUsd >= limits.maxEstimatedCostUsd)
     return "estimated_cost_budget_exceeded";
   return undefined;
 };
 
 // Reserve fraction for the proactive budget wrap-up: once usage crosses this
-// share of a token/cost limit, the loop stops issuing tool-capable turns and
+// share of a cost limit, the loop stops issuing tool-capable turns and
 // gives the model a closing turn instead of running cold into the hard stop.
 const BUDGET_WRAPUP_RESERVE_FRACTION = 0.9;
 
@@ -1458,8 +1464,6 @@ const budgetWrapupStopReason = (
   limits: BudgetLimits,
   elapsedWallClockMs: number,
 ): SessionStopReason | undefined => {
-  if (usage.inputTokens >= limits.maxInputTokens * BUDGET_WRAPUP_RESERVE_FRACTION)
-    return "input_token_limit_exceeded";
   if (
     usage.estimatedCostUsd >=
     limits.maxEstimatedCostUsd * BUDGET_WRAPUP_RESERVE_FRACTION
@@ -1592,9 +1596,10 @@ const formatStoppedSummary = (
     `Route: ${route.model} (${route.reason})`,
     `Reason: ${reason}`,
     `Model turns: ${usage.modelTurns}/${limits.maxModelTurns}`,
-    `Input tokens: ${usage.inputTokens}/${limits.maxInputTokens}`,
+    `Input tokens: ${usage.inputTokens}`,
     `Output tokens: ${usage.outputTokens}`,
-    `Estimated cost: $${usage.estimatedCostUsd.toFixed(4)}/$${limits.maxEstimatedCostUsd.toFixed(4)}`,
+    `Estimated cost: ${usage.unpricedTurns > 0 ? "≥" : ""}$${usage.estimatedCostUsd.toFixed(4)}/$${limits.maxEstimatedCostUsd.toFixed(4)}`,
+    ...(usage.unpricedTurns > 0 ? [`Unpriced turns: ${usage.unpricedTurns}`] : []),
     ...(blockedToolCalls
       ? [
           `Skipped ${blockedToolCalls.skippedCount} tool call${blockedToolCalls.skippedCount === 1 ? "" : "s"} because ${blockedToolCalls.reason} was reached.`,

@@ -1,4 +1,4 @@
-import { expect, test } from "@jest/globals";
+import { expect, jest, test } from "@jest/globals";
 import { mkdir, mkdtemp, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -144,4 +144,24 @@ test("rejects an invalid observation digest preview cap", async () => {
   await expect(loadConfig({ workspaceRoot })).rejects.toThrow(
     /activeContext\.observationDigestPreviewBytes.*128/,
   );
+});
+
+test("warns once when a config retains the retired input-token budget", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-retired-budget-"));
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "config.json"),
+    JSON.stringify({ budgets: { maxInputTokens: 100_000 } }),
+    "utf8",
+  );
+  const write = jest.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+  await loadConfig({ workspaceRoot });
+  await loadConfig({ workspaceRoot });
+
+  expect(write).toHaveBeenCalledTimes(1);
+  expect(write).toHaveBeenCalledWith(
+    expect.stringMatching(/budgets\.maxInputTokens.*no longer enforced/i),
+  );
+  write.mockRestore();
 });

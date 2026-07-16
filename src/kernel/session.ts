@@ -17,6 +17,7 @@ import {
 } from "../sourceLedger/index.js";
 import { loadConfig, routeModel } from "../config/index.js";
 import { maxConversationBytesForRoute } from "../models/routing.js";
+import { hasDeepSeekStaticPricing } from "../models/providers/deepseek.js";
 import { loadDurableMemory } from "../memory/index.js";
 import {
   createDebugTranscriptWriter,
@@ -134,6 +135,7 @@ export async function runKernelSession<TCompletion = void>(
     input.definition.kind,
     routeModel(config, input.definition.kind, input.model),
   );
+  warnForUnpricedModel(route.model);
   const plan: AgentPlan = {
     items: [
       { step: "Create session and load task context", status: "completed" },
@@ -471,6 +473,21 @@ export async function runKernelSession<TCompletion = void>(
     tracePath: traceWriter.tracePath,
   };
 };
+
+const unpricedModelWarnings = new Set<string>();
+
+function warnForUnpricedModel(model: string): void {
+  if (
+    !model.startsWith("deepseek-") ||
+    hasDeepSeekStaticPricing(model) ||
+    unpricedModelWarnings.has(model)
+  )
+    return;
+  unpricedModelWarnings.add(model);
+  process.stderr.write(
+    `Warning: ${model} has no static DeepSeek pricing; estimated cost may be incomplete.\n`,
+  );
+}
 
 export type ResumeDecision =
   | { kind: "approve" }

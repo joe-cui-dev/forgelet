@@ -32,6 +32,9 @@ const DEEPSEEK_PRICES_USD_PER_1M: Record<
   },
 };
 
+export const hasDeepSeekStaticPricing = (model: string): boolean =>
+  model in DEEPSEEK_PRICES_USD_PER_1M;
+
 export interface DeepSeekModelClientOptions {
   apiKey: string;
   model: string;

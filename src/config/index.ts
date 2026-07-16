@@ -33,7 +33,6 @@ export interface ForgeletConfig {
   publicWeb: { provider: "brave" | "fake"; apiKeyEnv: string };
   budgets: {
     maxModelTurns: number;
-    maxInputTokens: number;
     maxEstimatedCostUsd: number;
     maxWallClockMs: number;
   };
@@ -88,7 +87,6 @@ export const defaultConfig: ForgeletConfig = {
   publicWeb: { provider: "brave", apiKeyEnv: "BRAVE_SEARCH_API_KEY" },
   budgets: {
     maxModelTurns: 12,
-    maxInputTokens: 120000,
     maxEstimatedCostUsd: 1.0,
     maxWallClockMs: 30 * 60 * 1000,
   },
@@ -122,12 +120,32 @@ export async function loadConfig(
   const projectConfig = await readOptionalJson(
     join(input.workspaceRoot, ".forgelet", "config.json"),
   );
+  warnForRetiredInputTokenBudget(homeConfig, projectConfig);
   const config = mergeConfig(
     mergeConfig(defaultConfig, homeConfig),
     projectConfig,
   );
   validateConfig(config);
   return config;
+}
+
+const retiredInputTokenBudgetWarnings = new Set<string>();
+
+function warnForRetiredInputTokenBudget(...configs: WritableConfig[]): void {
+  if (!configs.some(hasRetiredInputTokenBudget)) return;
+  const warning = "Warning: budgets.maxInputTokens is no longer enforced; remove it from your config.\n";
+  if (retiredInputTokenBudgetWarnings.has(warning)) return;
+  retiredInputTokenBudgetWarnings.add(warning);
+  process.stderr.write(warning);
+}
+
+function hasRetiredInputTokenBudget(config: WritableConfig): boolean {
+  const budgets = config.budgets as unknown;
+  return (
+    typeof budgets === "object" &&
+    budgets !== null &&
+    "maxInputTokens" in budgets
+  );
 }
 
 export async function setGlobalConfigValue(

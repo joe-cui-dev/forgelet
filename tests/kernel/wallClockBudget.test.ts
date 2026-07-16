@@ -49,7 +49,6 @@ test("wrap-up triggers once elapsed wall-clock crosses the reserve threshold", a
       budgets: {
         maxWallClockMs: 1000,
         maxModelTurns: 10,
-        maxInputTokens: 1_000_000,
         maxEstimatedCostUsd: 100,
       },
     }),
@@ -68,7 +67,7 @@ test("wrap-up triggers once elapsed wall-clock crosses the reserve threshold", a
     contextFiles: [],
     workspaceRoot,
     modelClient,
-    now: fakeClock(250),
+    now: fakeClock(450),
   });
 
   expect(call).toBe(2);
@@ -92,7 +91,6 @@ test("pause/resume accumulates wall-clock across process segments instead of res
       budgets: {
         maxWallClockMs: 1000,
         maxModelTurns: 20,
-        maxInputTokens: 1_000_000,
         maxEstimatedCostUsd: 100,
       },
     }),
@@ -124,9 +122,9 @@ test("pause/resume accumulates wall-clock across process segments instead of res
   });
 
   const snapshot = await readPauseSnapshot(workspaceRoot, initialResult.session.id);
-  // runStartedAtMs consumes the clock's first tick, so pause fires after 3
-  // more ticks (turn-start budget checks, then the pause capture itself).
-  expect(snapshot.activeWallClockMs).toBe(300);
+  // runStartedAtMs consumes the clock's first tick; the next loop check sees
+  // the elapsed time once and pause capture reuses that accumulated value.
+  expect(snapshot.activeWallClockMs).toBe(200);
 
   const resumeTurns = [
     { toolCalls: [{ id: "call_list_1", name: "list_files", input: {} }] },
@@ -141,17 +139,17 @@ test("pause/resume accumulates wall-clock across process segments instead of res
     sessionId: initialResult.session.id,
     modelClient: resumeModelClient,
     decision: { kind: "approve" },
-    now: fakeClock(100),
+    now: fakeClock(250),
   });
 
   expect(resumeCall).toBe(3);
   const events = await readTraceFile(resumed.tracePath);
   const wrapupTriggered = events.find((event) => event.type === "budget_wrapup_triggered");
   expect(wrapupTriggered?.payload.reason).toBe("wall_clock_limit_exceeded");
-  // Prior 300ms carried from the snapshot plus 700ms elapsed on the resumed
+  // Prior 200ms carried from the snapshot plus 750ms elapsed on the resumed
   // clock by the time the wrap-up trace fires — proof the prior segment was
   // added once (carried forward), not reset to 0 and not double-counted.
-  expect(wrapupTriggered?.payload.elapsedWallClockMs).toBe(1000);
+  expect(wrapupTriggered?.payload.elapsedWallClockMs).toBe(950);
   expect(events.at(-1)?.payload.status).toBe("stopped");
   expect(events.at(-1)?.payload.reason).toBe("wall_clock_limit_exceeded");
 });

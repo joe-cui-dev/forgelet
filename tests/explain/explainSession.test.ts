@@ -46,6 +46,47 @@ test("explains aggregate conversation compaction evidence", async () => {
   });
 });
 
+test("explains a trace that retains retired input-token budget evidence", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-explain-legacy-budget-"));
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(sessionDir, "sess_compact.jsonl"),
+    [
+      event("session_started", { workflow: "coding" }),
+      event("user_task", { task: "inspect legacy budget evidence" }),
+      event("model_turn", { turnIndex: 0 }),
+      event("budget_update", {
+        usage: {
+          modelTurns: 1,
+          inputTokens: 120_001,
+          outputTokens: 10,
+          estimatedCostUsd: 0.01,
+        },
+        limits: {
+          maxModelTurns: 12,
+          maxInputTokens: 120_000,
+          maxEstimatedCostUsd: 1,
+          maxWallClockMs: 1_800_000,
+        },
+      }),
+      event("session_finished", {
+        status: "stopped",
+        reason: "input_token_limit_exceeded",
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+
+  const explanation = await explainSession(workspaceRoot, "sess_compact");
+
+  expect(explanation).toMatchObject({
+    status: "stopped",
+    task: "inspect legacy budget evidence",
+    modelTurns: 1,
+  });
+});
+
 function event(type: string, payload: Record<string, unknown>): string {
   return JSON.stringify({
     type,

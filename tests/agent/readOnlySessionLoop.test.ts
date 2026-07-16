@@ -1633,7 +1633,7 @@ test("a Session folds an old turn into a Rolling Summary when digests alone cann
   ).toBeGreaterThanOrEqual(40);
 });
 
-test("a Session stops when the fold summarization call itself breaches the token budget", async () => {
+test("a Session stops when the fold summarization call itself breaches the cost budget", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-fold-budget-"));
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
   await writeFile(
@@ -1644,7 +1644,7 @@ test("a Session stops when the fold summarization call itself breaches the token
         protectedRecentTurns: 1,
         observationDigestPreviewBytes: 3_000,
       },
-      budgets: { maxInputTokens: 30 },
+      budgets: { maxEstimatedCostUsd: 0.001 },
     }),
     "utf8",
   );
@@ -1676,7 +1676,7 @@ test("a Session stops when the fold summarization call itself breaches the token
     modelClient,
   });
 
-  expect(result.summary).toMatch(/Reason: input_token_limit_exceeded/);
+  expect(result.summary).toMatch(/Reason: estimated_cost_budget_exceeded/);
   expect(modelClient.turnInputs).toHaveLength(3);
 });
 
@@ -3393,7 +3393,7 @@ test("empty final content before the reserved turn is retried", async () => {
   expect(result.summary).toMatch(/A usable answer/);
 });
 
-test("a Session stopped by input token limit reports the precise stop reason and budget details", async () => {
+test("input-token telemetry does not stop a Session", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-input-budget-"));
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
   await writeFile(
@@ -3401,7 +3401,6 @@ test("a Session stopped by input token limit reports the precise stop reason and
     JSON.stringify({
       budgets: {
         maxModelTurns: 8,
-        maxInputTokens: 100,
         maxEstimatedCostUsd: 0.25,
       },
     }),
@@ -3413,22 +3412,18 @@ test("a Session stopped by input token limit reports the precise stop reason and
       content: "I need another turn.",
       toolCalls: [{ id: "call_list", name: "list_files", input: {} }],
     },
-    { content: "This should not be called.", toolCalls: [] },
+    { content: "The second turn is allowed.", toolCalls: [] },
   ]);
 
   const result = await runCodingSession({
-    task: "inspect files within a tiny token limit",
+    task: "inspect files despite high token telemetry",
     contextFiles: [],
     workspaceRoot,
     modelClient,
   });
 
-  expect(modelClient.turnInputs.length).toBe(1);
-  expect(result.summary).toMatch(/Reason: input_token_limit_exceeded/);
-  expect(result.summary).toMatch(/Model turns: 1\/8/);
-  expect(result.summary).toMatch(/Input tokens: 101\/100/);
-  expect(result.summary).toMatch(/Output tokens: 7/);
-  expect(result.summary).toMatch(/Estimated cost: \$0\.0100\/\$0\.2500/);
+  expect(modelClient.turnInputs.length).toBe(2);
+  expect(result.summary).toMatch(/The second turn is allowed/);
 
   const trace = await readFile(result.tracePath ?? "", "utf8");
   const events = trace
@@ -3436,11 +3431,12 @@ test("a Session stopped by input token limit reports the precise stop reason and
     .split("\n")
     .map((line) => JSON.parse(line));
   const finished = events.find((event) => event.type === "session_finished");
-  expect(finished.payload.status).toBe("stopped");
-  expect(finished.payload.reason).toBe("input_token_limit_exceeded");
+  expect(finished.payload.status).toBe("completed");
+  const budgetUpdate = events.find((event) => event.type === "budget_update");
+  expect(budgetUpdate.payload.limits).not.toHaveProperty("maxInputTokens");
 });
 
-test("an over-budget actionable turn records budget-blocked tool calls without approval or execution", async () => {
+test("input-token telemetry does not block actionable tool calls", async () => {
   const workspaceRoot = await mkdtemp(
     join(tmpdir(), "forgelet-budget-block-tool-"),
   );
@@ -3454,7 +3450,6 @@ test("an over-budget actionable turn records budget-blocked tool calls without a
     JSON.stringify({
       budgets: {
         maxModelTurns: 8,
-        maxInputTokens: 100,
         maxEstimatedCostUsd: 0.25,
       },
     }),
@@ -3475,11 +3470,11 @@ test("an over-budget actionable turn records budget-blocked tool calls without a
       content: "I will patch this file.",
       toolCalls: [{ id: "call_patch", name: "apply_patch", input: { patch } }],
     },
-    { content: "This should not be called.", toolCalls: [] },
+    { content: "The patch was applied.", toolCalls: [] },
   ]);
 
   const result = await runCodingSession({
-    task: "change example within a tiny token limit",
+    task: "change example despite high token telemetry",
     contextFiles: [],
     workspaceRoot,
     modelClient,
@@ -3490,35 +3485,19 @@ test("an over-budget actionable turn records budget-blocked tool calls without a
     }),
   });
 
-  expect(modelClient.turnInputs.length).toBe(1);
+  expect(modelClient.turnInputs.length).toBe(2);
   await expect(
     readFile(join(workspaceRoot, "example.txt"), "utf8"),
-  ).resolves.toBe("original\n");
-  expect(result.summary).toMatch(/Reason: input_token_limit_exceeded/);
-  expect(result.summary).toMatch(
-    /Skipped 1 tool call because input_token_limit_exceeded was reached\./,
-  );
+  ).resolves.toBe("changed\n");
+  expect(result.summary).toMatch(/The patch was applied/);
 
   const trace = await readFile(result.tracePath ?? "", "utf8");
   const events = trace
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
-  expect(events.some((event) => event.type === "tool_call")).toBe(false);
-  expect(events.some((event) => event.type === "permission_decision")).toBe(
-    false,
-  );
-  expect(events.some((event) => event.type === "approval_decision")).toBe(
-    false,
-  );
-  const blocked = events.find(
-    (event) => event.type === "budget_blocked_tool_calls",
-  );
-  expect(blocked?.payload).toEqual({
-    reason: "input_token_limit_exceeded",
-    skippedCount: 1,
-    toolNames: ["apply_patch"],
-  });
+  expect(events.some((event) => event.type === "tool_call")).toBe(true);
+  expect(events.some((event) => event.type === "budget_blocked_tool_calls")).toBe(false);
 });
 
 test("large read_file observations are truncated for the model and not stored fully in trace", async () => {

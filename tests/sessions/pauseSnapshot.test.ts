@@ -1,5 +1,5 @@
 import { expect, test } from "@jest/globals";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -67,7 +67,6 @@ test("readPauseSnapshot throws an explicit error for a missing snapshot", async 
 
 test("readPauseSnapshot throws an explicit error for a wrong-version snapshot", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-pause-"));
-  const { writeFile, mkdir } = await import("node:fs/promises");
   const path = pauseSnapshotPath(workspaceRoot, "sess_old_version");
   await mkdir(join(workspaceRoot, ".forgelet", "sessions", "paused"), {
     recursive: true,
@@ -77,6 +76,23 @@ test("readPauseSnapshot throws an explicit error for a wrong-version snapshot", 
   await expect(readPauseSnapshot(workspaceRoot, "sess_old_version")).rejects.toThrow(
     /version/i,
   );
+});
+
+test("readPauseSnapshot tolerates a retired token limit and initializes unpriced turns", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-pause-"));
+  const snapshot = testSnapshot({ sessionId: "sess_legacy_budget" });
+  await writePauseSnapshot(workspaceRoot, snapshot);
+  const path = pauseSnapshotPath(workspaceRoot, snapshot.sessionId);
+  const legacy = JSON.parse(await readFile(path, "utf8"));
+  legacy.usage = { ...legacy.usage };
+  legacy.limits = { ...legacy.limits, maxInputTokens: 100_000 };
+  delete legacy.usage.unpricedTurns;
+  await writeFile(path, JSON.stringify(legacy), "utf8");
+
+  const loaded = await readPauseSnapshot(workspaceRoot, snapshot.sessionId);
+
+  expect(loaded.usage.unpricedTurns).toBe(0);
+  expect(loaded.limits).not.toHaveProperty("maxInputTokens");
 });
 
 function testSnapshot(overrides: Partial<PauseSnapshot> = {}): PauseSnapshot {
@@ -91,11 +107,16 @@ function testSnapshot(overrides: Partial<PauseSnapshot> = {}): PauseSnapshot {
     plan: { items: [{ step: "Do the thing", status: "in_progress" }] },
     conversation: [{ role: "user", content: "fix the bug" }],
     failedFoldAttempts: 0,
-    usage: { modelTurns: 2, inputTokens: 100, outputTokens: 50, estimatedCostUsd: 0.01 },
+    usage: {
+      modelTurns: 2,
+      inputTokens: 100,
+      outputTokens: 50,
+      estimatedCostUsd: 0.01,
+      unpricedTurns: 0,
+    },
     activeWallClockMs: 1234,
     limits: {
       maxModelTurns: 12,
-      maxInputTokens: 100_000,
       maxEstimatedCostUsd: 1,
       maxWallClockMs: 1_800_000,
     },

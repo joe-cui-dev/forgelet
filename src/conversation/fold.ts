@@ -41,6 +41,7 @@ export type FoldAttemptResult =
         inputTokens: number;
         outputTokens: number;
         estimatedCostUsd: number;
+        unpricedTurns: number;
       };
       trace: {
         beforeConversationBytes: number;
@@ -91,7 +92,8 @@ export async function attemptConversationFold(
     inputTokens: number;
     outputTokens: number;
     estimatedCostUsd: number;
-  } = { inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0 };
+    unpricedTurns: number;
+  } = { inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0, unpricedTurns: 0 };
   try {
     const output = await input.modelClient.createTurn({
       messages: summarizationMessages,
@@ -102,6 +104,7 @@ export async function attemptConversationFold(
       inputTokens: output.usage?.inputTokens ?? 0,
       outputTokens: output.usage?.outputTokens ?? 0,
       estimatedCostUsd: output.usage?.estimatedCostUsd ?? 0,
+      unpricedTurns: output.usage?.estimatedCostUsd === undefined ? 1 : 0,
     };
     await input.onModelResponse?.(content);
   } catch (error) {
@@ -183,7 +186,7 @@ function performDegradedFold(
   return {
     outcome: "folded",
     rollingSummary: { text, ledger },
-    usage: { inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0 },
+    usage: { inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0, unpricedTurns: 0 },
     trace: {
       beforeConversationBytes,
       afterConversationBytes: conversationBudgetBytes(plan.keptTurns, text),

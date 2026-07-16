@@ -67,7 +67,6 @@ export interface AgentSession {
 
 export type SessionFinishStatus = "completed" | "stopped" | "failed";
 export type SessionStopReason =
-  | "input_token_limit_exceeded"
   | "estimated_cost_budget_exceeded"
   | "max_model_turns"
   | "active_context_exhausted"
@@ -361,7 +360,6 @@ export interface PermissionPolicy {
 
 export interface BudgetLimits {
   maxModelTurns: number;
-  maxInputTokens: number;
   maxEstimatedCostUsd: number;
   maxWallClockMs: number;
 }
@@ -371,6 +369,7 @@ export interface BudgetUsage {
   inputTokens: number;
   outputTokens: number;
   estimatedCostUsd: number;
+  unpricedTurns: number;
 }
 
 export interface TraceEvent {
