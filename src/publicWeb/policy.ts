@@ -14,6 +14,9 @@ export const PublicWebPolicy = {
   maxSearchResults: 10,
   maxQueryBytes: 256,
   maxReadAttempts: 10,
+  userAgent: "Mozilla/5.0 (compatible; Forgelet/1.0)",
+  thinHtmlExtractionByteFloor: 500,
+  thinHtmlExtractionRatioFloor: 0.02,
 } as const;
 
 export function classifyPublicWebUrl(url: string): Extract<ToolTarget, { kind: "url" }> {

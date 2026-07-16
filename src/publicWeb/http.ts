@@ -44,6 +44,8 @@ export async function readPublicWebPage(url: string): ReturnType<PublicWebReader
     if (!PublicWebPolicy.allowedContentTypes.includes(contentType as never))
       throw new PublicWebFetchError("web_content_rejected", `Public Web content type is not allowed: ${contentType || "(missing)"}.`, { url, finalUrl: currentUrl, httpStatus: response.status, contentType, fetchedBytes: response.fetchedBytes });
     const extracted = extractPublicWebText(response.text, contentType);
+    if (contentType === "text/html")
+      assertSubstantialHtmlExtraction(extracted.text, response.text, { url, finalUrl: currentUrl, httpStatus: response.status, contentType, fetchedBytes: response.fetchedBytes });
     const text = truncateUtf8(extracted.text, PublicWebPolicy.maxStoredExtractedTextBytes);
     return {
       title: extracted.title ?? new URL(currentUrl).hostname,
@@ -91,7 +93,7 @@ async function requestOneHop(url: string, deadline: number): Promise<{ status: n
       remainingMs,
     );
     const request = httpsRequest(parsed, {
-      headers: { "accept-encoding": "gzip, deflate, br" },
+      headers: { "accept-encoding": "gzip, deflate, br", "user-agent": PublicWebPolicy.userAgent },
       lookup: pinnedAddressLookup(addresses),
     }, (response) => {
       const status = response.statusCode ?? 0;
@@ -196,14 +198,45 @@ class IdentityTransform extends Transform {
   }
 }
 
+// Attribute values may legally contain ">" (e.g. media="(width >= 40rem)"),
+// so tag patterns skip quoted spans instead of stopping at the first ">".
+const TAG_REST = `(?:[^>"']|"[^"]*"|'[^']*')*`;
+// <noscript> is deliberately not ignored: this reader never executes
+// JavaScript, so the noscript fallback is exactly the content addressed to it.
+const IGNORED_ELEMENTS = new RegExp(`<(script|style|template)\\b${TAG_REST}>[\\s\\S]*?<\\/\\1\\s*>`, "gi");
+const BLOCK_BOUNDARIES = new RegExp(`<\\/?(?:address|article|blockquote|div|dl|fieldset|figcaption|figure|footer|form|h[1-6]|header|hr|li|main|nav|noscript|ol|p|pre|section|table|tr|ul)\\b${TAG_REST}>|<br\\s*\\/?>`, "gi");
+const ANY_TAG = new RegExp(`<${TAG_REST}>`, "g");
+
 export function extractPublicWebText(content: string, contentType = "text/html"): { title?: string; text: string } {
   if (contentType !== "text/html") return { text: normalizeText(content) };
-  const withoutIgnored = content.replace(/<(script|style|noscript|template)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "");
+  const withoutIgnored = content.replace(IGNORED_ELEMENTS, "");
   const titleMatch = /<title\b[^>]*>([\s\S]*?)<\/title\s*>/i.exec(withoutIgnored);
   const title = titleMatch ? normalizeText(decodeHtmlEntities(titleMatch[1])) : undefined;
-  const withBreaks = withoutIgnored.replace(/<\/?(?:address|article|blockquote|div|dl|fieldset|figcaption|figure|footer|form|h[1-6]|header|hr|li|main|nav|ol|p|pre|section|table|tr|ul)\b[^>]*>|<br\s*\/?>/gi, "\n");
-  const text = normalizeText(decodeHtmlEntities(withBreaks.replace(/<[^>]*>/g, " ")));
+  const withBreaks = withoutIgnored.replace(BLOCK_BOUNDARIES, "\n");
+  const text = normalizeText(decodeHtmlEntities(withBreaks.replace(ANY_TAG, " ")));
   return { ...(title ? { title } : {}), text };
+}
+
+/** An HTML read whose extraction yields almost no text is not a successful
+ * read: the page most likely renders through JavaScript, and admitting the
+ * leftover fragments would create an empty Web Source that source-linked
+ * outputs then cite.
+ * Both floors must be crossed, so a small-but-real page (high ratio) and a
+ * sparse-but-large page (enough absolute text) still pass. */
+export function assertSubstantialHtmlExtraction(
+  extractedText: string,
+  html: string,
+  metadata: Record<string, unknown>,
+): void {
+  const extractedBytes = Buffer.byteLength(extractedText, "utf8");
+  if (extractedBytes >= PublicWebPolicy.thinHtmlExtractionByteFloor) return;
+  const htmlBytes = Buffer.byteLength(html, "utf8");
+  if (extractedBytes >= htmlBytes * PublicWebPolicy.thinHtmlExtractionRatioFloor) return;
+  throw new PublicWebFetchError(
+    "web_content_rejected",
+    `Public Web HTML extraction yielded almost no text (${extractedBytes} of ${htmlBytes} HTML bytes); the page likely requires JavaScript. Try a different source.`,
+    { ...metadata, extractedBytes },
+  );
 }
 
 function normalizeText(value: string): string {

@@ -17,6 +17,9 @@ test("defines the settled Public Web byte, time, and call limits", () => {
     maxSearchResults: 10,
     maxQueryBytes: 256,
     maxReadAttempts: 10,
+    userAgent: "Mozilla/5.0 (compatible; Forgelet/1.0)",
+    thinHtmlExtractionByteFloor: 500,
+    thinHtmlExtractionRatioFloor: 0.02,
   });
   expect(PublicWebPolicy.allowedContentTypes).toEqual([
     "text/html",

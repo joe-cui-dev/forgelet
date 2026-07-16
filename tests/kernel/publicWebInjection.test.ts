@@ -58,3 +58,42 @@ test("appends a Web Source after its tool receipt without changing the stable pr
   expect(trace).toContain('"source":"web"');
   expect(trace).not.toContain("Evidence from web.");
 });
+
+test("bounds an oversized Web Source at the injection limit and marks the cut", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-web-injection-"));
+  const oversized = "long web source line\n".repeat(4_000);
+  const modelClient = new FakeModelClient([
+    { toolCalls: [{ id: "web_1", name: "web_read", input: { url: "https://example.com/long" } }] },
+    { content: "Final answer.", toolCalls: [] },
+  ]);
+  await runKernelSession({
+    definition,
+    task: "learn this",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+    publicWeb: {
+      searchProvider: { async search() { return []; } },
+      reader: {
+        async read() {
+          return {
+            title: "Long article",
+            url: "https://example.com/long",
+            finalUrl: "https://example.com/long",
+            httpStatus: 200,
+            fetchedBytes: oversized.length,
+            contentType: "text/plain",
+            text: oversized,
+          };
+        },
+      },
+    },
+  });
+
+  const secondTurn = modelClient.turnInputs[1]?.messages ?? [];
+  const injected = secondTurn[4]?.content ?? "";
+  expect(injected).toContain(
+    `[truncated: showing 61440 of ${Buffer.byteLength(oversized, "utf8")} bytes]`,
+  );
+  expect(Buffer.byteLength(injected, "utf8")).toBeLessThan(62_000);
+});

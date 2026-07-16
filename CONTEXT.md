@@ -237,7 +237,7 @@ The ordered, Session-owned collection of source material accepted into a Workflo
 _Avoid_: Tool observation history, Trace, source-links section
 
 **Web Source**:
-Public page content acquired by a successful bounded public Web read and accepted into the Session Source Ledger as extracted text. Its identity is its canonical URL and the hash of that text; a repeated read of the same content resolves to the existing entry. A Web Source is one origin of Context Attachments, distinct from the search results that merely pointed to it.
+Public page content acquired by a successful bounded public Web read and accepted into the Session Source Ledger as extracted text. Its identity is its canonical URL and the hash of that text; a repeated read of the same content resolves to the existing entry. An HTML read whose extraction yields almost no text is not a successful read and produces no Web Source. A Web Source is one origin of Context Attachments, distinct from the search results that merely pointed to it.
 _Avoid_: Search result, raw HTML, cached page, bookmark
 
 **Search Candidate**:
