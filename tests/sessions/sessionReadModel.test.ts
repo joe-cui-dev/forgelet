@@ -4,8 +4,61 @@ import { basename, join } from "path";
 import { tmpdir } from "os";
 import { listSessions } from "../../src/sessions/index.js";
 import { showSession } from "../../src/sessions/index.js";
+import { foldSessionTrace } from "../../src/sessions/index.js";
 import { buildSessionLineage } from "../../src/sessions/continuation.js";
+import { isTraceEvent, parseTraceEventLine } from "../../src/trace/index.js";
 import { runWritingSession } from "../../src/workflows/writing.js";
+
+test("folds lifecycle evidence once for downstream Session read models", () => {
+  const events = [
+    {
+      type: "session_started",
+      ts: "2026-07-17T00:00:00.000Z",
+      sessionId: "sess_folded",
+      payload: {
+        workflow: "coding",
+        startedAt: "2026-07-17T00:00:00.000Z",
+        taskHash: "taskhash",
+      },
+    },
+    {
+      type: "user_task",
+      ts: "2026-07-17T00:00:01.000Z",
+      sessionId: "sess_folded",
+      payload: { task: "consolidate lifecycle evidence" },
+    },
+    {
+      type: "routing_selected",
+      ts: "2026-07-17T00:00:02.000Z",
+      sessionId: "sess_folded",
+      payload: { model: "deepseek-v4-flash", reason: "configured route" },
+    },
+    {
+      type: "final_summary",
+      ts: "2026-07-17T00:00:03.000Z",
+      sessionId: "sess_folded",
+      payload: { summary: "Lifecycle evidence consolidated." },
+    },
+    {
+      type: "session_paused",
+      ts: "2026-07-17T00:00:04.000Z",
+      sessionId: "sess_folded",
+      payload: { reason: "out_of_envelope" },
+    },
+  ].map((event) => parseTraceEventLine(JSON.stringify(event))).filter(isTraceEvent);
+
+  expect(foldSessionTrace(events)).toMatchObject({
+    id: "sess_folded",
+    workflow: "coding",
+    task: "consolidate lifecycle evidence",
+    taskHash: "taskhash",
+    startedAt: "2026-07-17T00:00:00.000Z",
+    status: "paused",
+    pausedAt: "2026-07-17T00:00:04.000Z",
+    finalSummary: "Lifecycle evidence consolidated.",
+    route: { model: "deepseek-v4-flash", reason: "configured route" },
+  });
+});
 
 test("lists completed and incomplete project sessions from traces", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-sessions-"));

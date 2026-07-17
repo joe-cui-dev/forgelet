@@ -3,6 +3,7 @@ import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
 import { loadConfig } from "../config/index.js";
 import { explainSession } from "../explain/index.js";
+import { foldSessionTrace } from "../sessions/index.js";
 import { runCompatibilityImportLocked } from "../memoryReview/compatibilityImport.js";
 import { deriveMemoryReviewState, type MemoryReviewState } from "../memoryReview/index.js";
 import { withMemoryDecisionLock } from "../memoryReview/lock.js";
@@ -135,14 +136,9 @@ async function deriveSuggestion(
   const tracePath = await findSessionTracePath(workspaceRoot, sessionId);
   const traceBytes = await readFile(tracePath);
   const events = (await readTraceFile(tracePath)).filter(isTraceEvent);
-  const started = events.find((event) => event.type === "session_started");
-  const finished = events.find((event) => event.type === "session_finished");
-  const startedAt = typeof started?.payload.startedAt === "string"
-    ? started.payload.startedAt
-    : started?.ts;
-  const finishedAt = typeof finished?.payload.finishedAt === "string"
-    ? finished.payload.finishedAt
-    : finished?.ts;
+  const lifecycle = foldSessionTrace(events);
+  const startedAt = lifecycle?.startedAt;
+  const finishedAt = lifecycle?.finishedAt;
   if (!startedAt || !finishedAt) {
     throw new Error(
       `Session does not contain complete timing evidence for Memory Suggestion provenance: ${sessionId}`,

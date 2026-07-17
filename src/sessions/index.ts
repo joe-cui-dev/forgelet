@@ -1,6 +1,12 @@
 import { basename } from "node:path";
 import type { ContextAttachment, SessionAudit, WorkflowKind } from "../types.js";
-import { findSessionTracePath, isTraceEvent, listSessionTraceFiles, readTraceFile, type TraceEvent } from "../trace/index.js";
+import {
+  findSessionTracePath,
+  isTraceEvent,
+  listSessionTraceFiles,
+  readTraceFile,
+  type KnownTraceEvent,
+} from "../trace/index.js";
 import { isProcessAlive as defaultIsProcessAlive, readPidMarker } from "./pidMarker.js";
 
 export type SessionStatus =
@@ -39,6 +45,67 @@ export interface SessionDetail extends SessionSummary {
   audit?: SessionAudit;
 }
 
+export interface SessionTraceFold {
+  id: string;
+  workflow: WorkflowKind;
+  task: string;
+  taskHash: string;
+  startedAt: string;
+  finishedAt?: string;
+  pausedAt?: string;
+  hasFinalSummary: boolean;
+  hasFinished: boolean;
+  status: Exclude<SessionStatus, "running" | "malformed">;
+  route?: SessionRouteSummary;
+  finalSummary: string;
+  audit?: SessionAudit;
+  contextAttachments: ContextAttachment[];
+  trigger?: NonNullable<Extract<
+    KnownTraceEvent,
+    { type: "session_started" }
+  >["payload"]["trigger"]>;
+}
+
+/** The single lifecycle interpretation of validated Trace evidence. Domain
+ * readers may add their own event folds, but must not reconstruct this state. */
+export function foldSessionTrace(
+  events: KnownTraceEvent[],
+): SessionTraceFold | undefined {
+  const started = events.find((event) => event.type === "session_started");
+  if (!started) return undefined;
+  const task = events.find((event) => event.type === "user_task");
+  const route = events.find((event) => event.type === "routing_selected");
+  const finalSummary = events.find((event) => event.type === "final_summary");
+  const finished = events.find((event) => event.type === "session_finished");
+  const paused = lastEvent(events, "session_paused");
+  const resumed = lastEvent(events, "session_resumed");
+  const isPaused = paused !== undefined && (
+    resumed === undefined || events.indexOf(paused) > events.indexOf(resumed)
+  );
+
+  return {
+    id: started.sessionId,
+    workflow: started.payload.workflow ?? "coding",
+    task: task?.payload.task ?? "",
+    taskHash: started.payload.taskHash ?? "",
+    startedAt: started.payload.startedAt ?? started.ts,
+    ...(finished ? { finishedAt: finished.payload.finishedAt ?? finished.ts } : {}),
+    ...(isPaused ? { pausedAt: paused.ts } : {}),
+    hasFinalSummary: finalSummary !== undefined,
+    hasFinished: finished !== undefined,
+    status: finished?.payload.status ?? (isPaused ? "paused" : "incomplete"),
+    ...(route
+      ? { route: { model: route.payload.model ?? "", reason: route.payload.reason ?? "" } }
+      : {}),
+    finalSummary: finalSummary?.payload.summary ?? "",
+    ...(finalSummary?.payload.audit ? { audit: finalSummary.payload.audit } : {}),
+    contextAttachments: events
+      .filter((event) => event.type === "context_attachment")
+      .map((event) => event.payload),
+    ...(started.payload.trigger ? { trigger: started.payload.trigger } : {}),
+  };
+}
+
 export async function listSessions(
   workspaceRoot: string,
   options: SessionReadModelOptions = {},
@@ -49,17 +116,15 @@ export async function listSessions(
   for (const tracePath of traceFiles) {
     try {
       const events = (await readTraceFile(tracePath)).filter(isTraceEvent);
-      const started = events.find((event) => event.type === "session_started");
-      if (!started) continue;
-
-      const task = events.find((event) => event.type === "user_task");
+      const folded = foldSessionTrace(events);
+      if (!folded) continue;
       sessions.push({
-        id: started.sessionId,
-        workflow: asWorkflow(started.payload.workflow),
-        task: typeof task?.payload.task === "string" ? task.payload.task : "",
-        taskHash: asTaskHash(started.payload.taskHash),
-        startedAt: typeof started.payload.startedAt === "string" ? started.payload.startedAt : started.ts,
-        status: await deriveSessionStatus(workspaceRoot, started.sessionId, events, options),
+        id: folded.id,
+        workflow: folded.workflow,
+        task: folded.task,
+        taskHash: folded.taskHash,
+        startedAt: folded.startedAt,
+        status: await resolveSessionStatus(workspaceRoot, folded, options),
         tracePath
       });
     } catch {
@@ -78,44 +143,29 @@ export async function listSessions(
   return sessions.sort((left, right) => right.startedAt.localeCompare(left.startedAt));
 }
 
-function asWorkflow(value: unknown): WorkflowKind {
-  if (value === "writing" || value === "learning") return value;
-  return "coding";
-}
-
-async function deriveSessionStatus(
+async function resolveSessionStatus(
   workspaceRoot: string,
-  sessionId: string,
-  events: TraceEvent[],
+  folded: SessionTraceFold,
   options: SessionReadModelOptions,
 ): Promise<SessionStatus> {
-  const finished = events.find((event) => event.type === "session_finished");
-  if (finished) return asFinishedStatus(finished.payload.status);
+  if (folded.status !== "incomplete") return folded.status;
 
-  const lastPausedIndex = findLastIndex(events, (event) => event.type === "session_paused");
-  const lastResumedIndex = findLastIndex(events, (event) => event.type === "session_resumed");
-  if (lastPausedIndex !== -1 && lastPausedIndex > lastResumedIndex) return "paused";
-
-  const pid = await readPidMarker(workspaceRoot, sessionId);
+  const pid = await readPidMarker(workspaceRoot, folded.id);
   const isProcessAlive = options.isProcessAlive ?? defaultIsProcessAlive;
   if (pid !== undefined && isProcessAlive(pid)) return "running";
   return "incomplete";
 }
 
-function findLastIndex(
-  events: TraceEvent[],
-  predicate: (event: TraceEvent) => boolean,
-): number {
+function lastEvent<Type extends KnownTraceEvent["type"]>(
+  events: KnownTraceEvent[],
+  type: Type,
+): Extract<KnownTraceEvent, { type: Type }> | undefined {
   for (let index = events.length - 1; index >= 0; index -= 1) {
-    if (predicate(events[index] as TraceEvent)) return index;
+    const event = events[index];
+    if (event?.type === type)
+      return event as Extract<KnownTraceEvent, { type: Type }>;
   }
-  return -1;
-}
-
-function asFinishedStatus(value: unknown): SessionStatus {
-  if (value === "completed" || value === "stopped" || value === "failed")
-    return value;
-  return "incomplete";
+  return undefined;
 }
 
 export async function showSession(
@@ -125,50 +175,20 @@ export async function showSession(
 ): Promise<SessionDetail> {
   const tracePath = await findSessionTracePath(workspaceRoot, sessionId);
   const events = (await readTraceFile(tracePath)).filter(isTraceEvent);
-  const started = events.find((event) => event.type === "session_started");
-  if (!started) throw new Error(`Session trace does not contain session_started: ${sessionId}`);
-
-  const task = events.find((event) => event.type === "user_task");
-  const route = events.find((event) => event.type === "routing_selected");
-  const finalSummary = events.find((event) => event.type === "final_summary");
-  const contextAttachments = events
-    .filter((event) => event.type === "context_attachment")
-    .map((event) => event.payload as unknown as ContextAttachment);
+  const folded = foldSessionTrace(events);
+  if (!folded) throw new Error(`Session trace does not contain session_started: ${sessionId}`);
 
   return {
-    id: started.sessionId,
-    workflow: asWorkflow(started.payload.workflow),
-    task: typeof task?.payload.task === "string" ? task.payload.task : "",
-    taskHash: asTaskHash(started.payload.taskHash),
-    startedAt: typeof started.payload.startedAt === "string" ? started.payload.startedAt : started.ts,
-    status: await deriveSessionStatus(workspaceRoot, started.sessionId, events, options),
+    id: folded.id,
+    workflow: folded.workflow,
+    task: folded.task,
+    taskHash: folded.taskHash,
+    startedAt: folded.startedAt,
+    status: await resolveSessionStatus(workspaceRoot, folded, options),
     tracePath,
-    contextAttachments,
-    route: route ? { model: String(route.payload.model ?? ""), reason: String(route.payload.reason ?? "") } : undefined,
-    finalSummary: typeof finalSummary?.payload.summary === "string" ? finalSummary.payload.summary : "",
-    audit: asSessionAudit(finalSummary?.payload.audit)
+    contextAttachments: folded.contextAttachments,
+    route: folded.route,
+    finalSummary: folded.finalSummary,
+    audit: folded.audit,
   };
-}
-
-function asTaskHash(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
-function asSessionAudit(value: unknown): SessionAudit | undefined {
-  return isRecord(value) &&
-    isRecord(value.changeGroups) &&
-    Array.isArray(value.changeGroups.forgeletChanged) &&
-    Array.isArray(value.changeGroups.preExistingAtSessionStart) &&
-    Array.isArray(value.changeGroups.otherCurrentWorkspaceChanges) &&
-    Array.isArray(value.verificationCommands) &&
-    Array.isArray(value.kernelObservedRisks) &&
-    typeof value.modelTurns === "number" &&
-    typeof value.estimatedCostUsd === "number" &&
-    typeof value.tracePath === "string"
-    ? value as unknown as SessionAudit
-    : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }

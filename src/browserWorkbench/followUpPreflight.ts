@@ -4,6 +4,7 @@ import {
   readBrowserWorkbenchCapture,
   type BrowserWorkbenchCapture,
 } from "../browser/captures.js";
+import { foldSessionTrace } from "../sessions/index.js";
 import { findSessionTracePath, isTraceEvent, readTraceFile } from "../trace/index.js";
 import {
   readPageConversationHistory,
@@ -160,16 +161,11 @@ async function readRootTrigger(
   } catch {
     return { found: false };
   }
-  const started = events.find((event) => event.type === "session_started");
-  if (!started) return { found: false };
-  const trigger = started.payload.trigger;
-  if (typeof trigger !== "object" || trigger === null)
-    return { found: true, workspaceProfileId: undefined };
-  const workspaceProfileId = (trigger as Record<string, unknown>).workspaceProfileId;
+  const lifecycle = foldSessionTrace(events);
+  if (!lifecycle) return { found: false };
   return {
     found: true,
-    workspaceProfileId:
-      typeof workspaceProfileId === "string" ? workspaceProfileId : undefined,
+    workspaceProfileId: lifecycle.trigger?.workspaceProfileId,
   };
 }
 
@@ -188,28 +184,27 @@ async function readRootRetrySourceTrigger(
       `Root Retry source Session trace is missing or unreadable: ${rootSessionId}.`,
     );
   }
-  const started = events.find((event) => event.type === "session_started");
-  const trigger = started?.payload.trigger;
-  if (started?.payload.workflow !== "learning" || typeof trigger !== "object" || trigger === null)
+  const lifecycle = foldSessionTrace(events);
+  const trigger = lifecycle?.trigger;
+  if (lifecycle?.workflow !== "learning" || !trigger)
     throw new BrowserFollowUpPreflightError(
       "conversation_history_unavailable",
       `Root Retry source Session is not a valid Browser Workbench Learning Session: ${rootSessionId}.`,
     );
-  const record = trigger as Record<string, unknown>;
   if (
-    (record.kind !== "root" && record.kind !== "root_retry") ||
-    typeof record.workspaceProfileId !== "string" ||
-    typeof record.conversationId !== "string" ||
-    typeof record.captureId !== "string"
+    (trigger.kind !== "root" && trigger.kind !== "root_retry") ||
+    !trigger.workspaceProfileId ||
+    !trigger.conversationId ||
+    !trigger.captureId
   )
     throw new BrowserFollowUpPreflightError(
       "conversation_history_unavailable",
       `Root Retry source Session is missing Browser Workbench provenance: ${rootSessionId}.`,
     );
   return {
-    workspaceProfileId: record.workspaceProfileId,
-    conversationId: record.conversationId,
-    captureId: record.captureId,
+    workspaceProfileId: trigger.workspaceProfileId,
+    conversationId: trigger.conversationId,
+    captureId: trigger.captureId,
   };
 }
 

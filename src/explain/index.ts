@@ -1,5 +1,6 @@
 import type { SessionAudit, WorkflowKind } from "../types.js";
-import { findSessionTracePath, isTraceEvent, readTraceFile, type TraceEvent } from "../trace/index.js";
+import { foldSessionTrace } from "../sessions/index.js";
+import { findSessionTracePath, isTraceEvent, readTraceFile, type KnownTraceEvent } from "../trace/index.js";
 
 export interface SessionExplanation {
   sessionId: string;
@@ -52,28 +53,16 @@ export async function explainSession(
 ): Promise<SessionExplanation> {
   const tracePath = await findSessionTracePath(workspaceRoot, sessionId);
   const events = (await readTraceFile(tracePath)).filter(isTraceEvent);
-  const started = events.find((event) => event.type === "session_started");
-  if (!started)
+  const folded = foldSessionTrace(events);
+  if (!folded)
     throw new Error(`Session trace does not contain session_started: ${sessionId}`);
-
-  const task = events.find((event) => event.type === "user_task");
-  const route = events.find((event) => event.type === "routing_selected");
-  const finished = events.find((event) => event.type === "session_finished");
-  const finalSummary = events.find((event) => event.type === "final_summary");
 
   return {
     sessionId,
-    workflow: asWorkflow(started.payload.workflow),
-    status: typeof finished?.payload.status === "string"
-      ? finished.payload.status
-      : "incomplete",
-    task: typeof task?.payload.task === "string" ? task.payload.task : "",
-    route: route
-      ? {
-          model: String(route.payload.model ?? ""),
-          reason: String(route.payload.reason ?? ""),
-        }
-      : undefined,
+    workflow: folded.workflow,
+    status: folded.status,
+    task: folded.task,
+    route: folded.route,
     modelTurns: events.filter((event) => event.type === "model_turn").length,
     toolResults: events
       .filter((event) => event.type === "tool_result")
@@ -85,16 +74,16 @@ export async function explainSession(
       .filter((event) => event.type === "approval_decision")
       .map(toApprovalExplanation),
     compaction: explainConversationCompaction(events),
-    audit: asSessionAudit(finalSummary?.payload.audit),
+    audit: folded.audit,
     missingEvidence: [
-      ...(finalSummary ? [] : ["final_summary"]),
-      ...(finished ? [] : ["session_finished"]),
+      ...(folded.hasFinalSummary ? [] : ["final_summary"]),
+      ...(folded.hasFinished ? [] : ["session_finished"]),
     ],
   };
 }
 
 const explainConversationCompaction = (
-  events: TraceEvent[],
+  events: KnownTraceEvent[],
 ): ConversationCompactionExplanation | undefined => {
   const compactionEvents = events.filter(
     (event) =>
@@ -127,7 +116,7 @@ const explainConversationCompaction = (
 };
 
 const toToolResultExplanation = (
-  event: TraceEvent,
+  event: Extract<KnownTraceEvent, { type: "tool_result" }>,
 ): ToolResultExplanation => ({
   toolName: String(event.payload.toolName ?? ""),
   summary: String(event.payload.summary ?? ""),
@@ -135,7 +124,7 @@ const toToolResultExplanation = (
 });
 
 const toPermissionExplanation = (
-  event: TraceEvent,
+  event: Extract<KnownTraceEvent, { type: "permission_decision" }>,
 ): PermissionExplanation => ({
   toolName: String(event.payload.toolName ?? ""),
   capability: String(event.payload.capability ?? ""),
@@ -145,34 +134,12 @@ const toPermissionExplanation = (
 });
 
 const toApprovalExplanation = (
-  event: TraceEvent,
+  event: Extract<KnownTraceEvent, { type: "approval_decision" }>,
 ): ApprovalExplanation => ({
   toolName: String(event.payload.toolName ?? ""),
   status: String(event.payload.status ?? ""),
   reason: String(event.payload.reason ?? ""),
 });
-
-const asWorkflow = (value: unknown): WorkflowKind =>
-  value === "writing" || value === "learning" ? value : "coding";
-
-function asSessionAudit(value: unknown): SessionAudit | undefined {
-  return isRecord(value) &&
-    isRecord(value.changeGroups) &&
-    Array.isArray(value.changeGroups.forgeletChanged) &&
-    Array.isArray(value.changeGroups.preExistingAtSessionStart) &&
-    Array.isArray(value.changeGroups.otherCurrentWorkspaceChanges) &&
-    Array.isArray(value.verificationCommands) &&
-    Array.isArray(value.kernelObservedRisks) &&
-    typeof value.modelTurns === "number" &&
-    typeof value.estimatedCostUsd === "number" &&
-    typeof value.tracePath === "string"
-    ? value as unknown as SessionAudit
-    : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
 
 function asNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
