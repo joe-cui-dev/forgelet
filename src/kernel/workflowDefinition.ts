@@ -72,8 +72,6 @@ export interface WorkflowDefinition<TCompletion = void> {
     contextAttachments: readonly LoadedContextAttachment[];
   }): boolean;
 
-  prepareSession?(ctx: { workspaceRoot: string }): Promise<void>;
-
   systemPrompt(ctx: { act: boolean }): string;
 
   taskLabel?(): string;

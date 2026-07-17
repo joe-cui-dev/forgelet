@@ -391,7 +391,6 @@ export const runReactNode = async (
         commands: [...input.resume.audit.commands],
       }
     : { changedFiles: new Set(), commands: [] };
-  await input.definition.prepareSession?.({ workspaceRoot: input.workspaceRoot });
   let finalContent = "";
   let rollingSummary: RollingSummaryState | undefined = input.resume?.rollingSummary;
   let failedFoldAttempts = input.resume?.failedFoldAttempts ?? 0;
