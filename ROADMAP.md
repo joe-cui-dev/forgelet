@@ -13,7 +13,7 @@ Current implemented surfaces:
 - `forge write` for prose revision, creative drafting, browser-backed writing, saved Writing Artifacts, artifact continuation, Writing Project continuity, and artifact catalog search.
 - `forge learn` for source-backed Learning Packs from files or browser context.
 - `forge learn --web` for bounded, source-ledger-backed Public Web Learning through Brave Search or an offline fake provider.
-- Browser Workbench for one-gesture current-page Page Briefs with a user-chosen output language.
+- Browser Workbench for one-gesture current-page Page Briefs with bounded, source-grounded follow-up Page Conversations in the Side Panel, a user-chosen output language, Stop/Retry, and per-window reattachment.
 - `forge notes create/search` for project-scope Knowledge Notes promoted from completed Learning Sessions.
 - `forge browser read-current` and `forge browser install-host` for read-only browser snapshots.
 - `forge resume` for child Session Continuations.
@@ -37,22 +37,19 @@ Far-future and not committed: event-triggered Sessions, proactive suggestions, a
 
 ## Next Candidate Slices
 
-1. Browser Workbench Page Conversations:
-   Let the Side Panel continue from a completed Page Brief with bounded source-grounded follow-ups. Keep each Page Conversation bound to its original persisted capture and approved Workspace Profile; model it as an immutable, linear chain of answer-once Learning Sessions whose children deliver validated `Answer` and `Evidence` Page Answers. Add protocol v3, window-scoped disposable projections, Trace-backed history and identity, strict capture/history integrity checks, and deterministic Stop/Retry behavior. Keep this browser-specific in the first slice: no CLI Learning resume, conversation history browser, cross-Chrome-restart recovery, attachments, Public Web, or workspace reads. Completion requires focused contract tests, typecheck, full tests, build, an expanded deterministic Browser Workbench smoke, and real unpacked-extension/Native-Host/model dogfood covering multi-turn follow-up, reattachment, Stop, and Retry.
-
-2. Diagnose workflow:
+1. Diagnose workflow:
    Add a debugging workflow that follows reproduce, minimize, hypothesize, instrument, fix, and regression-test stages.
 
-3. Test discovery improvements:
+2. Test discovery improvements:
    Help Coding Sessions find the right verification command before editing.
 
-4. Model pricing and diagnostics:
+3. Model pricing and diagnostics:
    Make provider/model availability, routing, and estimated cost easier to inspect.
 
-5. Local review UI:
+4. Local review UI:
    Add an inspect-and-review web surface after the CLI workflows remain stable. Its primary long-term job is reviewing background Session outcomes and Decision Queue items.
 
-6. Shared types decomposition:
+5. Shared types decomposition:
    Split `src/types.ts` by owning module: model-client contract types move under `src/models`, session and audit types to their owning modules. Unblocked now that the CLI decomposition has landed.
 
 ## Non-Goals
