@@ -36,6 +36,7 @@ test("creates a project session trace for a coding workflow", async () => {
 
   const trace = await readFile(join(traceDir, traceFiles[0] ?? ""), "utf8");
   const events = trace.trim().split("\n").map((line) => JSON.parse(line));
+  // Golden coding read-only Trace sequence: protocol documentation.
   expect(events.map((event) => event.type)).toEqual(["session_started", "user_task", "routing_selected", "plan_update", "final_summary", "session_finished"]);
   expect(events[0].sessionId).toBe(result.session.id);
   expect(events[0].payload.workflow).toBe("coding");

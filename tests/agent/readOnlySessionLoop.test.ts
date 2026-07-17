@@ -19,6 +19,11 @@ import type { SessionLiveEvent } from "../../src/sessionLiveView/index.js";
 import { runKernelSession } from "../../src/kernel/session.js";
 import type { WorkflowDefinition } from "../../src/kernel/workflowDefinition.js";
 import { writeStylePresetsFixture } from "../testSupport/stylePresets.js";
+import {
+  expectToolCallPermissionBeforeResult,
+  expectTraceSubsequence,
+  readTypedTrace,
+} from "../testSupport/trace.js";
 
 test("a coding Session can search, read, and finish through read-only tools", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-readonly-"));
@@ -56,13 +61,8 @@ test("a coding Session can search, read, and finish through read-only tools", as
   expect(result.summary).toMatch(/The answer is defined in example.ts/);
   expect(modelClient.turnInputs.length).toBe(3);
 
-  const trace = await readFile(result.tracePath ?? "", "utf8");
-  const events = trace
-    .trim()
-    .split("\n")
-    .map((line) => JSON.parse(line));
-
-  expect(events.map((event) => event.type)).toEqual([
+  const events = await readTypedTrace(result.tracePath ?? "");
+  expectTraceSubsequence(events, [
     "session_started",
     "user_task",
     "routing_selected",
@@ -82,6 +82,7 @@ test("a coding Session can search, read, and finish through read-only tools", as
     "final_summary",
     "session_finished",
   ]);
+  expectToolCallPermissionBeforeResult(events);
 
   const readResult = events.find(
     (event) =>
@@ -90,7 +91,7 @@ test("a coding Session can search, read, and finish through read-only tools", as
   const finalModelTurn = events
     .filter((event) => event.type === "model_turn")
     .at(-1);
-  expect(readResult).toBeTruthy();
+  if (!readResult) throw new Error("expected read_file result evidence");
   expect(readResult.payload.ok).toBe(true);
   expect(readResult.payload.path).toBe("example.ts");
   expect("content" in readResult.payload).toBe(false);
@@ -1928,6 +1929,19 @@ test("a learning Session normalizes model output into a source-linked Learning P
     /Durable Memory as preference or terminology guidance/,
   );
   expect(systemMessage).toMatch(/note-writing/);
+  const events = await readTypedTrace(result.tracePath ?? "");
+  // Golden learning Trace sequence: protocol documentation.
+  expect(events.map((event) => event.type)).toEqual([
+    "session_started",
+    "user_task",
+    "context_attachment",
+    "routing_selected",
+    "plan_update",
+    "model_turn",
+    "budget_update",
+    "final_summary",
+    "session_finished",
+  ]);
 });
 
 test("a Page Answer child Session finishes with a typed invalid_page_answer reason instead of the generic model-execution one", async () => {
@@ -2119,11 +2133,7 @@ test("answer_once performs exactly one successful model turn with no tool schema
   expect(result.session.stage).toBe("final");
   expect(result.summary).toMatch(/One-turn answer\./);
 
-  const trace = await readFile(result.tracePath ?? "", "utf8");
-  const events = trace
-    .trim()
-    .split("\n")
-    .map((line) => JSON.parse(line));
+  const events = await readTypedTrace(result.tracePath ?? "");
   const started = events.find((event) => event.type === "session_started");
   expect(started?.payload.executionPolicy).toBe("answer_once");
   expect(started?.payload.limits ?? started?.payload).not.toMatchObject({
@@ -2503,15 +2513,41 @@ test("an actionable coding Session can patch, run a configured command, inspect 
     status: "completed",
   });
 
-  const trace = await readFile(result.tracePath ?? "", "utf8");
-  const events = trace
-    .trim()
-    .split("\n")
-    .map((line) => JSON.parse(line));
-  expect(events.some((event) => event.type === "workspace_baseline")).toBe(
-    true,
-  );
-  expect(events.some((event) => event.type === "approval_decision")).toBe(true);
+  const events = await readTypedTrace(result.tracePath ?? "");
+  // Golden coding actionable Trace sequence: protocol documentation.
+  expect(events.map((event) => event.type)).toEqual([
+    "session_started",
+    "user_task",
+    "routing_selected",
+    "workspace_baseline",
+    "plan_update",
+    "model_turn",
+    "budget_update",
+    "tool_call",
+    "permission_decision",
+    "tool_result",
+    "model_turn",
+    "budget_update",
+    "tool_call",
+    "permission_decision",
+    "approval_decision",
+    "tool_result",
+    "model_turn",
+    "budget_update",
+    "tool_call",
+    "permission_decision",
+    "approval_decision",
+    "tool_result",
+    "model_turn",
+    "budget_update",
+    "tool_call",
+    "permission_decision",
+    "tool_result",
+    "model_turn",
+    "budget_update",
+    "final_summary",
+    "session_finished",
+  ]);
   expect(
     events.some(
       (event) =>
@@ -3073,17 +3109,22 @@ test("a writing Session requesting git_diff receives a controlled registry denia
     /permission_denied/,
   );
 
-  const trace = await readFile(result.tracePath ?? "", "utf8");
-  const events = trace
-    .trim()
-    .split("\n")
-    .map((line) => JSON.parse(line));
+  const events = await readTypedTrace(result.tracePath ?? "");
+  expectTraceSubsequence(events, [
+    "model_turn",
+    "tool_call",
+    "permission_decision",
+    "tool_result",
+    "final_summary",
+    "session_finished",
+  ]);
+  expectToolCallPermissionBeforeResult(events);
   const denial = events.find(
     (event) =>
       event.type === "permission_decision" &&
       event.payload.toolName === "git_diff",
   );
-  expect(denial).toBeTruthy();
+  if (!denial) throw new Error("expected git_diff permission evidence");
   expect(denial.payload.decision).toBe("deny");
   expect(denial.payload.reason).toBe("Capability not granted: git_read");
 });
@@ -3121,6 +3162,20 @@ test("a writing Session returns the V1 Critique Revision Notes shape", async () 
   expect(result.summary).toMatch(/Critique\n/);
   expect(result.summary).toMatch(/Revision\nMake it shorter\./);
   expect(result.summary).toMatch(/Notes\n/);
+  const events = await readTypedTrace(result.tracePath ?? "");
+  // Golden writing Trace sequence: protocol documentation.
+  expect(events.map((event) => event.type)).toEqual([
+    "session_started",
+    "user_task",
+    "context_attachment",
+    "routing_selected",
+    "plan_update",
+    "model_turn",
+    "budget_update",
+    "writing_artifact",
+    "final_summary",
+    "session_finished",
+  ]);
 });
 
 test("an ungranted tool call returns a denial observation and the Session can recover", async () => {
@@ -3153,19 +3208,25 @@ test("an ungranted tool call returns a denial observation and the Session can re
     /permission_denied/,
   );
 
-  const trace = await readFile(result.tracePath ?? "", "utf8");
-  const events = trace
-    .trim()
-    .split("\n")
-    .map((line) => JSON.parse(line));
+  const events = await readTypedTrace(result.tracePath ?? "");
+  expectTraceSubsequence(events, [
+    "model_turn",
+    "tool_call",
+    "permission_decision",
+    "tool_result",
+    "final_summary",
+    "session_finished",
+  ]);
+  expectToolCallPermissionBeforeResult(events);
   const denial = events.find(
     (event) =>
       event.type === "permission_decision" &&
       event.payload.toolName === "read_file",
   );
-  expect(denial).toBeTruthy();
+  if (!denial) throw new Error("expected read_file permission evidence");
   expect(denial.payload.decision).toBe("deny");
   const finished = events.find((event) => event.type === "session_finished");
+  if (!finished) throw new Error("expected session completion evidence");
   expect(finished.payload.status).toBe("completed");
 });
 
