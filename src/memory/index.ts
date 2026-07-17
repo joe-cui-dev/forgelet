@@ -12,7 +12,7 @@ import {
   readSuggestionRecords,
   type SuggestionRecord,
 } from "../memoryReview/records.js";
-import { findSessionTracePath, readTraceFile } from "../trace/index.js";
+import { findSessionTracePath, isTraceEvent, readTraceFile } from "../trace/index.js";
 import type {
   BoundedMemoryEvidence,
   MemorySuggestionProvenance,
@@ -134,7 +134,7 @@ async function deriveSuggestion(
   const text = formatActionableAuditMemory(changedFiles, successfulCommands);
   const tracePath = await findSessionTracePath(workspaceRoot, sessionId);
   const traceBytes = await readFile(tracePath);
-  const events = await readTraceFile(tracePath);
+  const events = (await readTraceFile(tracePath)).filter(isTraceEvent);
   const started = events.find((event) => event.type === "session_started");
   const finished = events.find((event) => event.type === "session_finished");
   const startedAt = typeof started?.payload.startedAt === "string"

@@ -360,10 +360,3 @@ export interface BudgetUsage {
   estimatedCostUsd: number;
   unpricedTurns: number;
 }
-
-export interface TraceEvent {
-  type: string;
-  ts: string;
-  sessionId: string;
-  payload: Record<string, unknown>;
-}

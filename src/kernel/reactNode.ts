@@ -45,6 +45,7 @@ import {
 import { buildMessages } from "./messages.js";
 import type { ExecutionPolicy, WorkflowDefinition } from "./workflowDefinition.js";
 import type { SessionSourceLedger, SessionSourceLedgerView } from "../sourceLedger/index.js";
+import type { TraceEventPayloads, TraceEventType } from "../trace/index.js";
 
 export interface ActLoopRoute {
   workflow: WorkflowKind;
@@ -91,9 +92,9 @@ export interface ReactNodeInput {
   /** ts lets a caller preserve the real moment an event happened when the
    * append itself is deferred (e.g. flushing buffered events from
    * concurrently-executed read tool calls after the group settles). */
-  appendTrace(
-    type: string,
-    payload: Record<string, unknown>,
+  appendTrace<Type extends TraceEventType>(
+    type: Type,
+    payload: TraceEventPayloads[Type],
     ts?: string,
   ): Promise<void>;
 }
@@ -935,7 +936,10 @@ async function appendPendingWebSources(input: {
   conversation: ModelMessage[];
   observations: ToolObservation[];
   sourceLedger?: SessionSourceLedger;
-  appendTrace(type: string, payload: Record<string, unknown>): Promise<void>;
+  appendTrace<Type extends TraceEventType>(
+    type: Type,
+    payload: TraceEventPayloads[Type],
+  ): Promise<void>;
 }): Promise<void> {
   for (const source of input.sourceLedger?.takePendingWebSources() ?? []) {
     const observation = input.observations.find(
@@ -1043,9 +1047,9 @@ export const executeToolCallBatch = async (input: {
   onLiveEvent?: SessionLiveEventSink;
   turnIndex: number;
   debugTranscript?: DebugTranscriptWriter;
-  appendTrace(
-    type: string,
-    payload: Record<string, unknown>,
+  appendTrace<Type extends TraceEventType>(
+    type: Type,
+    payload: TraceEventPayloads[Type],
     ts?: string,
   ): Promise<void>;
   audit: RunAuditState;
@@ -1149,17 +1153,15 @@ export const executeParallelReadToolCalls = async (input: {
   onLiveEvent?: SessionLiveEventSink;
   turnIndex: number;
   debugTranscript?: DebugTranscriptWriter;
-  appendTrace(
-    type: string,
-    payload: Record<string, unknown>,
+  appendTrace<Type extends TraceEventType>(
+    type: Type,
+    payload: TraceEventPayloads[Type],
     ts?: string,
   ): Promise<void>;
 }): Promise<ToolObservation[]> => {
-  const perCallTraceEvents: {
-    type: string;
-    payload: Record<string, unknown>;
-    ts: string;
-  }[][] = input.toolCalls.map(() => []);
+  const perCallTraceEvents: { append(): Promise<void> }[][] = input.toolCalls.map(
+    () => [],
+  );
   const perCallDebugEvents: DebugTranscriptEvent[][] = input.toolCalls.map(
     () => [],
   );
@@ -1186,10 +1188,9 @@ export const executeParallelReadToolCalls = async (input: {
             }
           : undefined,
         appendTrace: async (type, payload) => {
+          const ts = new Date().toISOString();
           perCallTraceEvents[index]?.push({
-            type,
-            payload,
-            ts: new Date().toISOString(),
+            append: () => input.appendTrace(type, payload, ts),
           });
         },
       }),
@@ -1197,7 +1198,7 @@ export const executeParallelReadToolCalls = async (input: {
 
   for (const events of perCallTraceEvents)
     for (const event of events)
-      await input.appendTrace(event.type, event.payload, event.ts);
+      await event.append();
   for (const events of perCallDebugEvents)
     for (const event of events) await input.debugTranscript?.append(event);
 
@@ -1322,7 +1323,10 @@ const executeToolCall = async (input: {
   onLiveEvent?: SessionLiveEventSink;
   turnIndex: number;
   debugTranscript?: DebugTranscriptWriter;
-  appendTrace(type: string, payload: Record<string, unknown>): Promise<void>;
+  appendTrace<Type extends TraceEventType>(
+    type: Type,
+    payload: TraceEventPayloads[Type],
+  ): Promise<void>;
 }): Promise<ToolObservation> => {
   const target = liveToolTarget(input.toolCall);
   await emitLiveEvent(input.onLiveEvent, {
@@ -1495,7 +1499,7 @@ const observationForModel = (
 
 const traceToolObservation = (
   observation: ToolObservation,
-): Record<string, unknown> => {
+): TraceEventPayloads["tool_result"] => {
   // Trace payloads intentionally omit `content`; full read-only results should
   // only live in the active model observation.
   return {

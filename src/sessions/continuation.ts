@@ -1,4 +1,4 @@
-import { findSessionTracePath, readTraceFile } from "../trace/index.js";
+import { findSessionTracePath, isTraceEvent, readTraceFile } from "../trace/index.js";
 import type { ContextAttachment, SessionFinishStatus, WorkflowKind } from "../types.js";
 
 export interface SessionLineage {
@@ -31,9 +31,9 @@ export async function buildSessionLineage(
   workspaceRoot: string,
   sessionId: string,
 ): Promise<SessionLineage> {
-  const events = await readTraceFile(
+  const events = (await readTraceFile(
     await findSessionTracePath(workspaceRoot, sessionId),
-  );
+  )).filter(isTraceEvent);
   const started = events.find((event) => event.type === "session_started");
   if (!started)
     throw new Error(`Session trace does not contain session_started: ${sessionId}`);
@@ -72,9 +72,9 @@ export async function buildContinuationContext(
       try {
         return {
           sessionId: lineageSessionId,
-          events: await readTraceFile(
+          events: (await readTraceFile(
             await findSessionTracePath(workspaceRoot, lineageSessionId),
-          ),
+          )).filter(isTraceEvent),
         };
       } catch {
         return { sessionId: lineageSessionId, events: [] };
@@ -219,9 +219,9 @@ async function findAncestorIncompleteReasons(
   const reasons: string[] = [];
   for (const sessionId of sessionIds) {
     try {
-      const events = await readTraceFile(
+      const events = (await readTraceFile(
         await findSessionTracePath(workspaceRoot, sessionId),
-      );
+      )).filter(isTraceEvent);
       if (!events.some((event) => event.type === "session_started")) {
         reasons.push(`Ancestor Session trace is malformed: ${sessionId}`);
       }

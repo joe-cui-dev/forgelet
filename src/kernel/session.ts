@@ -5,7 +5,6 @@ import type {
   LoadedContextAttachment,
   ModelClient,
   SessionFinishStatus,
-  TraceEvent,
   WorkflowKind,
 } from "../types.js";
 import { createHash } from "node:crypto";
@@ -50,6 +49,9 @@ import {
   createTraceWriter,
   findSessionTracePath,
   openExistingTraceWriter,
+  type KnownTraceEvent,
+  type TraceEventPayloads,
+  type TraceEventType,
   type TraceWriter,
 } from "../trace/index.js";
 import type {
@@ -238,7 +240,7 @@ export async function runKernelSession<TCompletion = void>(
         sessionId,
         "context_attachment",
         now,
-        contextAttachment.attachment as unknown as Record<string, unknown>,
+        { ...contextAttachment.attachment },
       ),
     );
   }
@@ -930,13 +932,13 @@ const selectRoute = (
   };
 };
 
-const createTraceEvent = (
+const createTraceEvent = <Type extends TraceEventType>(
   sessionId: string,
-  type: string,
+  type: Type,
   ts: string,
-  payload: Record<string, unknown>,
-): TraceEvent => {
-  return { type, ts, sessionId, payload };
+  payload: TraceEventPayloads[Type],
+): Extract<KnownTraceEvent, { type: Type }> => {
+  return { type, ts, sessionId, payload } as Extract<KnownTraceEvent, { type: Type }>;
 };
 
 const emitLiveEvent = async (
@@ -952,7 +954,7 @@ const finishDebugTranscript = async (input: {
   workspaceRoot: string;
   status: SessionFinishStatus;
   reason?: string;
-  appendTrace(payload: Record<string, unknown>): Promise<void>;
+  appendTrace(payload: TraceEventPayloads["debug_transcript_finished"]): Promise<void>;
 }): Promise<void> => {
   await input.writer.append({
     type: "session_debug_finished",

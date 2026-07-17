@@ -15,6 +15,7 @@ import type {
   WorkflowKind,
   WorkflowVariant,
 } from "../types.js";
+import type { TraceEventPayloads, TraceEventType } from "../trace/index.js";
 
 /** A closed execution policy the launcher/Kernel owns, not a caller-supplied
  * budget trick. "answer_once" runs exactly one model turn with no tool
@@ -28,13 +29,16 @@ export interface AttachmentLoadPlan {
 
 export interface CompletionEffects<TCompletion> {
   summaryLines?: string[];
-  finalSummaryTraceExtras?: Record<string, unknown>;
+  finalSummaryTraceExtras?: Pick<
+    TraceEventPayloads["final_summary"],
+    "writingArtifact" | "finalContent"
+  >;
   completion?: TCompletion;
 }
 
-export type AppendTrace = (
-  type: string,
-  payload: Record<string, unknown>,
+export type AppendTrace = <Type extends TraceEventType>(
+  type: Type,
+  payload: TraceEventPayloads[Type],
 ) => Promise<void>;
 
 export interface ActionableToolDeps {
@@ -54,7 +58,10 @@ export interface WorkflowDefinition<TCompletion = void> {
     workflowVariant?: WorkflowVariant;
     creativeStyle?: CreativeStyle;
     creativeInputKind?: CreativeInputKind;
-    startTraceExtras?: Record<string, unknown>;
+    startTraceExtras?: Pick<
+      TraceEventPayloads["session_started"],
+      "projectSlug" | "deliverableShape" | "trigger"
+    >;
   };
 
   loadAttachments(ctx: {

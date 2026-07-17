@@ -249,7 +249,7 @@ export function createWritingWorkflowDefinition(
       });
       await appendTrace(
         "writing_artifact",
-        writingArtifact as unknown as Record<string, unknown>,
+        { ...writingArtifact },
       );
       if (input.project) {
         const update = applyArtifactToProject(input.project, {
@@ -266,7 +266,7 @@ export function createWritingWorkflowDefinition(
       }
       return {
         summaryLines: [appendWritingArtifactLine(writingArtifact)],
-        finalSummaryTraceExtras: { writingArtifact },
+        finalSummaryTraceExtras: { writingArtifact: { ...writingArtifact } },
         completion: writingArtifact,
       };
     },

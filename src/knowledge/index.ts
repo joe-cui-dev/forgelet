@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { mkdir, open, readFile, readdir, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
-import type { ContextAttachment, TraceEvent } from "../types.js";
-import { findSessionTracePath, readTraceFile } from "../trace/index.js";
+import type { ContextAttachment } from "../types.js";
+import { findSessionTracePath, isTraceEvent, readTraceFile, type TraceEvent } from "../trace/index.js";
 
 export type KnowledgeScope = "project";
 
@@ -45,9 +45,9 @@ export async function createKnowledgeNote(
   workspaceRoot: string,
   input: CreateKnowledgeNoteInput,
 ): Promise<CreatedKnowledgeNote> {
-  const events = await readTraceFile(
+  const events = (await readTraceFile(
     await findSessionTracePath(workspaceRoot, input.fromSessionId),
-  );
+  )).filter(isTraceEvent);
   const source = sourceLearningSession(events, input.fromSessionId);
   const hasTitleOverride = Boolean(input.title?.trim());
   const title = input.title?.trim() || titleFromTask(source.task);

@@ -8,13 +8,17 @@ import type {
 } from "../kernel/workflowDefinition.js";
 import type { LoadedContextAttachment } from "../types.js";
 import type { PublicWebAdapters } from "../publicWeb/index.js";
+import type { TraceEventPayloads } from "../trace/index.js";
 
 export type LearningSessionInput = Omit<
   RunKernelSessionInput,
   "definition" | "readScopeRequest" | "act" | "continuationSourceSessionId" | "publicWeb"
 > & {
   allowedReadPaths?: string[];
-  startTraceExtras?: Record<string, unknown>;
+  startTraceExtras?: Pick<
+    TraceEventPayloads["session_started"],
+    "projectSlug" | "deliverableShape" | "trigger"
+  >;
   deliverableShape?: "learningPack" | "pageBrief" | "pageAnswer";
   publicWeb?: PublicWebAdapters;
 };
@@ -149,7 +153,7 @@ const STATE_ONLY_ATTACHMENT_FACTS_LINE =
   "State only facts the attachment content itself states; if the attachments do not state something, say the sources do not state it instead of filling the gap.";
 
 export function createLearningWorkflowDefinition(
-  startTraceExtras?: Record<string, unknown>,
+  startTraceExtras?: LearningSessionInput["startTraceExtras"],
   publicWeb = false,
 ): WorkflowDefinition<LearningPack> {
   return createSourceBackedLearningDefinition({
@@ -169,7 +173,7 @@ export function createLearningWorkflowDefinition(
 }
 
 export function createPageBriefWorkflowDefinition(
-  startTraceExtras?: Record<string, unknown>,
+  startTraceExtras?: LearningSessionInput["startTraceExtras"],
 ): WorkflowDefinition<PageBrief> {
   return createSourceBackedLearningDefinition({
     deliverableShape: "pageBrief",
@@ -185,7 +189,7 @@ export function createPageBriefWorkflowDefinition(
 }
 
 export function createPageAnswerWorkflowDefinition(
-  startTraceExtras?: Record<string, unknown>,
+  startTraceExtras?: LearningSessionInput["startTraceExtras"],
   pageConversationHistory?: PageAnswerConversationTurn[],
   outputLanguage?: string,
 ): WorkflowDefinition<PageAnswer> {
@@ -214,7 +218,7 @@ export function createPageAnswerWorkflowDefinition(
 
 function createSourceBackedLearningDefinition<T>(input: {
   deliverableShape: "learningPack" | "pageBrief" | "pageAnswer";
-  startTraceExtras?: Record<string, unknown>;
+  startTraceExtras?: LearningSessionInput["startTraceExtras"];
   pageConversationHistory?: PageAnswerConversationTurn[];
   systemPromptLines: string[];
   normalize(content: string, contextAttachments: LoadedContextAttachment[]): string;

@@ -1,5 +1,4 @@
-import { findSessionTracePath, readTraceFile } from "../trace/index.js";
-import type { TraceEvent } from "../types.js";
+import { findSessionTracePath, isTraceEvent, readTraceFile, type TraceEvent } from "../trace/index.js";
 
 /** Matches `BrowserInvocationRequest["kind"]` (src/browser/protocol.ts); kept
  * as a separate literal union here so this read model does not import the
@@ -162,7 +161,9 @@ async function readAncestorTrace(
   sessionId: string,
 ): Promise<TraceEvent[]> {
   try {
-    return await readTraceFile(await findSessionTracePath(workspaceRoot, sessionId));
+    return (await readTraceFile(
+      await findSessionTracePath(workspaceRoot, sessionId),
+    )).filter(isTraceEvent);
   } catch {
     throw unavailable(
       `Ancestor Session trace is missing or unreadable: ${sessionId}.`,

@@ -1,6 +1,6 @@
 import { basename } from "node:path";
-import type { ContextAttachment, SessionAudit, TraceEvent, WorkflowKind } from "../types.js";
-import { findSessionTracePath, listSessionTraceFiles, readTraceFile } from "../trace/index.js";
+import type { ContextAttachment, SessionAudit, WorkflowKind } from "../types.js";
+import { findSessionTracePath, isTraceEvent, listSessionTraceFiles, readTraceFile, type TraceEvent } from "../trace/index.js";
 import { isProcessAlive as defaultIsProcessAlive, readPidMarker } from "./pidMarker.js";
 
 export type SessionStatus =
@@ -48,7 +48,7 @@ export async function listSessions(
 
   for (const tracePath of traceFiles) {
     try {
-      const events = await readTraceFile(tracePath);
+      const events = (await readTraceFile(tracePath)).filter(isTraceEvent);
       const started = events.find((event) => event.type === "session_started");
       if (!started) continue;
 
@@ -124,7 +124,7 @@ export async function showSession(
   options: SessionReadModelOptions = {},
 ): Promise<SessionDetail> {
   const tracePath = await findSessionTracePath(workspaceRoot, sessionId);
-  const events = await readTraceFile(tracePath);
+  const events = (await readTraceFile(tracePath)).filter(isTraceEvent);
   const started = events.find((event) => event.type === "session_started");
   if (!started) throw new Error(`Session trace does not contain session_started: ${sessionId}`);
 

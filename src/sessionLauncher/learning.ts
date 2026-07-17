@@ -14,6 +14,7 @@ import type {
   PageBriefSessionResult,
 } from "../workflows/learning.js";
 import { runLearningSession } from "../workflows/learning.js";
+import type { TraceEventPayloads } from "../trace/index.js";
 
 /** The shared Learning Session Launcher seam for CLI and Browser Workbench.
  * Callers supply already-authorized sources and policy, never CLI parsing or
@@ -38,7 +39,7 @@ export async function launchLearningSession(
  * Trace (ADR 0051): this is the single place that renders it. */
 function browserSessionTraceExtras(
   trigger: BrowserSessionTrigger,
-): Record<string, unknown> {
+): Pick<TraceEventPayloads["session_started"], "trigger"> {
   return {
     trigger: {
       kind: trigger.kind,

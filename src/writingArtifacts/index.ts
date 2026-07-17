@@ -2,11 +2,10 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import type {
   CreativeStyle,
-  TraceEvent,
   WorkflowVariant,
   WritingArtifact,
 } from "../types.js";
-import { listSessionTraceFiles, readTraceFile } from "../trace/index.js";
+import { isTraceEvent, listSessionTraceFiles, readTraceFile, type TraceEvent } from "../trace/index.js";
 
 export type WritingArtifactStatus = "available" | "missing" | "untracked";
 export type CatalogContentKind = WritingArtifact["contentKind"] | "unknown";
@@ -111,7 +110,7 @@ async function readTraceBackedEntries(
   for (const tracePath of await listSessionTraceFiles(workspaceRoot)) {
     let events: TraceEvent[];
     try {
-      events = await readTraceFile(tracePath);
+      events = (await readTraceFile(tracePath)).filter(isTraceEvent);
     } catch {
       continue;
     }

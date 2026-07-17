@@ -4,7 +4,7 @@ import {
   readBrowserWorkbenchCapture,
   type BrowserWorkbenchCapture,
 } from "../browser/captures.js";
-import { findSessionTracePath, readTraceFile } from "../trace/index.js";
+import { findSessionTracePath, isTraceEvent, readTraceFile } from "../trace/index.js";
 import {
   readPageConversationHistory,
   type PageConversationHistory,
@@ -154,9 +154,9 @@ async function readRootTrigger(
 ): Promise<RootTrigger> {
   let events;
   try {
-    events = await readTraceFile(
+    events = (await readTraceFile(
       await findSessionTracePath(workspaceRoot, rootSessionId),
-    );
+    )).filter(isTraceEvent);
   } catch {
     return { found: false };
   }
@@ -179,7 +179,9 @@ async function readRootRetrySourceTrigger(
 ): Promise<{ workspaceProfileId: string; conversationId: string; captureId: string }> {
   let events;
   try {
-    events = await readTraceFile(await findSessionTracePath(workspaceRoot, rootSessionId));
+    events = (await readTraceFile(
+      await findSessionTracePath(workspaceRoot, rootSessionId),
+    )).filter(isTraceEvent);
   } catch {
     throw new BrowserFollowUpPreflightError(
       "conversation_history_unavailable",

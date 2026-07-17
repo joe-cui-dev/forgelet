@@ -1,13 +1,26 @@
 import { mkdir, appendFile, readFile, readdir, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { sessionTraceFileName } from "../fileNames/index.js";
-import type { TraceEvent } from "../types.js";
+import {
+  parseTraceEventLine,
+  type KnownTraceEvent,
+  type TraceEvent,
+  type TraceFileEvent,
+} from "./events.js";
 
-export type { TraceEvent } from "../types.js";
+export type {
+  KnownTraceEvent,
+  TraceEvent,
+  TraceFileEvent,
+  TraceEventPayloads,
+  TraceEventType,
+  UnknownTraceEvent,
+} from "./events.js";
+export { isTraceEvent, parseTraceEventLine } from "./events.js";
 
 export interface TraceWriter {
   readonly tracePath: string;
-  append(event: TraceEvent): Promise<void>;
+  append(event: KnownTraceEvent): Promise<void>;
 }
 
 export function sessionTracePath(workspaceRoot: string, sessionId: string): string {
@@ -27,7 +40,7 @@ export async function createTraceWriter(
   await mkdir(sessionDir, { recursive: true });
   return {
     tracePath,
-    async append(event: TraceEvent): Promise<void> {
+    async append(event: KnownTraceEvent): Promise<void> {
       await appendFile(tracePath, `${JSON.stringify(event)}\n`, "utf8");
     }
   };
@@ -36,7 +49,7 @@ export async function createTraceWriter(
 export function openExistingTraceWriter(tracePath: string): TraceWriter {
   return {
     tracePath,
-    async append(event: TraceEvent): Promise<void> {
+    async append(event: KnownTraceEvent): Promise<void> {
       await appendFile(tracePath, `${JSON.stringify(event)}\n`, "utf8");
     },
   };
@@ -56,11 +69,17 @@ export async function findSessionTracePath(
 }
 
 export async function readTraceFile(tracePath: string): Promise<TraceEvent[]> {
+  return readTypedTraceFile(tracePath);
+}
+
+/** Parses the envelope and vocabulary; malformed and forward-versioned lines
+ * remain explicit UnknownTraceEvent values instead of becoming audit evidence. */
+export async function readTypedTraceFile(tracePath: string): Promise<TraceFileEvent[]> {
   const content = await readFile(tracePath, "utf8");
   return content
     .split("\n")
     .filter((line) => line.trim().length > 0)
-    .map((line) => JSON.parse(line) as TraceEvent);
+    .map(parseTraceEventLine);
 }
 
 async function exists(path: string): Promise<boolean> {

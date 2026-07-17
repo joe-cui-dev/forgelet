@@ -60,6 +60,10 @@ _Avoid_: Debug Transcript, checkpoint chain, session backup, saved conversation
 The chronological record of events that actually occurred during a Session. A Trace is evidence for review, explanation, and memory provenance.
 _Avoid_: Transcript, log dump, demo script
 
+**Trace Vocabulary**:
+The closed, centrally declared set of event kinds that may appear in a Trace. Every event a Session records — kernel and workflow alike — belongs to the vocabulary; an event kind outside it is a reading-time anomaly to surface, never evidence. The vocabulary evolves additively: an existing event kind never changes meaning, and a changed meaning gets a new event kind.
+_Avoid_: Log schema, event enum, type union, trace format version
+
 **Debug Transcript**:
 An explicit opt-in local record of the full agent-model exchange for a Session, including model-facing messages, available tools, model responses, tool calls, and tool observations. A Debug Transcript is for diagnosis and replay, while the Trace remains the audit evidence boundary.
 _Avoid_: Trace, live view, permanent memory, hidden log
