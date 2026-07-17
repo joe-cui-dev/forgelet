@@ -4,6 +4,7 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { runCodingSession } from "../../src/workflows/coding.js";
 import { runWritingSession } from "../../src/workflows/writing.js";
+import { writeStylePresetsFixture } from "../testSupport/stylePresets.js";
 
 test("does not offer a wrap-up turn when input telemetry crosses the retired token limit", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-wrapup-"));
@@ -67,6 +68,7 @@ test("does not trigger onCompleted effects for a cost-budget-stopped wrap-up", a
     JSON.stringify({ budgets: { maxModelTurns: 10, maxEstimatedCostUsd: 0.01 } }),
     "utf8",
   );
+  await writeStylePresetsFixture(workspaceRoot, ["vivid"]);
 
   const turns = [
     {

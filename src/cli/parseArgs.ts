@@ -4,10 +4,6 @@ import type {
   WorkflowKind,
   WorkflowVariant,
 } from "../types.js";
-import {
-  CREATIVE_STYLE_PRESET_LIST,
-  isCreativeStyle,
-} from "../creativeStylePresets/index.js";
 
 export type ForgeCommand =
   | {
@@ -538,10 +534,6 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
       rejectOptionAfterTask(taskParts, arg);
       const value = args[++i];
       if (!value) throw new Error("Missing value for --style");
-      if (!isCreativeStyle(value))
-        throw new Error(
-          `--style must be one of: ${CREATIVE_STYLE_PRESET_LIST}`,
-        );
       creativeStyle = value;
       continue;
     }
@@ -632,9 +624,7 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
       "--debug is available only for model-backed Session runs, not --preview.",
     );
   if (workflowVariant === "creative" && !creativeStyle)
-    throw new Error(
-      `--creative requires --style <${CREATIVE_STYLE_PRESET_LIST}>.`,
-    );
+    throw new Error("--creative requires --style <name>.");
   const creativeInputKind: CreativeInputKind | undefined =
     workflowVariant === "creative"
       ? continuationFile

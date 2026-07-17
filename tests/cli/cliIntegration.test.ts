@@ -10,6 +10,7 @@ import {
   runCli,
 } from "../../src/cli/index.js";
 import { FakeModelClient } from "../../src/models/testing/index.js";
+import { writeStylePresetsFixture } from "../testSupport/stylePresets.js";
 
 function memorySuggestionId(sourceSessionId: string, text: string): string {
   return `mem_${createHash("sha256")
@@ -1923,6 +1924,7 @@ test("CLI default writing run creates a model-backed Writing Session", async () 
 
 test("CLI Writing Project run can start from an empty project", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-project-run-"));
+  await writeStylePresetsFixture(workspaceRoot, ["vivid"]);
   await runCli(["write", "projects", "create", "my-novel"], { workspaceRoot });
   const modelClient = new FakeModelClient([
     { content: "Draft\n\nChapter one begins.", toolCalls: [] },
@@ -1970,6 +1972,7 @@ test("CLI Writing Project run can start from an empty project", async () => {
 
 test("CLI Writing Project run ignores missing non-head members with a warning", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-project-run-"));
+  await writeStylePresetsFixture(workspaceRoot, ["vivid"]);
   await mkdir(join(workspaceRoot, ".forgelet", "writing", "projects"), {
     recursive: true,
   });
@@ -2289,7 +2292,7 @@ test("CLI help documents the active observation config key", async () => {
     /forge write --creative --style vivid --continue \.forgelet\/writing\/chapter-1\.md "continue the next chapter"/,
   );
   expect(result.stdout).toMatch(
-    /Styles: plain, vivid, tight, literary, cinematic, minimal, lyrical, noir, warm, sharp, sensual, ardent/,
+    /Style Preset names are defined by the workspace in \.forgelet\/style-presets\.json/,
   );
   expect(result.stdout).toMatch(/forge write artifacts list/);
   expect(result.stdout).toMatch(/forge write artifacts show <sessionId> --full/);
@@ -2319,6 +2322,7 @@ test("CLI rejects an invalid active observation working-set target", async () =>
 
 test("CLI invalid Writing Artifact Continuation paths point users toward saved artifacts", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-writing-continuation-error-"));
+  await writeStylePresetsFixture(workspaceRoot, ["vivid"]);
 
   const result = await runCli(
     [
@@ -2338,6 +2342,40 @@ test("CLI invalid Writing Artifact Continuation paths point users toward saved a
   expect(result.exitCode).toBe(1);
   expect(result.stderr).toMatch(/Unable to read continuation artifact/);
   expect(result.stderr).toMatch(/\.forgelet\/writing\//);
+});
+
+test("CLI creative writing without any Style Preset file reports a clear error and creates no Session", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-no-style-file-"),
+  );
+
+  const result = await runCli(
+    ["write", "--creative", "--style", "vivid", "write a scene"],
+    { workspaceRoot },
+  );
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toMatch(/No Style Preset file found/);
+  expect(result.stderr).toMatch(/\.forgelet\/style-presets\.json/);
+  expect(result.stderr).toMatch(/\.forgelet\/style-presets\.local\.json/);
+  await expect(readdir(join(workspaceRoot, ".forgelet", "sessions"))).rejects.toThrow();
+});
+
+test("CLI creative writing with an unknown Style Preset name lists the names that are defined", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-unknown-style-"),
+  );
+  await writeStylePresetsFixture(workspaceRoot, ["plain", "noir"]);
+
+  const result = await runCli(
+    ["write", "--creative", "--style", "gothic", "write a scene"],
+    { workspaceRoot },
+  );
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toMatch(/Unknown Style Preset: gothic/);
+  expect(result.stderr).toMatch(/plain, noir/);
+  await expect(readdir(join(workspaceRoot, ".forgelet", "sessions"))).rejects.toThrow();
 });
 
 test("CLI resume runs a live read-only Session Continuation by default", async () => {

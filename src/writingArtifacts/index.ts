@@ -6,7 +6,6 @@ import type {
   WorkflowVariant,
   WritingArtifact,
 } from "../types.js";
-import { isCreativeStyle } from "../creativeStylePresets/index.js";
 import { listSessionTraceFiles, readTraceFile } from "../trace/index.js";
 
 export type WritingArtifactStatus = "available" | "missing" | "untracked";
@@ -224,7 +223,7 @@ function asWorkflowVariant(value: unknown): WorkflowVariant | undefined {
 }
 
 function asCreativeStyle(value: unknown): CreativeStyle | undefined {
-  return typeof value === "string" && isCreativeStyle(value) ? value : undefined;
+  return typeof value === "string" ? value : undefined;
 }
 
 async function exists(path: string): Promise<boolean> {

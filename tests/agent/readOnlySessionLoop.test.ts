@@ -18,6 +18,7 @@ import { FakeModelClient } from "../../src/models/testing/index.js";
 import type { SessionLiveEvent } from "../../src/sessionLiveView/index.js";
 import { runKernelSession } from "../../src/kernel/session.js";
 import type { WorkflowDefinition } from "../../src/kernel/workflowDefinition.js";
+import { writeStylePresetsFixture } from "../testSupport/stylePresets.js";
 
 test("a coding Session can search, read, and finish through read-only tools", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-readonly-"));
@@ -542,6 +543,7 @@ test("a model execution failure records the failed model turn before rethrowing"
   const workspaceRoot = await mkdtemp(
     join(tmpdir(), "forgelet-model-failure-"),
   );
+  await writeStylePresetsFixture(workspaceRoot, ["vivid"]);
   const modelClient = {
     turnCount: 0,
     async createTurn() {
@@ -889,6 +891,7 @@ test("a creative writing Session returns a Revision Pack", async () => {
   const workspaceRoot = await mkdtemp(
     join(tmpdir(), "forgelet-creative-loop-"),
   );
+  await writeStylePresetsFixture(workspaceRoot, ["vivid"]);
   await writeFile(
     join(workspaceRoot, "draft.md"),
     "The room was cold.\n",
@@ -998,6 +1001,7 @@ test("a prompt-only Creative Brief returns only a Draft without context attachme
   const workspaceRoot = await mkdtemp(
     join(tmpdir(), "forgelet-creative-brief-"),
   );
+  await writeStylePresetsFixture(workspaceRoot, ["cinematic"]);
   const modelClient = new FakeModelClient([
     { content: "Rain silvered the convenience store windows.", toolCalls: [] },
   ]);
@@ -1076,6 +1080,7 @@ test("a creative Writing Artifact Continuation labels the source separately in t
   const workspaceRoot = await mkdtemp(
     join(tmpdir(), "forgelet-writing-continuation-"),
   );
+  await writeStylePresetsFixture(workspaceRoot, ["vivid"]);
   await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
   await writeFile(
     join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"),
@@ -1135,6 +1140,7 @@ test("a creative Writing Artifact Continuation separates additional context atta
   const workspaceRoot = await mkdtemp(
     join(tmpdir(), "forgelet-writing-continuation-context-"),
   );
+  await writeStylePresetsFixture(workspaceRoot, ["vivid"]);
   await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
   await writeFile(
     join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"),

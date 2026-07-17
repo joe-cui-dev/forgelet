@@ -32,6 +32,7 @@ export interface WritingWorkflowDefinitionInput {
   continuationFile?: string;
   hasScopedProject?: boolean;
   project?: WritingProjectManifest;
+  creativeStylePresetBlock?: string;
 }
 
 export type WritingSessionInput = Omit<
@@ -69,6 +70,13 @@ export async function runWritingSession(
             ? "revision"
             : "draft"))
       : undefined;
+  const creativeStylePresetBlock =
+    input.workflowVariant === "creative" && input.creativeStyle !== undefined
+      ? await formatCreativeStylePresetForWorkspacePrompt(
+          input.creativeStyle,
+          input.workspaceRoot,
+        )
+      : undefined;
   const result = await runKernelSession({
     task: input.task,
     contextFiles: input.contextFiles,
@@ -94,6 +102,7 @@ export async function runWritingSession(
       hasScopedProject: input.project !== undefined,
       project: input.project,
       continuationFile: input.continuationFile,
+      creativeStylePresetBlock,
     }),
   });
   const { completion, ...sessionResult } = result;
@@ -106,7 +115,6 @@ export async function runWritingSession(
 export function createWritingWorkflowDefinition(
   input: WritingWorkflowDefinitionInput,
 ): WorkflowDefinition<WritingArtifact> {
-  let creativeStylePresetBlock: string | undefined;
   return {
     kind: "writing",
     sessionTraits: {
@@ -172,15 +180,11 @@ export function createWritingWorkflowDefinition(
             contextAttachments.length === 0));
       return !creativeDraftLike;
     },
-    async prepareSession({ workspaceRoot }) {
-      if (input.workflowVariant !== "creative") return;
-      creativeStylePresetBlock =
-        await formatCreativeStylePresetForWorkspacePrompt(
-          input.creativeStyle ?? "plain",
-          workspaceRoot,
-        );
-    },
     systemPrompt() {
+      const styleLines =
+        input.creativeStylePresetBlock !== undefined
+          ? [input.creativeStylePresetBlock]
+          : [];
       if (
         input.workflowVariant === "creative" &&
         input.creativeInputKind === "draft"
@@ -188,7 +192,7 @@ export function createWritingWorkflowDefinition(
         return [
           ...kernelCommonPromptLines(),
           "This is a Creative Writing Workflow variant.",
-          creativeStylePresetBlock,
+          ...styleLines,
           "Use the Creative Brief and Durable Memory for original drafting, but do not request workspace, git, shell, patch, or command tools.",
           "Return only a Draft heading followed by the drafted prose.",
         ].join("\n");
@@ -199,7 +203,7 @@ export function createWritingWorkflowDefinition(
         return [
           ...kernelCommonPromptLines(),
           "This is a Creative Writing Workflow variant.",
-          creativeStylePresetBlock,
+          ...styleLines,
           "Use the Creative Brief, Continuation source, Additional context attachments, and Durable Memory to continue the source prose, but do not request workspace, git, shell, patch, or command tools.",
           "Return only a Draft heading followed by the continued prose.",
         ].join("\n");
@@ -207,7 +211,7 @@ export function createWritingWorkflowDefinition(
         return [
           ...kernelCommonPromptLines(),
           "This is a Creative Writing Workflow variant.",
-          creativeStylePresetBlock,
+          ...styleLines,
           "Use the Creative Brief, any provided Context Attachments, and Durable Memory, but do not request workspace, git, shell, patch, or command tools.",
           "If the brief asks for revision but no source text is attached or included, state that limitation and produce the best original draft or useful next step from the brief.",
           "Return a Revision Pack with these headings: Critique, Revision, Alternatives, Notes.",

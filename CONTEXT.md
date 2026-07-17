@@ -25,8 +25,8 @@ The Forgelet workflow for drafting, revising, critiquing, or restructuring prose
 _Avoid_: Chat mode, document editor
 
 **Style Preset**:
-A named writing preference selected for Creative Writing that expands into a stable set of prose-shaping instructions, such as pacing, texture, tone, sentence shape, and revision pressure. A Style Preset names the desired prose effect, not the subject matter, genre, or a specific author's style.
-_Avoid_: Style word, prompt adjective, freeform vibe, genre, author imitation
+A named writing preference selected for Creative Writing that expands into a stable set of prose-shaping instructions, such as pacing, texture, tone, sentence shape, and revision pressure. A Style Preset names the desired prose effect, not the subject matter, genre, or a specific author's style. The vocabulary of Style Presets is defined by the workspace, not built into Forgelet; a Creative Writing Session that selects none writes without one, and Sessions record only the selected preset's name, never its instructions.
+_Avoid_: Style word, prompt adjective, freeform vibe, genre, author imitation, built-in style list
 
 **Learning Workflow**:
 The Forgelet workflow for turning source material into structured understanding, such as summaries, key concepts, open questions, review prompts, and source-linked learning outputs.

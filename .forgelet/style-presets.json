@@ -1,0 +1,21 @@
+{
+  "plain": {
+    "key": "plain",
+    "label": "Clear, natural prose with low ornament.",
+    "aim": "Make the prose easy to follow, direct, and human without sounding flat or mechanical.",
+    "instructions": [
+      "Prefer familiar words and clean sentence shapes.",
+      "Keep imagery light unless the brief asks for atmosphere.",
+      "Use transitions that make the scene or argument easy to follow."
+    ],
+    "avoid": [
+      "Generic assistant phrasing.",
+      "Decorative metaphors that do not clarify the moment.",
+      "Overexplaining emotion or intent."
+    ],
+    "revisionFocus": [
+      "Remove clutter while preserving the writer's meaning and voice.",
+      "Clarify confusing sentences before adding style."
+    ]
+  }
+}

@@ -3,127 +3,163 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  CREATIVE_STYLE_PRESET_KEYS,
+  COMMITTED_CREATIVE_STYLE_PRESETS_PATH,
   LOCAL_CREATIVE_STYLE_PRESETS_PATH,
-  PUBLIC_CREATIVE_STYLE_PRESET_FALLBACKS,
   formatCreativeStylePresetForPrompt,
   formatCreativeStylePresetForWorkspacePrompt,
   loadCreativeStylePresets,
 } from "../../src/creativeStylePresets/index.js";
 
-test("defines all creative Style Preset keys with public fallback guidance", () => {
-  expect(CREATIVE_STYLE_PRESET_KEYS).toEqual([
-    "plain",
-    "vivid",
-    "tight",
-    "literary",
-    "cinematic",
-    "minimal",
-    "lyrical",
-    "noir",
-    "warm",
-    "sharp",
-    "sensual",
-    "ardent",
-  ]);
+function preset(overrides: Partial<Record<string, string | string[]>> = {}) {
+  return {
+    label: "A label.",
+    aim: "An aim.",
+    instructions: ["Instruction one.", "Instruction two.", "Instruction three."],
+    avoid: ["Avoid one.", "Avoid two."],
+    revisionFocus: ["Focus one.", "Focus two."],
+    ...overrides,
+  };
+}
 
-  for (const key of CREATIVE_STYLE_PRESET_KEYS) {
-    const preset = PUBLIC_CREATIVE_STYLE_PRESET_FALLBACKS[key];
-    expect(preset.key).toBe(key);
-    expect(preset.label).toEqual(expect.any(String));
-    expect(preset.label.length).toBeGreaterThan(0);
-    expect(preset.aim).toEqual(expect.any(String));
-    expect(preset.aim.length).toBeGreaterThan(0);
-    expect(preset.instructions.length).toBeGreaterThanOrEqual(3);
-    expect(preset.avoid.length).toBeGreaterThanOrEqual(2);
-    expect(preset.revisionFocus.length).toBeGreaterThanOrEqual(2);
-  }
-});
-
-test("keeps source-controlled fallbacks free of private preset prose", () => {
-  const prompt = formatCreativeStylePresetForPrompt("tight");
-
-  expect(prompt).toMatch(/Style Preset: tight/);
-  expect(prompt).toMatch(/local Style Preset fallback/);
-  expect(prompt).toMatch(/local ignored preset file/);
-  expect(prompt).not.toMatch(/private prose marker/);
-});
+async function makeWorkspace(): Promise<string> {
+  return mkdtemp(join(tmpdir(), "forgelet-style-presets-"));
+}
 
 test("formats a creative Style Preset as a distinct prompt block", () => {
-  expect(formatCreativeStylePresetForPrompt("noir")).toMatchInlineSnapshot(`
+  const presets = {
+    noir: {
+      key: "noir",
+      label: "Noir label.",
+      aim: "Noir aim.",
+      instructions: ["Instruction one.", "Instruction two.", "Instruction three."],
+      avoid: ["Avoid one.", "Avoid two."],
+      revisionFocus: ["Focus one.", "Focus two."],
+    },
+  };
+
+  expect(formatCreativeStylePresetForPrompt("noir", presets)).toMatchInlineSnapshot(`
 "Style Preset: noir
-Label: noir local Style Preset fallback.
-Aim: Use the locally configured "noir" Style Preset when available; otherwise keep the prose clear, coherent, and aligned with the creative brief.
+Label: Noir label.
+Aim: Noir aim.
 Instructions:
-- Follow the creative brief and any user-provided context closely.
-- Preserve continuity, point of view, and character agency.
-- Keep private Style Preset wording in the local ignored preset file, not in source-controlled code.
+- Instruction one.
+- Instruction two.
+- Instruction three.
 Avoid:
-- Embedding private local preset text in source-controlled files.
-- Inventing hidden style rules when the local preset file is missing.
+- Avoid one.
+- Avoid two.
 Revision focus:
-- Improve clarity, continuity, and specificity.
-- Keep revisions aligned with the selected Style Preset key and the user's brief."
+- Focus one.
+- Focus two."
 `);
 });
 
-test("loads local creative Style Preset overrides from the ignored project file", async () => {
-  const workspaceRoot = await mkdtemp(
-    join(tmpdir(), "forgelet-style-presets-"),
+test("throws a clear error when no Style Preset file exists", async () => {
+  const workspaceRoot = await makeWorkspace();
+
+  await expect(loadCreativeStylePresets(workspaceRoot)).rejects.toThrow(
+    /No Style Preset file found/,
   );
+});
+
+test("loads Style Presets from the committed workspace file", async () => {
+  const workspaceRoot = await makeWorkspace();
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
   await writeFile(
-    join(workspaceRoot, LOCAL_CREATIVE_STYLE_PRESETS_PATH),
-    JSON.stringify(
-      {
-        vivid: {
-          label: "Private vivid label.",
-          aim: "Private vivid aim.",
-          instructions: [
-            "Private instruction one.",
-            "Private instruction two.",
-            "Private instruction three.",
-          ],
-          avoid: ["Private avoid one.", "Private avoid two."],
-          revisionFocus: [
-            "Private revision focus one.",
-            "Private revision focus two.",
-          ],
-        },
-      },
-      null,
-      2,
-    ),
+    join(workspaceRoot, COMMITTED_CREATIVE_STYLE_PRESETS_PATH),
+    JSON.stringify({ plain: preset({ label: "Committed plain label." }) }),
     "utf8",
   );
 
   const presets = await loadCreativeStylePresets(workspaceRoot);
-  expect(presets.vivid.label).toBe("Private vivid label.");
-  expect(presets.plain.label).toBe(
-    PUBLIC_CREATIVE_STYLE_PRESET_FALLBACKS.plain.label,
+  expect(presets.plain?.label).toBe("Committed plain label.");
+
+  const prompt = await formatCreativeStylePresetForWorkspacePrompt(
+    "plain",
+    workspaceRoot,
+  );
+  expect(prompt).toMatch(/Style Preset: plain/);
+  expect(prompt).toMatch(/Committed plain label/);
+});
+
+test("a local Style Preset file fully shadows the committed file", async () => {
+  const workspaceRoot = await makeWorkspace();
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, COMMITTED_CREATIVE_STYLE_PRESETS_PATH),
+    JSON.stringify({ plain: preset(), noir: preset() }),
+    "utf8",
+  );
+  await writeFile(
+    join(workspaceRoot, LOCAL_CREATIVE_STYLE_PRESETS_PATH),
+    JSON.stringify({ vivid: preset({ label: "Private vivid label." }) }),
+    "utf8",
+  );
+
+  const presets = await loadCreativeStylePresets(workspaceRoot);
+  expect(Object.keys(presets)).toEqual(["vivid"]);
+  expect(presets.vivid?.label).toBe("Private vivid label.");
+
+  await expect(
+    formatCreativeStylePresetForWorkspacePrompt("plain", workspaceRoot),
+  ).rejects.toThrow(/Unknown Style Preset: plain/);
+});
+
+test("rejects an unknown Style Preset key and lists the available ones", async () => {
+  const workspaceRoot = await makeWorkspace();
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, COMMITTED_CREATIVE_STYLE_PRESETS_PATH),
+    JSON.stringify({ plain: preset(), noir: preset() }),
+    "utf8",
+  );
+
+  await expect(
+    formatCreativeStylePresetForWorkspacePrompt("gothic", workspaceRoot),
+  ).rejects.toThrow(/Unknown Style Preset: gothic.*plain, noir/s);
+});
+
+test("accepts non-ASCII Style Preset keys", async () => {
+  const workspaceRoot = await makeWorkspace();
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, COMMITTED_CREATIVE_STYLE_PRESETS_PATH),
+    JSON.stringify({ 冷峻: preset({ label: "冷峻风格。" }) }),
+    "utf8",
   );
 
   const prompt = await formatCreativeStylePresetForWorkspacePrompt(
-    "vivid",
+    "冷峻",
     workspaceRoot,
   );
-  expect(prompt).toMatch(/Style Preset: vivid/);
-  expect(prompt).toMatch(/Private vivid label/);
-  expect(prompt).toMatch(/Private instruction three/);
+  expect(prompt).toMatch(/Style Preset: 冷峻/);
+  expect(prompt).toMatch(/冷峻风格。/);
 });
 
-test("rejects unknown local creative Style Preset keys", async () => {
-  const workspaceRoot = await mkdtemp(
-    join(tmpdir(), "forgelet-style-presets-"),
-  );
+test("rejects a Style Preset key with leading or trailing whitespace", async () => {
+  const workspaceRoot = await makeWorkspace();
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
   await writeFile(
-    join(workspaceRoot, LOCAL_CREATIVE_STYLE_PRESETS_PATH),
-    JSON.stringify({ foggy: {} }),
+    join(workspaceRoot, COMMITTED_CREATIVE_STYLE_PRESETS_PATH),
+    JSON.stringify({ " noir": preset() }),
     "utf8",
   );
 
   await expect(loadCreativeStylePresets(workspaceRoot)).rejects.toThrow(
-    /Unknown creative Style Preset.*foggy/,
+    /must not have leading or trailing whitespace/,
+  );
+});
+
+test("rejects a Style Preset missing required fields", async () => {
+  const workspaceRoot = await makeWorkspace();
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, COMMITTED_CREATIVE_STYLE_PRESETS_PATH),
+    JSON.stringify({ noir: { label: "Noir label." } }),
+    "utf8",
+  );
+
+  await expect(loadCreativeStylePresets(workspaceRoot)).rejects.toThrow(
+    /preset "noir" aim must be a non-empty string/,
   );
 });

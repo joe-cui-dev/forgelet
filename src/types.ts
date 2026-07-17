@@ -1,19 +1,8 @@
 export type WorkflowKind = "coding" | "writing" | "learning";
 
 export type WorkflowVariant = "creative";
-export type CreativeStyle =
-  | "plain"
-  | "vivid"
-  | "tight"
-  | "literary"
-  | "cinematic"
-  | "minimal"
-  | "lyrical"
-  | "noir"
-  | "warm"
-  | "sharp"
-  | "sensual"
-  | "ardent";
+/** The Style Preset vocabulary is workspace-defined (see creativeStylePresets/index.ts), not a fixed union. */
+export type CreativeStyle = string;
 export type CreativeInputKind = "draft" | "revision" | "continuation";
 
 export type AgentStage =

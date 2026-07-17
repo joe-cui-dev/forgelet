@@ -1,8 +1,4 @@
 import { expect, test } from "@jest/globals";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { LOCAL_CREATIVE_STYLE_PRESETS_PATH } from "../../src/creativeStylePresets/index.js";
 import { kernelCommonPromptLines } from "../../src/kernel/messages.js";
 import { createWritingWorkflowDefinition } from "../../src/workflows/writing.js";
 
@@ -94,8 +90,7 @@ test("writing definition renders the plain writing system prompt", () => {
   );
 });
 
-test("writing definition renders creative draft, continuation, and revision prompts", async () => {
-  const workspaceRoot = await createWorkspaceWithLocalStylePreset();
+test("writing definition renders creative draft, continuation, and revision prompts", () => {
   const stylePresetBlock = [
     "Style Preset: vivid",
     "Label: Private vivid label.",
@@ -116,8 +111,8 @@ test("writing definition renders creative draft, continuation, and revision prom
     workflowVariant: "creative",
     creativeStyle: "vivid",
     creativeInputKind: "draft",
+    creativeStylePresetBlock: stylePresetBlock,
   });
-  await draft.prepareSession?.({ workspaceRoot });
   expect(draft.systemPrompt({ act: false })).toBe(
     [
       ...kernelCommonPromptLines(),
@@ -132,8 +127,8 @@ test("writing definition renders creative draft, continuation, and revision prom
     workflowVariant: "creative",
     creativeStyle: "vivid",
     creativeInputKind: "continuation",
+    creativeStylePresetBlock: stylePresetBlock,
   });
-  await continuation.prepareSession?.({ workspaceRoot });
   expect(continuation.systemPrompt({ act: false })).toBe(
     [
       ...kernelCommonPromptLines(),
@@ -148,8 +143,8 @@ test("writing definition renders creative draft, continuation, and revision prom
     workflowVariant: "creative",
     creativeStyle: "vivid",
     creativeInputKind: "revision",
+    creativeStylePresetBlock: stylePresetBlock,
   });
-  await revision.prepareSession?.({ workspaceRoot });
   expect(revision.systemPrompt({ act: false })).toBe(
     [
       ...kernelCommonPromptLines(),
@@ -162,35 +157,3 @@ test("writing definition renders creative draft, continuation, and revision prom
     ].join("\n"),
   );
 });
-
-async function createWorkspaceWithLocalStylePreset(): Promise<string> {
-  const workspaceRoot = await mkdtemp(
-    join(tmpdir(), "forgelet-writing-definition-"),
-  );
-  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
-  await writeFile(
-    join(workspaceRoot, LOCAL_CREATIVE_STYLE_PRESETS_PATH),
-    JSON.stringify(
-      {
-        vivid: {
-          label: "Private vivid label.",
-          aim: "Private vivid aim.",
-          instructions: [
-            "Private instruction one.",
-            "Private instruction two.",
-            "Private instruction three.",
-          ],
-          avoid: ["Private avoid one.", "Private avoid two."],
-          revisionFocus: [
-            "Private revision focus one.",
-            "Private revision focus two.",
-          ],
-        },
-      },
-      null,
-      2,
-    ),
-    "utf8",
-  );
-  return workspaceRoot;
-}

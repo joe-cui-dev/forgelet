@@ -11,79 +11,42 @@ export interface CreativeStylePreset {
   revisionFocus: string[];
 }
 
-export const CREATIVE_STYLE_PRESET_KEYS = [
-  "plain",
-  "vivid",
-  "tight",
-  "literary",
-  "cinematic",
-  "minimal",
-  "lyrical",
-  "noir",
-  "warm",
-  "sharp",
-  "sensual",
-  "ardent",
-] as const satisfies readonly CreativeStyle[];
+export const COMMITTED_CREATIVE_STYLE_PRESETS_PATH =
+  ".forgelet/style-presets.json";
 
 export const LOCAL_CREATIVE_STYLE_PRESETS_PATH =
   ".forgelet/style-presets.local.json";
 
-export const CREATIVE_STYLE_PRESET_LIST = CREATIVE_STYLE_PRESET_KEYS.join(", ");
-
-export const PUBLIC_CREATIVE_STYLE_PRESET_FALLBACKS: Record<
-  CreativeStyle,
-  CreativeStylePreset
-> = Object.fromEntries(
-  CREATIVE_STYLE_PRESET_KEYS.map((key) => [
-    key,
-    createPublicFallbackCreativeStylePreset(key),
-  ]),
-) as Record<CreativeStyle, CreativeStylePreset>;
-
-function createPublicFallbackCreativeStylePreset(
-  key: CreativeStyle,
-): CreativeStylePreset {
-  return {
-    key,
-    label: `${key} local Style Preset fallback.`,
-    aim: `Use the locally configured "${key}" Style Preset when available; otherwise keep the prose clear, coherent, and aligned with the creative brief.`,
-    instructions: [
-      "Follow the creative brief and any user-provided context closely.",
-      "Preserve continuity, point of view, and character agency.",
-      "Keep private Style Preset wording in the local ignored preset file, not in source-controlled code.",
-    ],
-    avoid: [
-      "Embedding private local preset text in source-controlled files.",
-      "Inventing hidden style rules when the local preset file is missing.",
-    ],
-    revisionFocus: [
-      "Improve clarity, continuity, and specificity.",
-      "Keep revisions aligned with the selected Style Preset key and the user's brief.",
-    ],
-  };
-}
-
-export function isCreativeStyle(value: string): value is CreativeStyle {
-  return CREATIVE_STYLE_PRESET_KEYS.includes(value as CreativeStyle);
+export async function loadCreativeStylePresets(
+  workspaceRoot: string,
+): Promise<Record<string, CreativeStylePreset>> {
+  const local = await readCreativeStylePresetFile(
+    workspaceRoot,
+    LOCAL_CREATIVE_STYLE_PRESETS_PATH,
+  );
+  if (local) return local;
+  const committed = await readCreativeStylePresetFile(
+    workspaceRoot,
+    COMMITTED_CREATIVE_STYLE_PRESETS_PATH,
+  );
+  if (committed) return committed;
+  throw new Error(
+    `No Style Preset file found. Create ${COMMITTED_CREATIVE_STYLE_PRESETS_PATH} or ${LOCAL_CREATIVE_STYLE_PRESETS_PATH} to define Style Presets.`,
+  );
 }
 
 export function getCreativeStylePreset(
   style: CreativeStyle,
-  presets: Record<CreativeStyle, CreativeStylePreset> =
-    PUBLIC_CREATIVE_STYLE_PRESET_FALLBACKS,
+  presets: Record<string, CreativeStylePreset>,
 ): CreativeStylePreset {
-  return presets[style];
-}
-
-export async function loadCreativeStylePresets(
-  workspaceRoot: string,
-): Promise<Record<CreativeStyle, CreativeStylePreset>> {
-  const localPresets = await readLocalCreativeStylePresets(workspaceRoot);
-  return {
-    ...PUBLIC_CREATIVE_STYLE_PRESET_FALLBACKS,
-    ...localPresets,
-  };
+  const preset = presets[style];
+  if (!preset)
+    throw new Error(
+      `Unknown Style Preset: ${style}. Available: ${
+        Object.keys(presets).join(", ") || "(none)"
+      }`,
+    );
+  return preset;
 }
 
 export async function formatCreativeStylePresetForWorkspacePrompt(
@@ -96,8 +59,7 @@ export async function formatCreativeStylePresetForWorkspacePrompt(
 
 export function formatCreativeStylePresetForPrompt(
   style: CreativeStyle,
-  presets: Record<CreativeStyle, CreativeStylePreset> =
-    PUBLIC_CREATIVE_STYLE_PRESET_FALLBACKS,
+  presets: Record<string, CreativeStylePreset>,
 ): string {
   const preset = getCreativeStylePreset(style, presets);
   return [
@@ -113,15 +75,16 @@ export function formatCreativeStylePresetForPrompt(
   ].join("\n");
 }
 
-async function readLocalCreativeStylePresets(
+async function readCreativeStylePresetFile(
   workspaceRoot: string,
-): Promise<Partial<Record<CreativeStyle, CreativeStylePreset>>> {
-  const path = join(workspaceRoot, LOCAL_CREATIVE_STYLE_PRESETS_PATH);
+  relativePath: string,
+): Promise<Record<string, CreativeStylePreset> | undefined> {
+  const path = join(workspaceRoot, relativePath);
   let content: string;
   try {
     content = await readFile(path, "utf8");
   } catch (error) {
-    if (isNodeError(error) && error.code === "ENOENT") return {};
+    if (isNodeError(error) && error.code === "ENOENT") return undefined;
     throw error;
   }
 
@@ -130,60 +93,79 @@ async function readLocalCreativeStylePresets(
     parsed = JSON.parse(content);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `Unable to parse ${LOCAL_CREATIVE_STYLE_PRESETS_PATH}: ${message}`,
-    );
+    throw new Error(`Unable to parse ${relativePath}: ${message}`);
   }
 
   if (!isRecord(parsed))
     throw new Error(
-      `${LOCAL_CREATIVE_STYLE_PRESETS_PATH} must contain a JSON object keyed by creative Style Preset.`,
+      `${relativePath} must contain a JSON object keyed by Style Preset name.`,
     );
 
-  const presets: Partial<Record<CreativeStyle, CreativeStylePreset>> = {};
+  const presets: Record<string, CreativeStylePreset> = {};
   for (const [key, value] of Object.entries(parsed)) {
-    if (!isCreativeStyle(key))
+    if (key.trim().length === 0)
+      throw new Error(`${relativePath} has a blank Style Preset key.`);
+    if (key.trim() !== key)
       throw new Error(
-        `Unknown creative Style Preset in ${LOCAL_CREATIVE_STYLE_PRESETS_PATH}: ${key}. Expected one of: ${CREATIVE_STYLE_PRESET_LIST}`,
+        `${relativePath} Style Preset key must not have leading or trailing whitespace: "${key}"`,
       );
-    presets[key] = validateLocalCreativeStylePreset(key, value);
+    presets[key] = validateCreativeStylePreset(relativePath, key, value);
   }
   return presets;
 }
 
-function validateLocalCreativeStylePreset(
-  key: CreativeStyle,
+function validateCreativeStylePreset(
+  relativePath: string,
+  key: string,
   value: unknown,
 ): CreativeStylePreset {
   if (!isRecord(value))
-    throw localPresetError(key, "must be a JSON object.");
-  const localKey = value.key;
-  if (localKey !== undefined && localKey !== key)
-    throw localPresetError(key, `must not declare a different key: ${localKey}`);
+    throw presetError(relativePath, key, "must be a JSON object.");
+  const declaredKey = value.key;
+  if (declaredKey !== undefined && declaredKey !== key)
+    throw presetError(
+      relativePath,
+      key,
+      `must not declare a different key: ${declaredKey}`,
+    );
 
   return {
     key,
-    label: readRequiredString(key, value, "label"),
-    aim: readRequiredString(key, value, "aim"),
-    instructions: readRequiredStringArray(key, value, "instructions", 3),
-    avoid: readRequiredStringArray(key, value, "avoid", 2),
-    revisionFocus: readRequiredStringArray(key, value, "revisionFocus", 2),
+    label: readRequiredString(relativePath, key, value, "label"),
+    aim: readRequiredString(relativePath, key, value, "aim"),
+    instructions: readRequiredStringArray(
+      relativePath,
+      key,
+      value,
+      "instructions",
+      3,
+    ),
+    avoid: readRequiredStringArray(relativePath, key, value, "avoid", 2),
+    revisionFocus: readRequiredStringArray(
+      relativePath,
+      key,
+      value,
+      "revisionFocus",
+      2,
+    ),
   };
 }
 
 function readRequiredString(
-  key: CreativeStyle,
+  relativePath: string,
+  key: string,
   record: Record<string, unknown>,
   field: keyof Omit<CreativeStylePreset, "key">,
 ): string {
   const value = record[field];
   if (typeof value !== "string" || value.trim().length === 0)
-    throw localPresetError(key, `${field} must be a non-empty string.`);
+    throw presetError(relativePath, key, `${field} must be a non-empty string.`);
   return value;
 }
 
 function readRequiredStringArray(
-  key: CreativeStyle,
+  relativePath: string,
+  key: string,
   record: Record<string, unknown>,
   field: keyof Omit<CreativeStylePreset, "key">,
   minimumLength: number,
@@ -194,17 +176,16 @@ function readRequiredStringArray(
     value.length < minimumLength ||
     value.some((item) => typeof item !== "string" || item.trim().length === 0)
   )
-    throw localPresetError(
+    throw presetError(
+      relativePath,
       key,
       `${field} must contain at least ${minimumLength} non-empty strings.`,
     );
   return value;
 }
 
-function localPresetError(key: CreativeStyle, detail: string): Error {
-  return new Error(
-    `${LOCAL_CREATIVE_STYLE_PRESETS_PATH} preset "${key}" ${detail}`,
-  );
+function presetError(relativePath: string, key: string, detail: string): Error {
+  return new Error(`${relativePath} preset "${key}" ${detail}`);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
