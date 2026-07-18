@@ -149,15 +149,7 @@ export async function runKernelSession<TCompletion = void>(
   const session: AgentSession = {
     id: sessionId,
     workflow: input.definition.kind,
-    ...(input.definition.sessionTraits?.workflowVariant
-      ? { workflowVariant: input.definition.sessionTraits.workflowVariant }
-      : {}),
-    ...(input.definition.sessionTraits?.creativeStyle
-      ? { creativeStyle: input.definition.sessionTraits.creativeStyle }
-      : {}),
-    ...(input.definition.sessionTraits?.creativeInputKind
-      ? { creativeInputKind: input.definition.sessionTraits.creativeInputKind }
-      : {}),
+    ...sessionTraitFields(input.definition.sessionTraits),
     task: input.task,
     taskHash,
     ...(readScope ? { readScope } : {}),
@@ -175,15 +167,7 @@ export async function runKernelSession<TCompletion = void>(
   await traceWriter.append(
     createTraceEvent(sessionId, "session_started", now, {
       workflow: input.definition.kind,
-      ...(input.definition.sessionTraits?.workflowVariant
-        ? { workflowVariant: input.definition.sessionTraits.workflowVariant }
-        : {}),
-      ...(input.definition.sessionTraits?.creativeStyle
-        ? { creativeStyle: input.definition.sessionTraits.creativeStyle }
-        : {}),
-      ...(input.definition.sessionTraits?.creativeInputKind
-        ? { creativeInputKind: input.definition.sessionTraits.creativeInputKind }
-        : {}),
+      ...sessionTraitFields(input.definition.sessionTraits),
       ...(input.definition.sessionTraits?.startTraceExtras ?? {}),
       startedAt: now,
       taskHash,
@@ -458,13 +442,7 @@ export async function resumeKernelSession<TCompletion = void>(
   const session: AgentSession = {
     id: snapshot.sessionId,
     workflow: snapshot.workflow,
-    ...(snapshot.workflowVariant
-      ? { workflowVariant: snapshot.workflowVariant }
-      : {}),
-    ...(snapshot.creativeStyle ? { creativeStyle: snapshot.creativeStyle } : {}),
-    ...(snapshot.creativeInputKind
-      ? { creativeInputKind: snapshot.creativeInputKind }
-      : {}),
+    ...sessionTraitFields(snapshot),
     task: snapshot.task,
     taskHash: snapshot.taskHash,
     ...(snapshot.readScope ? { readScope: snapshot.readScope } : {}),
@@ -764,15 +742,7 @@ async function pauseKernelExecution<TCompletion>(input: {
   const snapshot: PauseSnapshot = {
     sessionId,
     workflow: definition.kind,
-    ...(definition.sessionTraits?.workflowVariant
-      ? { workflowVariant: definition.sessionTraits.workflowVariant }
-      : {}),
-    ...(definition.sessionTraits?.creativeStyle
-      ? { creativeStyle: definition.sessionTraits.creativeStyle }
-      : {}),
-    ...(definition.sessionTraits?.creativeInputKind
-      ? { creativeInputKind: definition.sessionTraits.creativeInputKind }
-      : {}),
+    ...sessionTraitFields(definition.sessionTraits),
     task: input.task,
     taskHash: input.taskHash,
     createdAt: input.createdAt,
@@ -838,6 +808,16 @@ const hashTask = (task: string): string => {
   const normalized = task.trim().replace(/\s+/g, " ");
   return createHash("sha256").update(normalized).digest("hex").slice(0, 8);
 };
+
+const sessionTraitFields = (
+  traits: WorkflowDefinition<unknown>["sessionTraits"],
+) => ({
+  ...(traits?.workflowVariant ? { workflowVariant: traits.workflowVariant } : {}),
+  ...(traits?.creativeStyle ? { creativeStyle: traits.creativeStyle } : {}),
+  ...(traits?.creativeInputKind
+    ? { creativeInputKind: traits.creativeInputKind }
+    : {}),
+});
 
 /**
  * Selects the model and reason for the given workflow and routing decision to
