@@ -66,6 +66,7 @@ import {
   runReactNode,
   type ActLoopRoute,
   type ReactNodeFinishResult,
+  type ReactNodeInput,
   type ReactNodePausedResult,
   type ReactNodeResult,
 } from "./reactNode.js";
@@ -295,9 +296,8 @@ export async function runKernelSession<TCompletion = void>(
   // Deterministic low-level tests may omit a model client. Public CLI runs pass
   // a model client and do not use this branch.
   if (input.modelClient) {
-    let execution: ReactNodeResult;
-    try {
-      execution = await runReactNode({
+    return settleExecution({
+      loop: {
         modelClient: input.modelClient,
         session,
         continuationAttachment,
@@ -335,102 +335,9 @@ export async function runKernelSession<TCompletion = void>(
         now: input.now,
         onLiveEvent: input.onLiveEvent,
         debugTranscript,
-        appendTrace: (type, payload, ts) =>
-          traceWriter.append(
-            createTraceEvent(
-              sessionId,
-              type,
-              ts ?? new Date().toISOString(),
-              payload,
-            ),
-          ),
-      });
-    } catch (error) {
-      const failure = modelExecutionFailurePayload(
-        error,
-        traceWriter.tracePath,
-      );
-      if (debugTranscript)
-        await finishDebugTranscript({
-          writer: debugTranscript,
-          sessionId,
-          workspaceRoot: input.workspaceRoot,
-          status: "failed",
-          appendTrace: (payload) =>
-            traceWriter.append(
-              createTraceEvent(
-                sessionId,
-                "debug_transcript_finished",
-                new Date().toISOString(),
-                payload,
-              ),
-            ),
-        });
-      await traceWriter.append(
-        createTraceEvent(sessionId, "final_summary", new Date().toISOString(), {
-          summary: failure.summary,
-          error: failure.error,
-        }),
-      );
-      const reason = typedFailureReason(error) ?? "model_execution_error";
-      await traceWriter.append(
-        createTraceEvent(
-          sessionId,
-          "session_finished",
-          new Date().toISOString(),
-          {
-            status: "failed",
-            reason,
-            error: failure.error,
-            finishedAt: new Date().toISOString(),
-          },
-        ),
-      );
-      await emitLiveEvent(input.onLiveEvent, {
-        type: "session_finished",
-        status: "failed",
-        reason,
-      });
-      await removePidMarker(input.workspaceRoot, sessionId);
-      throw error;
-    }
-
-    if (execution.status === "paused") {
-      if (!input.envelope)
-        throw new Error(
-          `Session paused without a declared Effect Envelope: ${sessionId}.`,
-        );
-      return pauseKernelExecution({
-        sessionId,
-        session,
-        execution,
-        definition: input.definition,
-        workspaceRoot: input.workspaceRoot,
-        task: input.task,
-        taskHash,
-        createdAt: session.createdAt,
-        envelope: input.envelope,
-        route,
-        readScope,
-        plan,
-        limits,
-        debug: input.debug === true,
-        traceWriter,
-        onLiveEvent: input.onLiveEvent,
-      });
-    }
-
-    return finalizeKernelExecution({
-      sessionId,
-      session,
-      execution,
-      definition: input.definition,
-      contextAttachments,
-      sourceLedger: sourceLedger.view,
-      workspaceRoot: input.workspaceRoot,
+      },
       traceWriter,
-      debugTranscript,
-      onLiveEvent: input.onLiveEvent,
+      envelope: input.envelope,
     });
   }
 
@@ -576,12 +483,21 @@ export async function resumeKernelSession<TCompletion = void>(
   const decisionKind: "approve" | "deny" | "stop" =
     input.decision.kind === "widen" ? "approve" : input.decision.kind;
 
-  let execution: ReactNodeResult;
-  try {
-    execution = await runReactNode({
+  return settleExecution({
+    loop: {
       modelClient: input.modelClient,
       session,
+      // Deliberate: restored conversation already carries the active Session context.
       contextAttachments: [],
+      durableMemory: undefined,
+      continuationContext: undefined,
+      // Unaudited: resume has no restoration path for these fresh-only inputs.
+      continuationAttachment: undefined,
+      sourceLedger: undefined,
+      publicWeb: undefined,
+      executionPolicy: undefined,
+      signal: undefined,
+      approvalHandler: undefined,
       workspaceRoot: input.workspaceRoot,
       route: snapshot.route,
       plan: snapshot.plan,
@@ -611,10 +527,34 @@ export async function resumeKernelSession<TCompletion = void>(
       now: input.now,
       onLiveEvent: input.onLiveEvent,
       debugTranscript,
+    },
+    traceWriter,
+    envelope: effectiveEnvelope,
+  });
+}
+
+/**
+ * Settles one bounded ReAct Node into exactly one Session outcome: finalized,
+ * paused, or failed with Trace evidence. Public Session entry points only
+ * assemble loop input; this keeps ADR 0025's kernel seam intact.
+ */
+async function settleExecution<TCompletion>(input: {
+  loop: Omit<ReactNodeInput, "appendTrace"> & {
+    definition: WorkflowDefinition<TCompletion>;
+  };
+  traceWriter: TraceWriter;
+  envelope?: EffectEnvelope;
+}): Promise<KernelSessionResult<TCompletion>> {
+  const { loop, traceWriter, envelope } = input;
+  const { session, workspaceRoot } = loop;
+  let execution: ReactNodeResult;
+  try {
+    execution = await runReactNode({
+      ...loop,
       appendTrace: (type, payload, ts) =>
         traceWriter.append(
           createTraceEvent(
-            snapshot.sessionId,
+            session.id,
             type,
             ts ?? new Date().toISOString(),
             payload,
@@ -623,16 +563,16 @@ export async function resumeKernelSession<TCompletion = void>(
     });
   } catch (error) {
     const failure = modelExecutionFailurePayload(error, traceWriter.tracePath);
-    if (debugTranscript)
+    if (loop.debugTranscript)
       await finishDebugTranscript({
-        writer: debugTranscript,
-        sessionId: snapshot.sessionId,
-        workspaceRoot: input.workspaceRoot,
+        writer: loop.debugTranscript,
+        sessionId: session.id,
+        workspaceRoot,
         status: "failed",
         appendTrace: (payload) =>
           traceWriter.append(
             createTraceEvent(
-              snapshot.sessionId,
+              session.id,
               "debug_transcript_finished",
               new Date().toISOString(),
               payload,
@@ -640,17 +580,15 @@ export async function resumeKernelSession<TCompletion = void>(
           ),
       });
     await traceWriter.append(
-      createTraceEvent(
-        snapshot.sessionId,
-        "final_summary",
-        new Date().toISOString(),
-        { summary: failure.summary, error: failure.error },
-      ),
+      createTraceEvent(session.id, "final_summary", new Date().toISOString(), {
+        summary: failure.summary,
+        error: failure.error,
+      }),
     );
     const reason = typedFailureReason(error) ?? "model_execution_error";
     await traceWriter.append(
       createTraceEvent(
-        snapshot.sessionId,
+        session.id,
         "session_finished",
         new Date().toISOString(),
         {
@@ -661,50 +599,55 @@ export async function resumeKernelSession<TCompletion = void>(
         },
       ),
     );
-    await emitLiveEvent(input.onLiveEvent, {
+    await emitLiveEvent(loop.onLiveEvent, {
       type: "session_finished",
       status: "failed",
       reason,
     });
-    await removePidMarker(input.workspaceRoot, snapshot.sessionId);
+    await removePidMarker(workspaceRoot, session.id);
     throw error;
   }
 
-  // The loop ran to a definitive outcome without crashing; the Pause
-  // Snapshot's job is done (ADR 0033). A "paused" outcome below writes a
-  // fresh one for the newly-pending action.
-  await deletePauseSnapshot(input.workspaceRoot, snapshot.sessionId);
+  // A crashed resume retains its Pause Snapshot for retry; every non-crashing
+  // outcome replaces or clears it after reaching this point (ADR 0033).
+  if (loop.resume) await deletePauseSnapshot(workspaceRoot, session.id);
 
-  if (execution.status === "paused")
+  if (execution.status === "paused") {
+    if (!envelope)
+      throw new Error(
+        `Session paused without a declared Effect Envelope: ${session.id}.`,
+      );
     return pauseKernelExecution({
-      sessionId: snapshot.sessionId,
+      sessionId: session.id,
       session,
       execution,
-      definition: input.definition,
-      workspaceRoot: input.workspaceRoot,
-      task: snapshot.task,
-      taskHash: snapshot.taskHash,
-      createdAt: snapshot.createdAt,
-      envelope: effectiveEnvelope,
-      route: snapshot.route,
-      readScope: snapshot.readScope,
-      plan: snapshot.plan,
-      limits: snapshot.limits,
-      debug: snapshot.debug,
+      definition: loop.definition,
+      workspaceRoot,
+      task: session.task,
+      taskHash: session.taskHash,
+      createdAt: session.createdAt,
+      envelope,
+      route: loop.route,
+      readScope: loop.readScope,
+      plan: loop.plan,
+      limits: loop.limits,
+      debug: loop.debugTranscript !== undefined,
       traceWriter,
-      onLiveEvent: input.onLiveEvent,
+      onLiveEvent: loop.onLiveEvent,
     });
+  }
 
   return finalizeKernelExecution({
-    sessionId: snapshot.sessionId,
+    sessionId: session.id,
     session,
     execution,
-    definition: input.definition,
-    contextAttachments: [],
-    workspaceRoot: input.workspaceRoot,
+    definition: loop.definition,
+    contextAttachments: loop.contextAttachments,
+    sourceLedger: loop.sourceLedger?.view,
+    workspaceRoot,
     traceWriter,
-    debugTranscript,
-    onLiveEvent: input.onLiveEvent,
+    debugTranscript: loop.debugTranscript,
+    onLiveEvent: loop.onLiveEvent,
   });
 }
 
