@@ -29,7 +29,7 @@ import type { ContinuationContext } from "../sessions/continuation.js";
 import { createReadOnlyTools } from "../tools/readOnly.js";
 import { createPublicWebTools, PublicWebPolicy, type PublicWebAdapters } from "../publicWeb/index.js";
 import { createToolRegistry, type ApprovalHandler } from "../tools/toolRegistry.js";
-import { buildMessages } from "./messages.js";
+import { buildMessages, type TaskContext } from "./messages.js";
 import { executeToolCallBatch } from "./toolCallBatch.js";
 import type { ExecutionPolicy, WorkflowDefinition } from "./workflowDefinition.js";
 import type { SessionSourceLedger, SessionSourceLedgerView } from "../sourceLedger/index.js";
@@ -374,6 +374,16 @@ export const runReactNode = async (
   let rollingSummary: RollingSummaryState | undefined = input.resume?.working.rollingSummary;
   let failedFoldAttempts = input.resume?.working.failedFoldAttempts ?? 0;
   let forcedStopReason: SessionStopReason | undefined;
+  const taskContext: TaskContext = {
+    definition: input.definition,
+    session: input.session,
+    route: input.route,
+    continuationAttachment: input.continuationAttachment,
+    contextAttachments: input.contextAttachments,
+    durableMemory: input.durableMemory,
+    continuationContext: input.continuationContext,
+    act: input.act,
+  };
   const activeContextCompactor = createActiveContextCompactor({
     modelClient: input.modelClient,
     task: input.session.task,
@@ -529,23 +539,18 @@ export const runReactNode = async (
     }
 
     const messages = buildMessages(
-      input.definition,
-      input.session,
-      input.plan,
-      input.route,
-      input.continuationAttachment,
-      input.contextAttachments,
-      input.durableMemory,
-      input.continuationContext,
-      usage,
-      input.limits,
+      taskContext,
       conversation,
-      input.act,
-      activeContext.compactionStatusLine,
       activeContext.rollingSummaryMessage,
-      wrapupOnly,
-      finalToolTurn,
-      currentElapsedWallClockMs,
+      {
+        plan: input.plan,
+        usage,
+        limits: input.limits,
+        elapsedWallClockMs: currentElapsedWallClockMs,
+        compactionStatus: activeContext.compactionStatusLine,
+        wrapupOnly,
+        finalToolTurn,
+      },
     );
     if (input.signal?.aborted) return cancelledStopResult(input, usage);
 

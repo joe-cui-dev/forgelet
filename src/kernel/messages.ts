@@ -28,25 +28,43 @@ export function kernelCommonPromptLines(): string[] {
 const CONTEXT_ATTACHMENT_PROMPT_LIMIT_BYTES = 60 * 1024;
 const CONTEXT_ATTACHMENTS_PROMPT_LIMIT_BYTES = 200 * 1024;
 
+export interface TaskContext {
+  definition: WorkflowDefinition<unknown>;
+  session: AgentSession;
+  route: ActLoopRoute;
+  continuationAttachment: LoadedContextAttachment | undefined;
+  contextAttachments: LoadedContextAttachment[];
+  durableMemory: LoadedDurableMemory | undefined;
+  continuationContext: ContinuationContext | undefined;
+  act: boolean;
+}
+
+export interface TurnStatus {
+  plan: AgentPlan;
+  usage: BudgetUsage;
+  limits: BudgetLimits;
+  elapsedWallClockMs: number;
+  compactionStatus?: string;
+  wrapupOnly: boolean;
+  finalToolTurn: boolean;
+}
+
 export const buildMessages = (
-  definition: WorkflowDefinition<unknown>,
-  session: AgentSession,
-  plan: AgentPlan,
-  route: ActLoopRoute,
-  continuationAttachment: LoadedContextAttachment | undefined,
-  contextAttachments: LoadedContextAttachment[],
-  durableMemory: LoadedDurableMemory | undefined,
-  continuationContext: ContinuationContext | undefined,
-  usage: BudgetUsage,
-  limits: BudgetLimits,
+  taskContext: TaskContext,
   conversation: ModelMessage[],
-  act: boolean,
-  compactionStatus?: string,
-  rollingSummary?: ModelMessage,
-  finalOnly = false,
-  finalToolTurn = false,
-  elapsedWallClockMs = 0,
+  rollingSummary: ModelMessage | undefined,
+  turnStatus: TurnStatus,
 ): ModelMessage[] => {
+  const {
+    definition,
+    session,
+    route,
+    continuationAttachment,
+    contextAttachments,
+    durableMemory,
+    continuationContext,
+    act,
+  } = taskContext;
   const continuationSourceLines = continuationAttachment
     ? formatContextAttachmentsForPrompt(
         [continuationAttachment],
@@ -97,22 +115,26 @@ export const buildMessages = (
 
   if (rollingSummary) messages.push(rollingSummary);
   messages.push(
-    ...(finalOnly ? conversationForFinalAnswer(conversation) : conversation),
+    ...(turnStatus.wrapupOnly ? conversationForFinalAnswer(conversation) : conversation),
   );
   messages.push({
     role: "user",
     content: [
       "Current plan:",
-      ...plan.items.map((item) => `- ${item.status}: ${item.step}`),
+      ...turnStatus.plan.items.map((item) => `- ${item.status}: ${item.step}`),
       "",
-      formatBudgetStatus(usage, limits, elapsedWallClockMs),
-      ...(compactionStatus ? [compactionStatus] : []),
-      ...(finalToolTurn
+      formatBudgetStatus(
+        turnStatus.usage,
+        turnStatus.limits,
+        turnStatus.elapsedWallClockMs,
+      ),
+      ...(turnStatus.compactionStatus ? [turnStatus.compactionStatus] : []),
+      ...(turnStatus.finalToolTurn
         ? [
             "This is the final tool-capable turn. Request only operations still required to finish.",
           ]
         : []),
-      ...(finalOnly
+      ...(turnStatus.wrapupOnly
         ? [
             "FINAL ANSWER ONLY: synthesize the best answer from existing evidence.",
             "Do not call or request tools, and do not emit tool-call syntax. If evidence is incomplete, state that limitation in the answer.",
