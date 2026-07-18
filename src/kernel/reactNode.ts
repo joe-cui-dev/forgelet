@@ -35,6 +35,11 @@ import { createPublicWebTools, PublicWebPolicy, type PublicWebAdapters } from ".
 import { createToolRegistry, type ApprovalHandler } from "../tools/toolRegistry.js";
 import { buildMessages, type TaskContext } from "./messages.js";
 import { executeToolCallBatch } from "./toolCallBatch.js";
+import {
+  BUDGET_WRAPUP_RESERVE_FRACTION,
+  costBudgetStopReason,
+  turnGate,
+} from "./turnGate.js";
 import type {
   ActionableToolSettings,
   ExecutionPolicy,
@@ -497,32 +502,24 @@ export const runReactNode = async (
     turnIndex += 1
   ) {
     const currentElapsedWallClockMs = elapsedWallClockMs();
-    const stopReason = budgetStopReason(
+    const turnPlan = turnGate({
       usage,
-      input.limits,
-      currentElapsedWallClockMs,
-    );
-    if (stopReason) return stopWith(stopReason);
-
-    const isAnswerOnce = input.executionPolicy === "answer_once";
-    const remainingModelTurns = input.limits.maxModelTurns - usage.modelTurns;
-    const finalOnly = isAnswerOnce || remainingModelTurns === 1;
-    const finalToolTurn = !isAnswerOnce && remainingModelTurns === 2;
-    const budgetWrapupReason = finalOnly
-      ? undefined
-      : (forcedStopReason ??
-        budgetWrapupStopReason(usage, input.limits, currentElapsedWallClockMs));
+      limits: input.limits,
+      elapsedWallClockMs: currentElapsedWallClockMs,
+      executionPolicy: input.executionPolicy,
+      forcedStopReason,
+    });
+    if (turnPlan.kind === "stop") return stopWith(turnPlan.reason);
     forcedStopReason = undefined;
-    if (budgetWrapupReason)
+    if (turnPlan.wrapupReason)
       await input.appendTrace("budget_wrapup_triggered", {
         turnIndex,
-        reason: budgetWrapupReason,
+        reason: turnPlan.wrapupReason,
         usage,
         limits: input.limits,
         reserveFraction: BUDGET_WRAPUP_RESERVE_FRACTION,
         elapsedWallClockMs: currentElapsedWallClockMs,
       });
-    const wrapupOnly = finalOnly || budgetWrapupReason !== undefined;
     const activeContext = await activeContextCompactor.fitTurn(
       conversation,
       turnIndex,
@@ -554,8 +551,8 @@ export const runReactNode = async (
         limits: input.limits,
         elapsedWallClockMs: currentElapsedWallClockMs,
         compactionStatus: activeContext.compactionStatusLine,
-        wrapupOnly,
-        finalToolTurn,
+        wrapupOnly: turnPlan.wrapupOnly,
+        finalToolTurn: turnPlan.finalToolTurn,
       },
     );
     if (input.signal?.aborted) return stopWith("user_stopped");
@@ -577,13 +574,13 @@ export const runReactNode = async (
             model: input.route.model,
             task: input.session.task,
             messages,
-            tools: wrapupOnly ? [] : tools,
-            finalOnly: wrapupOnly,
+            tools: turnPlan.wrapupOnly ? [] : tools,
+            finalOnly: turnPlan.wrapupOnly,
           },
         });
         output = await input.modelClient.createTurn({
           messages,
-          tools: wrapupOnly ? [] : tools,
+          tools: turnPlan.wrapupOnly ? [] : tools,
           signal: input.signal,
           onOutputDelta: input.onLiveEvent
             ? async (delta) => {
@@ -624,7 +621,7 @@ export const runReactNode = async (
             payload: {
               turnIndex,
               model: input.route.model,
-              finalOnly: wrapupOnly,
+              finalOnly: turnPlan.wrapupOnly,
               attempt,
               maxRetries: MODEL_TURN_MAX_RETRIES,
               delayMs,
@@ -634,7 +631,7 @@ export const runReactNode = async (
           await input.appendTrace("model_turn_retry", {
             turnIndex,
             model: input.route.model,
-            finalOnly: wrapupOnly,
+            finalOnly: turnPlan.wrapupOnly,
             attempt,
             maxRetries: MODEL_TURN_MAX_RETRIES,
             delayMs,
@@ -650,14 +647,14 @@ export const runReactNode = async (
           payload: {
             turnIndex,
             model: input.route.model,
-            finalOnly: wrapupOnly,
+            finalOnly: turnPlan.wrapupOnly,
             error: modelErrorTracePayload(error),
           },
         });
         await input.appendTrace("model_turn_error", {
           turnIndex,
           model: input.route.model,
-          finalOnly: wrapupOnly,
+          finalOnly: turnPlan.wrapupOnly,
           error: modelErrorTracePayload(error),
         });
         throw error;
@@ -680,7 +677,7 @@ export const runReactNode = async (
       })),
       usage: output.usage,
       finishReason: output.finishReason,
-      finalOnly,
+      finalOnly: turnPlan.finalOnly,
     });
     await emitLiveEvent(input.onLiveEvent, {
       type: "model_turn_finished",
@@ -708,10 +705,8 @@ export const runReactNode = async (
       });
     }
 
-    if (wrapupOnly && output.toolCalls.length > 0) {
-      const reason =
-        budgetWrapupReason ??
-        (isAnswerOnce ? "answer_once_tool_calls_blocked" : "max_model_turns");
+    if (turnPlan.wrapupOnly && output.toolCalls.length > 0) {
+      const reason = turnPlan.toolCallBlockReason;
       await input.appendTrace("budget_blocked_tool_calls", {
         reason,
         skippedCount: output.toolCalls.length,
@@ -726,8 +721,8 @@ export const runReactNode = async (
       output.toolCalls.length === 0 &&
       !isUsableFinalContent(output.content ?? "")
     ) {
-      if (!wrapupOnly) continue;
-      const reason = budgetWrapupReason ?? "max_model_turns";
+      if (!turnPlan.wrapupOnly) continue;
+      const reason = turnPlan.emptyContentStopReason;
       return stopWith(reason);
     }
 
@@ -736,7 +731,7 @@ export const runReactNode = async (
     // turn — that finishes as a stopped Session with the wrap-up content
     // attached, so onCompleted effects do not fire for it (gated on
     // status === "completed" in session.ts).
-    if (output.toolCalls.length === 0 && budgetWrapupReason) {
+    if (output.toolCalls.length === 0 && turnPlan.wrapupReason) {
       const wrapupContent = input.definition.normalizeFinalContent?.(
         output.content ?? "",
         {
@@ -744,7 +739,7 @@ export const runReactNode = async (
           sourceLedger: input.sourceLedger?.view,
         },
       ) ?? (output.content ?? "");
-      return stopWith(budgetWrapupReason, { wrapupContent });
+      return stopWith(turnPlan.wrapupReason, { wrapupContent });
     }
 
     // No tool calls is the loop exit condition: model content becomes the
@@ -1005,46 +1000,6 @@ export const gitStatusPaths = (workspaceRoot: string): Promise<Set<string>> => {
 
 const isInternalSessionTracePath = (path: string): boolean =>
   path === ".forgelet" || path === ".forgelet/" || path.startsWith(".forgelet/");
-
-const budgetStopReason = (
-  usage: BudgetUsage,
-  limits: BudgetLimits,
-  elapsedWallClockMs: number,
-): SessionStopReason | undefined => {
-  if (usage.modelTurns >= limits.maxModelTurns) return "max_model_turns";
-  if (elapsedWallClockMs >= limits.maxWallClockMs)
-    return "wall_clock_limit_exceeded";
-  return costBudgetStopReason(usage, limits);
-};
-
-const costBudgetStopReason = (
-  usage: BudgetUsage,
-  limits: BudgetLimits,
-): SessionStopReason | undefined => {
-  if (usage.estimatedCostUsd >= limits.maxEstimatedCostUsd)
-    return "estimated_cost_budget_exceeded";
-  return undefined;
-};
-
-// Reserve fraction for the proactive budget wrap-up: once usage crosses this
-// share of a cost limit, the loop stops issuing tool-capable turns and
-// gives the model a closing turn instead of running cold into the hard stop.
-const BUDGET_WRAPUP_RESERVE_FRACTION = 0.9;
-
-const budgetWrapupStopReason = (
-  usage: BudgetUsage,
-  limits: BudgetLimits,
-  elapsedWallClockMs: number,
-): SessionStopReason | undefined => {
-  if (
-    usage.estimatedCostUsd >=
-    limits.maxEstimatedCostUsd * BUDGET_WRAPUP_RESERVE_FRACTION
-  )
-    return "estimated_cost_budget_exceeded";
-  if (elapsedWallClockMs >= limits.maxWallClockMs * BUDGET_WRAPUP_RESERVE_FRACTION)
-    return "wall_clock_limit_exceeded";
-  return undefined;
-};
 
 const isUsableFinalContent = (content: string): boolean => {
   const trimmed = content.trim();
