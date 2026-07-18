@@ -22,7 +22,7 @@ import { execFile } from "node:child_process";
 import {
   createActiveContextCompactor,
   type ActiveContextSettings,
-  type RollingSummaryState,
+  type ActiveContextCompactorState,
 } from "../conversation/index.js";
 import type { LoadedDurableMemory } from "../memory/index.js";
 import type { DebugTranscriptWriter } from "../debugTranscript/index.js";
@@ -344,7 +344,7 @@ export const runReactNode = async (
   }) === false
     ? []
     : toolRegistry.listTools(grantedCapabilities);
-  const conversation: ModelMessage[] = input.resume
+  let conversation: ModelMessage[] = input.resume
     ? input.resume.working.conversation
     : [];
   const audit: RunAuditState = input.resume
@@ -354,8 +354,8 @@ export const runReactNode = async (
       }
     : { changedFiles: new Set(), commands: [] };
   let finalContent = "";
-  let rollingSummary: RollingSummaryState | undefined = input.resume?.working.rollingSummary;
-  let failedFoldAttempts = input.resume?.working.failedFoldAttempts ?? 0;
+  let activeContextState: ActiveContextCompactorState =
+    input.resume?.working.activeContext ?? { failedFoldAttempts: 0 };
   let forcedStopReason: SessionStopReason | undefined;
   const stopWith = (
     reason: SessionStopReason,
@@ -407,8 +407,7 @@ export const runReactNode = async (
     remainingToolCalls: batchOutcome.remainingToolCalls,
     executedObservations: batchOutcome.executedObservations,
     conversation,
-    ...(rollingSummary ? { rollingSummary } : {}),
-    failedFoldAttempts,
+    activeContext: activeContextState,
     usage,
     turnIndex,
     audit: {
@@ -436,7 +435,6 @@ export const runReactNode = async (
     appendTrace: input.appendTrace,
     debugTranscript: input.debugTranscript,
     settings: input.activeContext,
-    restoreState: { ...(rollingSummary ? { rollingSummary } : {}), failedFoldAttempts },
   });
 
   if (input.resume) {
@@ -511,13 +509,13 @@ export const runReactNode = async (
       });
     const activeContext = await activeContextCompactor.fitTurn(
       conversation,
+      activeContextState,
       turnIndex,
     );
+    conversation = activeContext.conversation;
+    activeContextState = activeContext.state;
     if (activeContext.outcome === "exhausted")
       return stopWith("active_context_exhausted");
-    const activeContextState = activeContextCompactor.state();
-    rollingSummary = activeContextState.rollingSummary;
-    failedFoldAttempts = activeContextState.failedFoldAttempts;
     if (activeContext.foldUsage) {
       usage.inputTokens += activeContext.foldUsage.inputTokens;
       usage.outputTokens += activeContext.foldUsage.outputTokens;

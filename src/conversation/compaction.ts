@@ -22,14 +22,19 @@ export interface CompactionResult {
   residualOverageBytes: number;
 }
 
+export type CompactConversationResult = CompactionResult & {
+  conversation: ModelMessage[];
+};
+
 const PRIORITY_TOOL_NAMES = new Set(["read_file", "git_diff", "run_command"]);
 
-export function compactConversationInPlace(
+export function compactConversation(
   conversation: ModelMessage[],
   options: CompactionOptions,
-): CompactionResult {
+): CompactConversationResult {
+  const compactedConversation = [...conversation];
   const beforeConversationBytes = conversationBudgetBytes(
-    conversation,
+    compactedConversation,
     options.rollingSummaryText,
   );
   const result: CompactionResult = {
@@ -44,12 +49,13 @@ export function compactConversationInPlace(
       beforeConversationBytes - options.maxConversationBytes,
     ),
   };
-  if (beforeConversationBytes <= options.maxConversationBytes) return result;
+  if (beforeConversationBytes <= options.maxConversationBytes)
+    return { ...result, conversation: compactedConversation };
 
-  const toolMessages = conversation
+  const toolMessages = compactedConversation
     .map((message, index) => ({ message, index }))
     .filter(({ message }) => message.role === "tool");
-  const newestTurnStart = newestToolTurnStart(conversation);
+  const newestTurnStart = newestToolTurnStart(compactedConversation);
   const oldCandidates = toolMessages.filter(
     ({ index }) => index < newestTurnStart,
   );
@@ -61,8 +67,10 @@ export function compactConversationInPlace(
 
   for (const candidate of candidates) {
     if (
-      conversationBudgetBytes(conversation, options.rollingSummaryText) <=
-      options.maxConversationBytes
+      conversationBudgetBytes(
+        compactedConversation,
+        options.rollingSummaryText,
+      ) <= options.maxConversationBytes
     )
       break;
     const parsed = parseObservation(candidate.message.content);
@@ -71,15 +79,16 @@ export function compactConversationInPlace(
       continue;
     }
     if (parsed.compacted === true) continue;
-    candidate.message.content = JSON.stringify(
-      compactObservation(parsed, options),
-    );
+    compactedConversation[candidate.index] = {
+      ...candidate.message,
+      content: JSON.stringify(compactObservation(parsed, options)),
+    };
     result.compactedCount += 1;
     compactedTools.add(parsed.toolName);
   }
 
   result.afterConversationBytes = conversationBudgetBytes(
-    conversation,
+    compactedConversation,
     options.rollingSummaryText,
   );
   result.toolNames = [...compactedTools];
@@ -87,7 +96,7 @@ export function compactConversationInPlace(
     0,
     result.afterConversationBytes - options.maxConversationBytes,
   );
-  return result;
+  return { ...result, conversation: compactedConversation };
 }
 
 function newestToolTurnStart(conversation: ModelMessage[]): number {

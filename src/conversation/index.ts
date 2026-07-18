@@ -1,7 +1,7 @@
 import type { ModelClient, ModelMessage } from "../types.js";
 import type { DebugTranscriptWriter } from "../debugTranscript/index.js";
 import type { TraceEventPayloads, TraceEventType } from "../trace/index.js";
-import { compactConversationInPlace } from "./compaction.js";
+import { compactConversation } from "./compaction.js";
 import {
   attemptConversationFold,
   rollingSummaryMessage,
@@ -18,9 +18,9 @@ export interface ActiveContextCompactorState {
 export interface ActiveContextCompactor {
   fitTurn(
     conversation: ModelMessage[],
+    state: ActiveContextCompactorState,
     turnIndex: number,
   ): Promise<ActiveContextFitResult>;
-  state(): ActiveContextCompactorState;
 }
 
 export interface ActiveContextSettings {
@@ -29,7 +29,10 @@ export interface ActiveContextSettings {
   protectedRecentTurns: number;
 }
 
-export type ActiveContextFitResult =
+export type ActiveContextFitResult = {
+  conversation: ModelMessage[];
+  state: ActiveContextCompactorState;
+} & (
   | {
       outcome: "fitted";
       foldUsage?: {
@@ -41,7 +44,8 @@ export type ActiveContextFitResult =
       rollingSummaryMessage?: ModelMessage;
       compactionStatusLine?: string;
     }
-  | { outcome: "exhausted" };
+  | { outcome: "exhausted" }
+);
 
 export interface CreateActiveContextCompactorInput {
   modelClient: ModelClient;
@@ -54,26 +58,23 @@ export interface CreateActiveContextCompactorInput {
   ): Promise<void>;
   debugTranscript?: DebugTranscriptWriter;
   settings: ActiveContextSettings;
-  restoreState?: Partial<ActiveContextCompactorState>;
 }
 
-/** The sole external seam for Active Context compaction. It owns the mutation,
+/** The sole external seam for Active Context compaction. It owns compaction,
  * fold attempt, compaction evidence, and fold debug transcript for one ReAct
- * Node run; the kernel retains Session Budget enforcement. */
+ * Node turn; the kernel retains Session Budget enforcement. */
 export function createActiveContextCompactor(
   input: CreateActiveContextCompactorInput,
 ): ActiveContextCompactor {
-  let rollingSummary = input.restoreState?.rollingSummary;
-  let failedFoldAttempts = input.restoreState?.failedFoldAttempts ?? 0;
-
   return {
-    async fitTurn(conversation, turnIndex) {
-      const compaction = compactConversationInPlace(conversation, {
-        maxConversationBytes: input.settings.maxConversationBytes,
-        observationDigestPreviewBytes:
-          input.settings.observationDigestPreviewBytes,
-        rollingSummaryText: rollingSummary?.text,
-      });
+    async fitTurn(conversation, state, turnIndex) {
+      const { conversation: compactedConversation, ...compaction } =
+        compactConversation(conversation, {
+          maxConversationBytes: input.settings.maxConversationBytes,
+          observationDigestPreviewBytes:
+            input.settings.observationDigestPreviewBytes,
+          rollingSummaryText: state.rollingSummary?.text,
+        });
       if (
         compaction.compactedCount > 0 ||
         compaction.beforeConversationBytes > compaction.targetConversationBytes
@@ -86,13 +87,13 @@ export function createActiveContextCompactor(
         );
 
       const foldResult = await attemptConversationFold({
-        conversation,
-        rollingSummary,
+        conversation: compactedConversation,
+        rollingSummary: state.rollingSummary,
         maxConversationBytes: input.settings.maxConversationBytes,
         protectedRecentTurns: input.settings.protectedRecentTurns,
         task: input.task,
         modelClient: input.modelClient,
-        failedFoldAttempts,
+        failedFoldAttempts: state.failedFoldAttempts,
         onModelRequest: (messages) =>
           input.debugTranscript?.append({
             type: "model_request",
@@ -124,18 +125,25 @@ export function createActiveContextCompactor(
           protectedRecentTurns: input.settings.protectedRecentTurns,
           maxConversationBytes: input.settings.maxConversationBytes,
         });
-        return { outcome: "exhausted" };
+        return {
+          outcome: "exhausted",
+          conversation: compactedConversation,
+          state,
+        };
       }
+      const nextState: ActiveContextCompactorState =
+        foldResult.outcome === "folded"
+          ? { rollingSummary: foldResult.rollingSummary, failedFoldAttempts: 0 }
+          : foldResult.outcome === "failed"
+            ? { ...state, failedFoldAttempts: state.failedFoldAttempts + 1 }
+            : state;
       if (foldResult.outcome === "failed") {
-        failedFoldAttempts += 1;
         await input.appendTrace("conversation_fold_failed", {
           reason: foldResult.reason,
-          failedAttemptCount: failedFoldAttempts,
+          failedAttemptCount: nextState.failedFoldAttempts,
         });
       }
       if (foldResult.outcome === "folded") {
-        failedFoldAttempts = 0;
-        rollingSummary = foldResult.rollingSummary;
         await input.appendTrace("conversation_folded", { ...foldResult.trace });
         if (foldResult.trace.narrativeClipped)
           await input.appendTrace("conversation_fold_narrative_clipped", {
@@ -145,11 +153,20 @@ export function createActiveContextCompactor(
 
       return {
         outcome: "fitted",
+        conversation:
+          foldResult.outcome === "folded"
+            ? foldResult.keptTurns
+            : compactedConversation,
+        state: nextState,
         ...(foldResult.outcome === "folded"
           ? { foldUsage: foldResult.usage }
           : {}),
-        ...(rollingSummary
-          ? { rollingSummaryMessage: rollingSummaryMessage(rollingSummary) }
+        ...(nextState.rollingSummary
+          ? {
+              rollingSummaryMessage: rollingSummaryMessage(
+                nextState.rollingSummary,
+              ),
+            }
           : {}),
         ...(compaction.compactedCount > 0
           ? {
@@ -158,9 +175,5 @@ export function createActiveContextCompactor(
           : {}),
       };
     },
-    state: () => ({
-      ...(rollingSummary ? { rollingSummary } : {}),
-      failedFoldAttempts,
-    }),
   };
 }

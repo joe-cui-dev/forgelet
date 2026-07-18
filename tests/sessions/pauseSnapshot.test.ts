@@ -30,7 +30,7 @@ test("PauseSnapshot round-trips through write and read, including Sets", async (
   );
   const loaded = await readPauseSnapshot(workspaceRoot, "sess_abc123");
 
-  expect(serialized.version).toBe(3);
+  expect(serialized.version).toBe(4);
   expect(serialized.working.sessionState.baselineDirtyPaths).toEqual(["a.txt"]);
   expect(loaded.working.sessionState.baselineDirtyPaths).toEqual(new Set(["a.txt"]));
   expect(loaded.working.sessionState.continuationOwnedDirtyPaths).toEqual(new Set(["b.txt"]));
@@ -103,23 +103,26 @@ test("readPauseSnapshot tolerates a retired token limit and initializes unpriced
   expect(loaded.limits).not.toHaveProperty("maxInputTokens");
 });
 
-test("readPauseSnapshot upgrades version two ledger ranges", async () => {
+test("readPauseSnapshot upgrades version two ledger ranges through the active-context migration", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-pause-"));
   const snapshot = testSnapshot({
     sessionId: "sess_legacy_ranges",
     working: {
       ...testSnapshot().working,
-      rollingSummary: {
-        text: "Earlier work.",
-        ledger: {
-          files: [
-            {
-              path: "src/index.ts",
-              ranges: [{ kind: "byte", start: 0, end: 20, total: 20 }],
-            },
-          ],
-          changedFiles: [],
-          commands: [],
+      activeContext: {
+        failedFoldAttempts: 0,
+        rollingSummary: {
+          text: "Earlier work.",
+          ledger: {
+            files: [
+              {
+                path: "src/index.ts",
+                ranges: [{ kind: "byte", start: 0, end: 20, total: 20 }],
+              },
+            ],
+            changedFiles: [],
+            commands: [],
+          },
         },
       },
     },
@@ -128,14 +131,58 @@ test("readPauseSnapshot upgrades version two ledger ranges", async () => {
   const path = pauseSnapshotPath(workspaceRoot, snapshot.sessionId);
   const legacy = JSON.parse(await readFile(path, "utf8"));
   legacy.version = 2;
-  legacy.working.rollingSummary.ledger.files[0].ranges = ["byte range 0-20 of 20"];
+  legacy.working.rollingSummary = legacy.working.activeContext.rollingSummary;
+  legacy.working.failedFoldAttempts =
+    legacy.working.activeContext.failedFoldAttempts;
+  delete legacy.working.activeContext;
+  legacy.working.rollingSummary.ledger.files[0].ranges = [
+    "byte range 0-20 of 20",
+  ];
   await writeFile(path, JSON.stringify(legacy), "utf8");
 
   const loaded = await readPauseSnapshot(workspaceRoot, snapshot.sessionId);
 
-  expect(loaded.working.rollingSummary?.ledger.files[0]?.ranges).toEqual([
-    { kind: "byte", start: 0, end: 20, total: 20 },
-  ]);
+  expect(
+    loaded.working.activeContext.rollingSummary?.ledger.files[0]?.ranges,
+  ).toEqual([{ kind: "byte", start: 0, end: 20, total: 20 }]);
+});
+
+test("readPauseSnapshot migrates flat version three active context", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-pause-"));
+  const snapshot = testSnapshot({ sessionId: "sess_v3_active_context" });
+  await writePauseSnapshot(workspaceRoot, snapshot);
+  const path = pauseSnapshotPath(workspaceRoot, snapshot.sessionId);
+  const legacy = JSON.parse(await readFile(path, "utf8"));
+  legacy.version = 3;
+  legacy.working.rollingSummary = {
+    text: "Earlier work.",
+    ledger: { files: [], changedFiles: [], commands: [] },
+  };
+  legacy.working.failedFoldAttempts = 1;
+  delete legacy.working.activeContext;
+  await writeFile(path, JSON.stringify(legacy), "utf8");
+
+  const loaded = await readPauseSnapshot(workspaceRoot, snapshot.sessionId);
+
+  expect(loaded.working.activeContext).toEqual({
+    rollingSummary: legacy.working.rollingSummary,
+    failedFoldAttempts: 1,
+  });
+});
+
+test("readPauseSnapshot initializes missing version three fold attempts", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-pause-"));
+  const snapshot = testSnapshot({ sessionId: "sess_v3_without_summary" });
+  await writePauseSnapshot(workspaceRoot, snapshot);
+  const path = pauseSnapshotPath(workspaceRoot, snapshot.sessionId);
+  const legacy = JSON.parse(await readFile(path, "utf8"));
+  legacy.version = 3;
+  delete legacy.working.activeContext;
+  await writeFile(path, JSON.stringify(legacy), "utf8");
+
+  const loaded = await readPauseSnapshot(workspaceRoot, snapshot.sessionId);
+
+  expect(loaded.working.activeContext).toEqual({ failedFoldAttempts: 0 });
 });
 
 function testSnapshot(overrides: Partial<PauseSnapshot> = {}): PauseSnapshot {
@@ -156,7 +203,7 @@ function testSnapshot(overrides: Partial<PauseSnapshot> = {}): PauseSnapshot {
     debug: false,
     working: {
       conversation: [{ role: "user", content: "fix the bug" }],
-      failedFoldAttempts: 0,
+      activeContext: { failedFoldAttempts: 0 },
       usage: {
         modelTurns: 2,
         inputTokens: 100,

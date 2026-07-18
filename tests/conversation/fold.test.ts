@@ -51,7 +51,8 @@ test("folds the oldest turns and builds a Rolling Summary with a Fact Ledger", a
   expect(result.rollingSummary.ledger.files.map((file) => file.path)).toEqual(
     ["old.ts"],
   );
-  expect(conversation).toEqual(turnWithFileRead("call_new", "new.ts", 500));
+  expect(result.keptTurns).toEqual(turnWithFileRead("call_new", "new.ts", 500));
+  expect(conversation).toHaveLength(4);
   expect(modelClient.turnInputs[0]?.tools).toEqual([]);
 });
 
@@ -245,7 +246,8 @@ test("performs a Degraded Fold on the second consecutive summarization failure",
     reason: "model unavailable",
     failedAttemptCount: 2,
   });
-  expect(conversation).toEqual(turnWithFileRead("call_new", "new.ts", 500));
+  expect(result.keptTurns).toEqual(turnWithFileRead("call_new", "new.ts", 500));
+  expect(conversation).toHaveLength(4);
 });
 
 test("a refold absorbs the previous Rolling Summary into the new one", async () => {

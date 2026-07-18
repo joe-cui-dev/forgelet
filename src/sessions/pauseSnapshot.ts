@@ -17,8 +17,9 @@ import {
   type SerializedWorkingState,
 } from "../kernel/workingState.js";
 import type { ObservationRange } from "../observation/index.js";
+import type { RollingSummaryState } from "../conversation/index.js";
 
-const PAUSE_SNAPSHOT_VERSION = 3;
+const PAUSE_SNAPSHOT_VERSION = 4;
 
 export interface PauseSnapshot {
   sessionId: string;
@@ -43,6 +44,15 @@ export interface PauseSnapshot {
 type SerializedPauseSnapshot = Omit<PauseSnapshot, "working"> & {
   version: number;
   working: SerializedWorkingState;
+};
+
+type VersionThreeWorkingState = Omit<SerializedWorkingState, "activeContext"> & {
+  rollingSummary?: RollingSummaryState;
+  failedFoldAttempts?: number;
+};
+
+type VersionThreePauseSnapshot = Omit<SerializedPauseSnapshot, "working"> & {
+  working: VersionThreeWorkingState;
 };
 
 export function pauseSnapshotPath(
@@ -93,17 +103,25 @@ export async function readPauseSnapshot(
   }
   if (
     !isRecord(parsed) ||
-    (parsed.version !== PAUSE_SNAPSHOT_VERSION && parsed.version !== 2)
+    (parsed.version !== PAUSE_SNAPSHOT_VERSION &&
+      parsed.version !== 3 &&
+      parsed.version !== 2)
   )
     throw new Error(
       `Pause Snapshot version mismatch for Session ${sessionId}: expected ${PAUSE_SNAPSHOT_VERSION}, got ${
         isRecord(parsed) ? String(parsed.version) : "unknown"
       }.`,
     );
-  const migrated =
+  const migratedFromVersionTwo: SerializedPauseSnapshot | VersionThreePauseSnapshot =
     parsed.version === 2
-      ? migrateVersionTwoSnapshot(parsed as unknown as SerializedPauseSnapshot)
+      ? migrateVersionTwoSnapshot(parsed as unknown as VersionThreePauseSnapshot)
       : (parsed as unknown as SerializedPauseSnapshot);
+  const migrated =
+    migratedFromVersionTwo.version === 3
+      ? migrateVersionThreeSnapshot(
+          migratedFromVersionTwo as VersionThreePauseSnapshot,
+        )
+      : migratedFromVersionTwo;
   const { version, working, ...rest } = migrated;
   const { maxInputTokens: _retiredInputTokenBudget, ...limits } = rest.limits as BudgetLimits & {
     maxInputTokens?: unknown;
@@ -111,7 +129,7 @@ export async function readPauseSnapshot(
   return {
     ...rest,
     limits,
-    working: deserializeWorkingState(working),
+    working: deserializeWorkingState(working as SerializedWorkingState),
   } as PauseSnapshot;
 }
 
@@ -145,13 +163,13 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
 function migrateVersionTwoSnapshot(
-  snapshot: SerializedPauseSnapshot,
-): SerializedPauseSnapshot {
+  snapshot: VersionThreePauseSnapshot,
+): VersionThreePauseSnapshot {
   const rollingSummary = snapshot.working.rollingSummary;
-  if (!rollingSummary) return { ...snapshot, version: PAUSE_SNAPSHOT_VERSION };
+  if (!rollingSummary) return { ...snapshot, version: 3 };
   return {
     ...snapshot,
-    version: PAUSE_SNAPSHOT_VERSION,
+    version: 3,
     working: {
       ...snapshot.working,
       rollingSummary: {
@@ -165,6 +183,23 @@ function migrateVersionTwoSnapshot(
               .filter((range): range is ObservationRange => range !== undefined),
           })),
         },
+      },
+    },
+  };
+}
+
+function migrateVersionThreeSnapshot(
+  snapshot: VersionThreePauseSnapshot,
+): SerializedPauseSnapshot {
+  const { rollingSummary, failedFoldAttempts, ...working } = snapshot.working;
+  return {
+    ...snapshot,
+    version: PAUSE_SNAPSHOT_VERSION,
+    working: {
+      ...working,
+      activeContext: {
+        ...(rollingSummary ? { rollingSummary } : {}),
+        failedFoldAttempts: failedFoldAttempts ?? 0,
       },
     },
   };

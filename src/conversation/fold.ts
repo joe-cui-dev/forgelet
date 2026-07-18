@@ -36,6 +36,7 @@ export type FoldAttemptResult =
   | { outcome: "stop" }
   | {
       outcome: "folded";
+      keptTurns: ModelMessage[];
       rollingSummary: RollingSummaryState;
       usage: {
         inputTokens: number;
@@ -139,10 +140,9 @@ export async function attemptConversationFold(
   const text = `${narrative}\n\n${renderFactLedger(ledger, {
     maxConversationBytes: input.maxConversationBytes,
   })}`;
-  input.conversation.splice(0, input.conversation.length, ...plan.keptTurns);
-
   return {
     outcome: "folded",
+    keptTurns: plan.keptTurns,
     rollingSummary: { text, ledger },
     usage,
     trace: {
@@ -181,10 +181,9 @@ function performDegradedFold(
   const text = `${clippedNarrative.text}\n\n${renderFactLedger(ledger, {
     maxConversationBytes: input.maxConversationBytes,
   })}`;
-  input.conversation.splice(0, input.conversation.length, ...plan.keptTurns);
-
   return {
     outcome: "folded",
+    keptTurns: plan.keptTurns,
     rollingSummary: { text, ledger },
     usage: { inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0, unpricedTurns: 0 },
     trace: {

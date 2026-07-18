@@ -5,15 +5,14 @@ import type {
   ModelToolCall,
   ToolRequest,
 } from "../types.js";
-import type { RollingSummaryState } from "../conversation/index.js";
+import type { ActiveContextCompactorState } from "../conversation/index.js";
 
-/** The complete resumable working state for a ReAct Node. This stays flat so
- * the kernel owns one shape for an in-memory run, a paused result, and a Pause
- * Snapshot rather than translating among near-identical mirrors. */
+/** The complete resumable working state for a ReAct Node. The kernel owns one
+ * shape for an in-memory run, a paused result, and a Pause Snapshot rather
+ * than translating among near-identical mirrors. */
 export interface ReactNodeWorkingState {
   conversation: ModelMessage[];
-  rollingSummary?: RollingSummaryState;
-  failedFoldAttempts: number;
+  activeContext: ActiveContextCompactorState;
   usage: BudgetUsage;
   activeWallClockMs: number;
   turnIndex: number;

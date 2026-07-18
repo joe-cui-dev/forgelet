@@ -1,5 +1,5 @@
 import { expect, test } from "@jest/globals";
-import { compactConversationInPlace } from "../../src/conversation/compaction.js";
+import { compactConversation } from "../../src/conversation/compaction.js";
 import type { ModelMessage } from "../../src/types.js";
 
 test("compacts an old large file observation while preserving the newest tool turn", () => {
@@ -11,21 +11,21 @@ test("compacts an old large file observation while preserving the newest tool tu
   ];
   const newestContent = conversation[3]?.content ?? "";
 
-  const result = compactConversationInPlace(conversation, {
+  const result = compactConversation(conversation, {
     maxConversationBytes: Buffer.byteLength(newestContent, "utf8") + 1_000,
   });
 
   expect(result.compactedCount).toBe(1);
-  expect(conversation).toHaveLength(4);
-  expect(conversation[0]?.toolCalls?.[0]?.id).toBe("call_old");
-  expect(conversation[1]?.toolCallId).toBe("call_old");
-  expect(JSON.parse(conversation[1]?.content ?? "{}")).toMatchObject({
+  expect(result.conversation).toHaveLength(4);
+  expect(result.conversation[0]?.toolCalls?.[0]?.id).toBe("call_old");
+  expect(result.conversation[1]?.toolCallId).toBe("call_old");
+  expect(JSON.parse(result.conversation[1]?.content ?? "{}")).toMatchObject({
     toolCallId: "call_old",
     toolName: "read_file",
     compacted: true,
     metadata: { path: "old.txt" },
   });
-  expect(conversation[3]?.content).toBe(newestContent);
+  expect(result.conversation[3]?.content).toBe(newestContent);
 });
 
 test("compacts old file observations into range-preserving digests", () => {
@@ -50,12 +50,12 @@ test("compacts old file observations into range-preserving digests", () => {
     toolObservation("call_new", "read_file", "new.txt", "n".repeat(6_000)),
   ];
 
-  compactConversationInPlace(conversation, {
+  const result = compactConversation(conversation, {
     maxConversationBytes: 4_096,
     observationDigestPreviewBytes: 2_048,
   });
 
-  const compacted = JSON.parse(conversation[1]?.content ?? "{}");
+  const compacted = JSON.parse(result.conversation[1]?.content ?? "{}");
   expect(compacted).toMatchObject({
     toolCallId: "call_old",
     toolName: "read_file",
@@ -100,14 +100,14 @@ test("an oversized newest tool turn preserves every fresh observation", () => {
   const failedContent = conversation[2]?.content;
   const lastContent = conversation[3]?.content;
 
-  const result = compactConversationInPlace(conversation, {
+  const result = compactConversation(conversation, {
     maxConversationBytes: 4_096,
   });
 
   expect(result.compactedCount).toBe(0);
-  expect(conversation[1]?.content).toBe(firstContent);
-  expect(conversation[2]?.content).toBe(failedContent);
-  expect(conversation[3]?.content).toBe(lastContent);
+  expect(result.conversation[1]?.content).toBe(firstContent);
+  expect(result.conversation[2]?.content).toBe(failedContent);
+  expect(result.conversation[3]?.content).toBe(lastContent);
   expect(result.residualOverageBytes).toBeGreaterThan(0);
 });
 
@@ -127,14 +127,14 @@ test("a fresh observation batch becomes compactable after a later tool turn", ()
     toolObservation("call_new", "read_file", "new.txt", "new"),
   ];
 
-  const result = compactConversationInPlace(conversation, {
+  const result = compactConversation(conversation, {
     maxConversationBytes: 4_096,
   });
 
   expect(result.compactedCount).toBe(2);
-  expect(JSON.parse(conversation[1]?.content ?? "{}").compacted).toBe(true);
-  expect(JSON.parse(conversation[2]?.content ?? "{}").compacted).toBe(true);
-  expect(JSON.parse(conversation[4]?.content ?? "{}").compacted).toBeUndefined();
+  expect(JSON.parse(result.conversation[1]?.content ?? "{}").compacted).toBe(true);
+  expect(JSON.parse(result.conversation[2]?.content ?? "{}").compacted).toBe(true);
+  expect(JSON.parse(result.conversation[4]?.content ?? "{}").compacted).toBeUndefined();
 });
 
 test("prioritizes content-heavy tools before other old observations", () => {
@@ -148,12 +148,12 @@ test("prioritizes content-heavy tools before other old observations", () => {
   ];
   const listContent = conversation[1]?.content;
 
-  compactConversationInPlace(conversation, {
+  const result = compactConversation(conversation, {
     maxConversationBytes: 8_500,
   });
 
-  expect(conversation[1]?.content).toBe(listContent);
-  expect(JSON.parse(conversation[3]?.content ?? "{}").compacted).toBe(true);
+  expect(result.conversation[1]?.content).toBe(listContent);
+  expect(JSON.parse(result.conversation[3]?.content ?? "{}").compacted).toBe(true);
 });
 
 test("keeps unknown tool message payloads and reports residual overage", () => {
@@ -169,11 +169,11 @@ test("keeps unknown tool message payloads and reports residual overage", () => {
   ];
   const unknownContent = conversation[1]?.content;
 
-  const result = compactConversationInPlace(conversation, {
+  const result = compactConversation(conversation, {
     maxConversationBytes: 4_096,
   });
 
-  expect(conversation[1]?.content).toBe(unknownContent);
+  expect(result.conversation[1]?.content).toBe(unknownContent);
   expect(result.compactedCount).toBe(0);
   expect(result.uncompactableCount).toBe(1);
   expect(result.residualOverageBytes).toBeGreaterThan(0);
@@ -187,13 +187,15 @@ test("does not compact an already compacted observation again", () => {
     toolObservation("call_new", "read_file", "new.ts", "n".repeat(6_000)),
   ];
 
-  compactConversationInPlace(conversation, { maxConversationBytes: 4_096 });
-  const compactedContent = conversation[1]?.content;
-  const second = compactConversationInPlace(conversation, {
+  const first = compactConversation(conversation, {
+    maxConversationBytes: 4_096,
+  });
+  const compactedContent = first.conversation[1]?.content;
+  const second = compactConversation(first.conversation, {
     maxConversationBytes: 4_096,
   });
 
-  expect(conversation[1]?.content).toBe(compactedContent);
+  expect(second.conversation[1]?.content).toBe(compactedContent);
   expect(second.compactedCount).toBe(0);
 });
 
@@ -209,7 +211,7 @@ test("counts assistant message content toward the conversation-wide budget", () 
     toolObservation("call_new", "read_file", "new.txt", "b".repeat(500)),
   ];
 
-  const result = compactConversationInPlace(conversation, {
+  const result = compactConversation(conversation, {
     maxConversationBytes: 4_096,
   });
 
@@ -225,7 +227,7 @@ test("counts the rendered Rolling Summary toward the conversation-wide budget", 
     toolObservation("call_new", "read_file", "new.txt", "b".repeat(500)),
   ];
 
-  const result = compactConversationInPlace(conversation, {
+  const result = compactConversation(conversation, {
     maxConversationBytes: 2_800,
     rollingSummaryText: "Prior narrative.".repeat(80),
   });
@@ -234,7 +236,7 @@ test("counts the rendered Rolling Summary toward the conversation-wide budget", 
     result.targetConversationBytes,
   );
   expect(result.compactedCount).toBe(1);
-  expect(JSON.parse(conversation[1]?.content ?? "{}").compacted).toBe(true);
+  expect(JSON.parse(result.conversation[1]?.content ?? "{}").compacted).toBe(true);
 });
 
 function assistantToolCall(id: string, name: string): ModelMessage {
