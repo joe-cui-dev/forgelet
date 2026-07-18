@@ -376,6 +376,41 @@ export const runReactNode = async (
   let rollingSummary: RollingSummaryState | undefined = input.resume?.working.rollingSummary;
   let failedFoldAttempts = input.resume?.working.failedFoldAttempts ?? 0;
   let forcedStopReason: SessionStopReason | undefined;
+  const stopWith = (
+    reason: SessionStopReason,
+    extras?: {
+      blockedToolCalls?: BudgetBlockedToolCalls;
+      wrapupContent?: string;
+    },
+  ): ReactNodeFinishResult => {
+    input.session.stage = "final";
+    if (extras?.wrapupContent !== undefined)
+      return {
+        status: "stopped",
+        reason,
+        summary: formatBudgetWrapupSummary(
+          input.session,
+          input.route,
+          usage,
+          reason,
+          input.limits,
+          extras.wrapupContent,
+        ),
+        finalContent: extras.wrapupContent,
+      };
+    return {
+      status: "stopped",
+      reason,
+      summary: formatStoppedSummary(
+        input.session,
+        input.route,
+        usage,
+        reason,
+        input.limits,
+        extras?.blockedToolCalls,
+      ),
+    };
+  };
   const taskContext: TaskContext = {
     definition: input.definition,
     session: input.session,
@@ -467,17 +502,7 @@ export const runReactNode = async (
       input.limits,
       currentElapsedWallClockMs,
     );
-    if (stopReason) {
-      const summary = formatStoppedSummary(
-        input.session,
-        input.route,
-        usage,
-        stopReason,
-        input.limits,
-      );
-      input.session.stage = "final";
-      return { status: "stopped", reason: stopReason, summary };
-    }
+    if (stopReason) return stopWith(stopReason);
 
     const isAnswerOnce = input.executionPolicy === "answer_once";
     const remainingModelTurns = input.limits.maxModelTurns - usage.modelTurns;
@@ -502,17 +527,8 @@ export const runReactNode = async (
       conversation,
       turnIndex,
     );
-    if (activeContext.outcome === "exhausted") {
-      const summary = formatStoppedSummary(
-        input.session,
-        input.route,
-        usage,
-        "active_context_exhausted",
-        input.limits,
-      );
-      input.session.stage = "final";
-      return { status: "stopped", reason: "active_context_exhausted", summary };
-    }
+    if (activeContext.outcome === "exhausted")
+      return stopWith("active_context_exhausted");
     const activeContextState = activeContextCompactor.state();
     rollingSummary = activeContextState.rollingSummary;
     failedFoldAttempts = activeContextState.failedFoldAttempts;
@@ -525,17 +541,7 @@ export const runReactNode = async (
         usage,
         input.limits,
       );
-      if (foldBudgetStopReason) {
-        const summary = formatStoppedSummary(
-          input.session,
-          input.route,
-          usage,
-          foldBudgetStopReason,
-          input.limits,
-        );
-        input.session.stage = "final";
-        return { status: "stopped", reason: foldBudgetStopReason, summary };
-      }
+      if (foldBudgetStopReason) return stopWith(foldBudgetStopReason);
     }
 
     const messages = buildMessages(
@@ -552,7 +558,7 @@ export const runReactNode = async (
         finalToolTurn,
       },
     );
-    if (input.signal?.aborted) return cancelledStopResult(input, usage);
+    if (input.signal?.aborted) return stopWith("user_stopped");
 
     let output: ModelTurnOutput;
     for (let attempt = 1; ; attempt += 1) {
@@ -605,7 +611,7 @@ export const runReactNode = async (
         });
         break;
       } catch (error) {
-        if (input.signal?.aborted) return cancelledStopResult(input, usage);
+        if (input.signal?.aborted) return stopWith("user_stopped");
         if (
           attempt <= MODEL_TURN_MAX_RETRIES &&
           isRetryableModelTurnError(error)
@@ -694,20 +700,12 @@ export const runReactNode = async (
         skippedCount: output.toolCalls.length,
         toolNames: output.toolCalls.map((toolCall) => toolCall.name),
       });
-      const summary = formatStoppedSummary(
-        input.session,
-        input.route,
-        usage,
-        hardBudgetStopReason,
-        input.limits,
-        { reason: hardBudgetStopReason, skippedCount: output.toolCalls.length },
-      );
-      input.session.stage = "final";
-      return {
-        status: "stopped",
-        reason: hardBudgetStopReason,
-        summary,
-      };
+      return stopWith(hardBudgetStopReason, {
+        blockedToolCalls: {
+          reason: hardBudgetStopReason,
+          skippedCount: output.toolCalls.length,
+        },
+      });
     }
 
     if (wrapupOnly && output.toolCalls.length > 0) {
@@ -719,20 +717,9 @@ export const runReactNode = async (
         skippedCount: output.toolCalls.length,
         toolNames: output.toolCalls.map((toolCall) => toolCall.name),
       });
-      const summary = formatStoppedSummary(
-        input.session,
-        input.route,
-        usage,
-        reason,
-        input.limits,
-        { reason, skippedCount: output.toolCalls.length },
-      );
-      input.session.stage = "final";
-      return {
-        status: "stopped",
-        reason,
-        summary,
-      };
+      return stopWith(reason, {
+        blockedToolCalls: { reason, skippedCount: output.toolCalls.length },
+      });
     }
 
     if (
@@ -741,19 +728,7 @@ export const runReactNode = async (
     ) {
       if (!wrapupOnly) continue;
       const reason = budgetWrapupReason ?? "max_model_turns";
-      const summary = formatStoppedSummary(
-        input.session,
-        input.route,
-        usage,
-        reason,
-        input.limits,
-      );
-      input.session.stage = "final";
-      return {
-        status: "stopped",
-        reason,
-        summary,
-      };
+      return stopWith(reason);
     }
 
     // No tool calls is the loop exit condition: model content becomes the
@@ -769,21 +744,7 @@ export const runReactNode = async (
           sourceLedger: input.sourceLedger?.view,
         },
       ) ?? (output.content ?? "");
-      input.session.stage = "final";
-      const summary = formatBudgetWrapupSummary(
-        input.session,
-        input.route,
-        usage,
-        budgetWrapupReason,
-        input.limits,
-        wrapupContent,
-      );
-      return {
-        status: "stopped",
-        reason: budgetWrapupReason,
-        summary,
-        finalContent: wrapupContent,
-      };
+      return stopWith(budgetWrapupReason, { wrapupContent });
     }
 
     // No tool calls is the loop exit condition: model content becomes the
@@ -792,7 +753,7 @@ export const runReactNode = async (
       // Checked before completion effects (onCompleted may have durable side
       // effects such as saving a Writing Artifact) so a Stop pressed the
       // instant the model finished still discards the completion honestly.
-      if (input.signal?.aborted) return cancelledStopResult(input, usage);
+      if (input.signal?.aborted) return stopWith("user_stopped");
       finalContent = input.definition.normalizeFinalContent?.(
         output.content ?? "",
         {
@@ -1166,27 +1127,6 @@ const formatStoppedSummary = (
         ]
       : []),
   ].join("\n");
-};
-
-/** Only the owned `input.signal` reaching this point converts to
- * `user_stopped` — arbitrary provider/transport aborts are never
- * pattern-matched here, so a real network failure keeps its honest reason. */
-const cancelledStopResult = (
-  input: ReactNodeInput,
-  usage: BudgetUsage,
-): ReactNodeFinishResult => {
-  input.session.stage = "final";
-  return {
-    status: "stopped",
-    reason: "user_stopped",
-    summary: formatStoppedSummary(
-      input.session,
-      input.route,
-      usage,
-      "user_stopped",
-      input.limits,
-    ),
-  };
 };
 
 const formatBudgetWrapupSummary = (
