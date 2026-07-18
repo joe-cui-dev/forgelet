@@ -17,12 +17,10 @@ import type {
   WorkflowKind,
 } from "../types.js";
 import { execFile } from "node:child_process";
-import { compactConversationInPlace } from "../conversation/compaction.js";
 import {
-  attemptConversationFold,
-  rollingSummaryMessage,
+  createActiveContextCompactor,
   type RollingSummaryState,
-} from "../conversation/fold.js";
+} from "../conversation/index.js";
 import type { LoadedDurableMemory } from "../memory/index.js";
 import type { DebugTranscriptWriter } from "../debugTranscript/index.js";
 import type { SessionLiveEvent, SessionLiveEventSink } from "../sessionLiveView/index.js";
@@ -376,6 +374,18 @@ export const runReactNode = async (
   let rollingSummary: RollingSummaryState | undefined = input.resume?.working.rollingSummary;
   let failedFoldAttempts = input.resume?.working.failedFoldAttempts ?? 0;
   let forcedStopReason: SessionStopReason | undefined;
+  const activeContextCompactor = createActiveContextCompactor({
+    modelClient: input.modelClient,
+    task: input.session.task,
+    sessionId: input.session.id,
+    model: input.route.model,
+    appendTrace: input.appendTrace,
+    debugTranscript: input.debugTranscript,
+    maxConversationBytes: input.maxConversationBytes,
+    observationDigestPreviewBytes: input.observationDigestPreviewBytes,
+    protectedRecentTurns: input.protectedRecentTurns,
+    restoreState: { ...(rollingSummary ? { rollingSummary } : {}), failedFoldAttempts },
+  });
 
   if (input.resume) {
     for (const observation of input.resume.working.executedObservations)
@@ -478,61 +488,11 @@ export const runReactNode = async (
         elapsedWallClockMs: currentElapsedWallClockMs,
       });
     const wrapupOnly = finalOnly || budgetWrapupReason !== undefined;
-    const compaction = compactConversationInPlace(conversation, {
-      maxConversationBytes: input.maxConversationBytes,
-      observationDigestPreviewBytes: input.observationDigestPreviewBytes,
-      rollingSummaryText: rollingSummary?.text,
-    });
-    if (
-      compaction.compactedCount > 0 ||
-      compaction.beforeConversationBytes > compaction.targetConversationBytes
-    )
-      await input.appendTrace(
-        compaction.compactedCount > 0
-          ? "conversation_compacted"
-          : "conversation_compaction_attempted",
-        { ...compaction },
-      );
-
-    const foldResult = await attemptConversationFold({
+    const activeContext = await activeContextCompactor.fitTurn(
       conversation,
-      rollingSummary,
-      maxConversationBytes: input.maxConversationBytes,
-      protectedRecentTurns: input.protectedRecentTurns,
-      task: input.session.task,
-      modelClient: input.modelClient,
-      failedFoldAttempts,
-      onModelRequest: (foldMessages) =>
-        input.debugTranscript?.append({
-          type: "model_request",
-          ts: new Date().toISOString(),
-          sessionId: input.session.id,
-          payload: {
-            turnIndex,
-            model: input.route.model,
-            purpose: "conversation_fold",
-            messages: foldMessages,
-            tools: [],
-          },
-        }),
-      onModelResponse: (content) =>
-        input.debugTranscript?.append({
-          type: "model_response",
-          ts: new Date().toISOString(),
-          sessionId: input.session.id,
-          payload: {
-            turnIndex,
-            model: input.route.model,
-            purpose: "conversation_fold",
-            content,
-          },
-        }),
-    });
-    if (foldResult.outcome === "stop") {
-      await input.appendTrace("conversation_fold_stopped", {
-        protectedRecentTurns: input.protectedRecentTurns,
-        maxConversationBytes: input.maxConversationBytes,
-      });
+      turnIndex,
+    );
+    if (activeContext.outcome === "exhausted") {
       const summary = formatStoppedSummary(
         input.session,
         input.route,
@@ -543,25 +503,14 @@ export const runReactNode = async (
       input.session.stage = "final";
       return { status: "stopped", reason: "active_context_exhausted", summary };
     }
-    if (foldResult.outcome === "failed") {
-      failedFoldAttempts += 1;
-      await input.appendTrace("conversation_fold_failed", {
-        reason: foldResult.reason,
-        failedAttemptCount: failedFoldAttempts,
-      });
-    }
-    if (foldResult.outcome === "folded") {
-      failedFoldAttempts = 0;
-      rollingSummary = foldResult.rollingSummary;
-      usage.inputTokens += foldResult.usage.inputTokens;
-      usage.outputTokens += foldResult.usage.outputTokens;
-      usage.estimatedCostUsd += foldResult.usage.estimatedCostUsd;
-      usage.unpricedTurns += foldResult.usage.unpricedTurns;
-      await input.appendTrace("conversation_folded", { ...foldResult.trace });
-      if (foldResult.trace.narrativeClipped)
-        await input.appendTrace("conversation_fold_narrative_clipped", {
-          maxConversationBytes: input.maxConversationBytes,
-        });
+    const activeContextState = activeContextCompactor.state();
+    rollingSummary = activeContextState.rollingSummary;
+    failedFoldAttempts = activeContextState.failedFoldAttempts;
+    if (activeContext.foldUsage) {
+      usage.inputTokens += activeContext.foldUsage.inputTokens;
+      usage.outputTokens += activeContext.foldUsage.outputTokens;
+      usage.estimatedCostUsd += activeContext.foldUsage.estimatedCostUsd;
+      usage.unpricedTurns += activeContext.foldUsage.unpricedTurns;
       const foldBudgetStopReason = costBudgetStopReason(
         usage,
         input.limits,
@@ -592,10 +541,8 @@ export const runReactNode = async (
       input.limits,
       conversation,
       input.act,
-      compaction.compactedCount > 0
-        ? `Active observations compacted: ${compaction.afterConversationBytes}/${compaction.targetConversationBytes} bytes.`
-        : undefined,
-      rollingSummaryMessage(rollingSummary),
+      activeContext.compactionStatusLine,
+      activeContext.rollingSummaryMessage,
       wrapupOnly,
       finalToolTurn,
       currentElapsedWallClockMs,
