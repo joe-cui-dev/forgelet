@@ -309,16 +309,18 @@ export async function runKernelSession<TCompletion = void>(
         route,
         plan,
         limits,
-        safeCommands: config.safeCommands,
-        commandTimeoutMs: config.commandTimeoutMs,
-        maxPatchBytes: config.maxPatchBytes,
-        maxConversationBytes: maxConversationBytesForRoute(
-          config,
-          input.definition.kind,
-        ),
-        observationDigestPreviewBytes:
-          config.activeContext.observationDigestPreviewBytes,
-        protectedRecentTurns: config.activeContext.protectedRecentTurns,
+        actionableTools: {
+          safeCommands: config.safeCommands,
+          commandTimeoutMs: config.commandTimeoutMs,
+          maxPatchBytes: config.maxPatchBytes,
+        },
+        activeContext: {
+          ...config.activeContext,
+          maxConversationBytes: maxConversationBytesForRoute(
+            config,
+            input.definition.kind,
+          ),
+        },
         readScope,
         act: input.act === true,
         baselineDirtyPaths,
@@ -584,16 +586,18 @@ export async function resumeKernelSession<TCompletion = void>(
       route: snapshot.route,
       plan: snapshot.plan,
       limits: snapshot.limits,
-      safeCommands: config.safeCommands,
-      commandTimeoutMs: config.commandTimeoutMs,
-      maxPatchBytes: config.maxPatchBytes,
-      maxConversationBytes: maxConversationBytesForRoute(
-        config,
-        snapshot.workflow,
-      ),
-      observationDigestPreviewBytes:
-        config.activeContext.observationDigestPreviewBytes,
-      protectedRecentTurns: config.activeContext.protectedRecentTurns,
+      actionableTools: {
+        safeCommands: config.safeCommands,
+        commandTimeoutMs: config.commandTimeoutMs,
+        maxPatchBytes: config.maxPatchBytes,
+      },
+      activeContext: {
+        ...config.activeContext,
+        maxConversationBytes: maxConversationBytesForRoute(
+          config,
+          snapshot.workflow,
+        ),
+      },
       readScope: snapshot.readScope,
       act: true,
       baselineDirtyPaths: snapshot.working.sessionState.baselineDirtyPaths,

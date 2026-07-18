@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import type { WorkflowKind } from "../types.js";
+import type { ActiveContextSettings } from "../conversation/index.js";
 
 export interface RoutingConfig {
   coding: StageRoutingConfig;
@@ -36,11 +37,7 @@ export interface ForgeletConfig {
     maxEstimatedCostUsd: number;
     maxWallClockMs: number;
   };
-  activeContext: {
-    maxConversationBytes: number;
-    observationDigestPreviewBytes: number;
-    protectedRecentTurns: number;
-  };
+  activeContext: ActiveContextSettings;
   safeCommands: string[];
   testCommands: string[];
   commandTimeoutMs: number;

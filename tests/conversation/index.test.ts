@@ -25,9 +25,11 @@ test("fits a turn through the public compactor seam and retains fold state", asy
     appendTrace: async (type) => {
       traceTypes.push(type);
     },
-    maxConversationBytes: 4_000,
-    observationDigestPreviewBytes: 256,
-    protectedRecentTurns: 1,
+    settings: {
+      maxConversationBytes: 4_000,
+      observationDigestPreviewBytes: 256,
+      protectedRecentTurns: 1,
+    },
   });
 
   const result = await compactor.fitTurn(conversation, 2);

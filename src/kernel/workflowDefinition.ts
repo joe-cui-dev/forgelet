@@ -41,10 +41,14 @@ export type AppendTrace = <Type extends TraceEventType>(
   payload: TraceEventPayloads[Type],
 ) => Promise<void>;
 
-export interface ActionableToolDeps {
+export interface ActionableToolSettings {
   safeCommands: string[];
   commandTimeoutMs: number;
   maxPatchBytes: number;
+}
+
+export interface ActionableToolDeps {
+  settings: ActionableToolSettings;
   sessionState: {
     baselineDirtyPaths: Set<string>;
     continuationOwnedDirtyPaths?: Set<string>;

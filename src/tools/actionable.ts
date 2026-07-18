@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { dirname, isAbsolute, normalize, relative, resolve } from "node:path";
 import { mkdir } from "node:fs/promises";
+import type { ActionableToolDeps } from "../kernel/workflowDefinition.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -12,21 +13,8 @@ import type {
 
 const PATCH_PREVIEW_BYTES = 2 * 1024;
 
-export interface ActionableSessionState {
-  baselineDirtyPaths: Set<string>;
-  continuationOwnedDirtyPaths?: Set<string>;
-  forgeletTouchedPaths: Set<string>;
-}
-
-export interface ActionableCodingToolsOptions {
-  safeCommands: string[];
-  commandTimeoutMs: number;
-  maxPatchBytes: number;
-  sessionState: ActionableSessionState;
-}
-
 export const createActionableCodingTools = (
-  options: ActionableCodingToolsOptions,
+  options: ActionableToolDeps,
 ): ToolDefinition[] => [
   {
     name: "apply_patch",
@@ -49,8 +37,8 @@ export const createActionableCodingTools = (
     capability: "run_safe_command",
     description: [
       "Run one configured safe command in the workspace without a shell.",
-      options.safeCommands.length > 0
-        ? `The command must match exactly one of: ${options.safeCommands.join(", ")}.`
+      options.settings.safeCommands.length > 0
+        ? `The command must match exactly one of: ${options.settings.safeCommands.join(", ")}.`
         : "No commands are configured safe for this Session.",
     ].join(" "),
     inputSchema: {
@@ -67,7 +55,7 @@ export const createActionableCodingTools = (
 const classifyPatch = (
   input: unknown,
   ctx: ToolContext,
-  options: ActionableCodingToolsOptions,
+  options: ActionableToolDeps,
 ): ToolRequest => {
   const patch = normalizePatch(requiredString(input, "patch"));
   const changedFiles = parsePatchTargets(patch);
@@ -80,7 +68,7 @@ const classifyPatch = (
     toolName: "apply_patch",
     capability: "write_workspace",
     riskTier:
-      Buffer.byteLength(patch, "utf8") > options.maxPatchBytes ||
+      Buffer.byteLength(patch, "utf8") > options.settings.maxPatchBytes ||
       targets.some((target) => target.classification !== "ordinary")
         ? "forbidden"
         : "medium",
@@ -93,14 +81,14 @@ const classifyPatch = (
 const applyPatch = async (
   input: unknown,
   ctx: ToolContext,
-  options: ActionableCodingToolsOptions,
+  options: ActionableToolDeps,
 ): Promise<ToolResult> => {
   const patch = normalizePatch(requiredString(input, "patch"));
   const patchBytes = Buffer.byteLength(patch, "utf8");
-  if (patchBytes > options.maxPatchBytes)
+  if (patchBytes > options.settings.maxPatchBytes)
     return {
       ok: false,
-      summary: `Patch exceeds maxPatchBytes (${options.maxPatchBytes}).`,
+      summary: `Patch exceeds maxPatchBytes (${options.settings.maxPatchBytes}).`,
     };
 
   const changedFiles = parsePatchTargets(patch);
@@ -170,10 +158,10 @@ const applyPatch = async (
 const classifyCommand = (
   input: unknown,
   ctx: ToolContext,
-  options: ActionableCodingToolsOptions,
+  options: ActionableToolDeps,
 ): ToolRequest => {
   const command = requiredString(input, "command");
-  const exactMatch = options.safeCommands.includes(command);
+  const exactMatch = options.settings.safeCommands.includes(command);
   return {
     workflow: ctx.workflow,
     toolName: "run_command",
@@ -194,10 +182,10 @@ const classifyCommand = (
 const runCommand = async (
   input: unknown,
   ctx: ToolContext,
-  options: ActionableCodingToolsOptions,
+  options: ActionableToolDeps,
 ): Promise<ToolResult> => {
   const command = requiredString(input, "command");
-  if (!options.safeCommands.includes(command))
+  if (!options.settings.safeCommands.includes(command))
     return { ok: false, summary: `Command is not configured safe: ${command}` };
   const argv = parseCommand(command);
   if (argv.length === 0) return { ok: false, summary: "Command is empty." };
@@ -206,7 +194,7 @@ const runCommand = async (
     argv[0] ?? "",
     argv.slice(1),
     ctx.workspaceRoot,
-    options.commandTimeoutMs,
+    options.settings.commandTimeoutMs,
   );
   const durationMs = Date.now() - startedAt;
   const content = truncate(result.output, PATCH_PREVIEW_BYTES);
@@ -259,7 +247,7 @@ const parseDeleteTargets = (patch: string): Set<string> => {
 const classifyPathTarget = (
   path: string,
   ctx: ToolContext,
-  options: ActionableCodingToolsOptions,
+  options: ActionableToolDeps,
   isDelete: boolean,
 ): Extract<ToolTarget, { kind: "path" }> => {
   return {
@@ -276,7 +264,7 @@ const classifyPathTarget = (
 
 const isContinuationOwnedDirtyPath = (
   path: string,
-  options: ActionableCodingToolsOptions,
+  options: ActionableToolDeps,
 ): boolean => options.sessionState.continuationOwnedDirtyPaths?.has(path) ?? false;
 
 const classifyPath = (

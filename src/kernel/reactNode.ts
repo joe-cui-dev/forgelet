@@ -19,6 +19,7 @@ import type {
 import { execFile } from "node:child_process";
 import {
   createActiveContextCompactor,
+  type ActiveContextSettings,
   type RollingSummaryState,
 } from "../conversation/index.js";
 import type { LoadedDurableMemory } from "../memory/index.js";
@@ -31,7 +32,11 @@ import { createPublicWebTools, PublicWebPolicy, type PublicWebAdapters } from ".
 import { createToolRegistry, type ApprovalHandler } from "../tools/toolRegistry.js";
 import { buildMessages, type TaskContext } from "./messages.js";
 import { executeToolCallBatch } from "./toolCallBatch.js";
-import type { ExecutionPolicy, WorkflowDefinition } from "./workflowDefinition.js";
+import type {
+  ActionableToolSettings,
+  ExecutionPolicy,
+  WorkflowDefinition,
+} from "./workflowDefinition.js";
 import type { SessionSourceLedger, SessionSourceLedgerView } from "../sourceLedger/index.js";
 import type { TraceEventPayloads, TraceEventType } from "../trace/index.js";
 
@@ -54,12 +59,8 @@ export interface ReactNodeInput {
   route: ActLoopRoute;
   plan: AgentPlan;
   limits: BudgetLimits;
-  safeCommands: string[];
-  commandTimeoutMs: number;
-  maxPatchBytes: number;
-  maxConversationBytes: number;
-  observationDigestPreviewBytes: number;
-  protectedRecentTurns: number;
+  actionableTools: ActionableToolSettings;
+  activeContext: ActiveContextSettings;
   readScope?: string[];
   act: boolean;
   baselineDirtyPaths: Set<string>;
@@ -311,9 +312,7 @@ export const runReactNode = async (
       };
   const actionableTools = input.act
     ? (input.definition.createActionableTools?.({
-        safeCommands: input.safeCommands,
-        commandTimeoutMs: input.commandTimeoutMs,
-        maxPatchBytes: input.maxPatchBytes,
+        settings: input.actionableTools,
         sessionState: actionableSessionState,
       }) ?? [])
     : [];
@@ -391,9 +390,7 @@ export const runReactNode = async (
     model: input.route.model,
     appendTrace: input.appendTrace,
     debugTranscript: input.debugTranscript,
-    maxConversationBytes: input.maxConversationBytes,
-    observationDigestPreviewBytes: input.observationDigestPreviewBytes,
-    protectedRecentTurns: input.protectedRecentTurns,
+    settings: input.activeContext,
     restoreState: { ...(rollingSummary ? { rollingSummary } : {}), failedFoldAttempts },
   });
 

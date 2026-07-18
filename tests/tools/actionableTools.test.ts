@@ -11,9 +11,11 @@ const TEST_COMMAND_TIMEOUT_MS = 5_000;
 
 test("run_command tells the model which exact commands are configured safe", () => {
   const tools = createActionableCodingTools({
-    safeCommands: ["npm test", "npm run typecheck"],
-    commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
-    maxPatchBytes: 100_000,
+    settings: {
+      safeCommands: ["npm test", "npm run typecheck"],
+      commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
+      maxPatchBytes: 100_000,
+    },
     sessionState: {
       baselineDirtyPaths: new Set(),
       forgeletTouchedPaths: new Set(),
@@ -42,9 +44,11 @@ test("apply_patch modifies an ordinary workspace file after approval", async () 
   ].join("\n");
   const registry = createToolRegistry(
     createActionableCodingTools({
-      safeCommands: [],
-      commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
-      maxPatchBytes: 100_000,
+      settings: {
+        safeCommands: [],
+        commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
+        maxPatchBytes: 100_000,
+      },
       sessionState: {
         baselineDirtyPaths: new Set(),
         forgeletTouchedPaths: new Set(),
@@ -88,9 +92,11 @@ test("apply_patch accepts git-apply compatible unified diff without diff headers
   ].join("\n");
   const registry = createToolRegistry(
     createActionableCodingTools({
-      safeCommands: [],
-      commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
-      maxPatchBytes: 100_000,
+      settings: {
+        safeCommands: [],
+        commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
+        maxPatchBytes: 100_000,
+      },
       sessionState: {
         baselineDirtyPaths: new Set(),
         forgeletTouchedPaths: new Set(),
@@ -129,9 +135,11 @@ test("apply_patch accepts new-file diffs without a trailing newline", async () =
   ].join("\n");
   const registry = createToolRegistry(
     createActionableCodingTools({
-      safeCommands: [],
-      commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
-      maxPatchBytes: 100_000,
+      settings: {
+        safeCommands: [],
+        commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
+        maxPatchBytes: 100_000,
+      },
       sessionState: {
         baselineDirtyPaths: new Set(),
         forgeletTouchedPaths: new Set(),
@@ -161,9 +169,11 @@ test("run_command executes an exact configured command after approval", async ()
   const command = `${process.execPath} -e "console.log('verified')"`;
   const registry = createToolRegistry(
     createActionableCodingTools({
-      safeCommands: [command],
-      commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
-      maxPatchBytes: 100_000,
+      settings: {
+        safeCommands: [command],
+        commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
+        maxPatchBytes: 100_000,
+      },
       sessionState: {
         baselineDirtyPaths: new Set(),
         forgeletTouchedPaths: new Set(),
@@ -195,9 +205,11 @@ test("run_command denies commands that do not exactly match safeCommands", async
   const requested = `${configured} --extra`;
   const registry = createToolRegistry(
     createActionableCodingTools({
-      safeCommands: [configured],
-      commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
-      maxPatchBytes: 100_000,
+      settings: {
+        safeCommands: [configured],
+        commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
+        maxPatchBytes: 100_000,
+      },
       sessionState: {
         baselineDirtyPaths: new Set(),
         forgeletTouchedPaths: new Set(),
@@ -236,9 +248,11 @@ test("apply_patch denies targets that were dirty at Session start before approva
   ].join("\n");
   const registry = createToolRegistry(
     createActionableCodingTools({
-      safeCommands: [],
-      commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
-      maxPatchBytes: 100_000,
+      settings: {
+        safeCommands: [],
+        commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
+        maxPatchBytes: 100_000,
+      },
       sessionState: {
         baselineDirtyPaths: new Set(["example.txt"]),
         forgeletTouchedPaths: new Set(),
@@ -279,9 +293,11 @@ test("apply_patch denies delete-file patches before approval", async () => {
   ].join("\n");
   const registry = createToolRegistry(
     createActionableCodingTools({
-      safeCommands: [],
-      commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
-      maxPatchBytes: 100_000,
+      settings: {
+        safeCommands: [],
+        commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
+        maxPatchBytes: 100_000,
+      },
       sessionState: {
         baselineDirtyPaths: new Set(),
         forgeletTouchedPaths: new Set(),

@@ -23,6 +23,12 @@ export interface ActiveContextCompactor {
   state(): ActiveContextCompactorState;
 }
 
+export interface ActiveContextSettings {
+  maxConversationBytes: number;
+  observationDigestPreviewBytes: number;
+  protectedRecentTurns: number;
+}
+
 export type ActiveContextFitResult =
   | {
       outcome: "fitted";
@@ -47,9 +53,7 @@ export interface CreateActiveContextCompactorInput {
     payload: TraceEventPayloads[Type],
   ): Promise<void>;
   debugTranscript?: DebugTranscriptWriter;
-  maxConversationBytes: number;
-  observationDigestPreviewBytes: number;
-  protectedRecentTurns: number;
+  settings: ActiveContextSettings;
   restoreState?: Partial<ActiveContextCompactorState>;
 }
 
@@ -65,8 +69,9 @@ export function createActiveContextCompactor(
   return {
     async fitTurn(conversation, turnIndex) {
       const compaction = compactConversationInPlace(conversation, {
-        maxConversationBytes: input.maxConversationBytes,
-        observationDigestPreviewBytes: input.observationDigestPreviewBytes,
+        maxConversationBytes: input.settings.maxConversationBytes,
+        observationDigestPreviewBytes:
+          input.settings.observationDigestPreviewBytes,
         rollingSummaryText: rollingSummary?.text,
       });
       if (
@@ -83,8 +88,8 @@ export function createActiveContextCompactor(
       const foldResult = await attemptConversationFold({
         conversation,
         rollingSummary,
-        maxConversationBytes: input.maxConversationBytes,
-        protectedRecentTurns: input.protectedRecentTurns,
+        maxConversationBytes: input.settings.maxConversationBytes,
+        protectedRecentTurns: input.settings.protectedRecentTurns,
         task: input.task,
         modelClient: input.modelClient,
         failedFoldAttempts,
@@ -116,8 +121,8 @@ export function createActiveContextCompactor(
       });
       if (foldResult.outcome === "stop") {
         await input.appendTrace("conversation_fold_stopped", {
-          protectedRecentTurns: input.protectedRecentTurns,
-          maxConversationBytes: input.maxConversationBytes,
+          protectedRecentTurns: input.settings.protectedRecentTurns,
+          maxConversationBytes: input.settings.maxConversationBytes,
         });
         return { outcome: "exhausted" };
       }
@@ -134,7 +139,7 @@ export function createActiveContextCompactor(
         await input.appendTrace("conversation_folded", { ...foldResult.trace });
         if (foldResult.trace.narrativeClipped)
           await input.appendTrace("conversation_fold_narrative_clipped", {
-            maxConversationBytes: input.maxConversationBytes,
+            maxConversationBytes: input.settings.maxConversationBytes,
           });
       }
 
