@@ -535,31 +535,55 @@ async function settleExecution<TCompletion>(input: {
             ),
           ),
       });
-    await traceWriter.append(
-      createTraceEvent(session.id, "final_summary", new Date().toISOString(), {
-        summary: failure.summary,
-        error: failure.error,
-      }),
-    );
     const reason = typedFailureReason(error) ?? "model_execution_error";
-    await traceWriter.append(
-      createTraceEvent(
-        session.id,
-        "session_finished",
-        new Date().toISOString(),
-        {
-          status: "failed",
-          reason,
+    if (loop.resume) {
+      // A crashed resume attempt is attempt evidence, not a terminal outcome:
+      // the pause stays in force and the snapshot survives for retry, so
+      // final_summary and session_finished keep their literal meaning (ADR 0061).
+      await traceWriter.append(
+        createTraceEvent(
+          session.id,
+          "session_resume_failed",
+          new Date().toISOString(),
+          {
+            reason,
+            error: failure.error,
+            summary: failure.summary,
+            failedAt: new Date().toISOString(),
+          },
+        ),
+      );
+      await emitLiveEvent(loop.onLiveEvent, {
+        type: "session_resume_failed",
+        sessionId: session.id,
+        reason,
+      });
+    } else {
+      await traceWriter.append(
+        createTraceEvent(session.id, "final_summary", new Date().toISOString(), {
+          summary: failure.summary,
           error: failure.error,
-          finishedAt: new Date().toISOString(),
-        },
-      ),
-    );
-    await emitLiveEvent(loop.onLiveEvent, {
-      type: "session_finished",
-      status: "failed",
-      reason,
-    });
+        }),
+      );
+      await traceWriter.append(
+        createTraceEvent(
+          session.id,
+          "session_finished",
+          new Date().toISOString(),
+          {
+            status: "failed",
+            reason,
+            error: failure.error,
+            finishedAt: new Date().toISOString(),
+          },
+        ),
+      );
+      await emitLiveEvent(loop.onLiveEvent, {
+        type: "session_finished",
+        status: "failed",
+        reason,
+      });
+    }
     await removePidMarker(workspaceRoot, session.id);
     throw error;
   }

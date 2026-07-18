@@ -60,6 +60,63 @@ test("folds lifecycle evidence once for downstream Session read models", () => {
   });
 });
 
+function lifecycleTrace(
+  steps: readonly (readonly [type: string, payload: Record<string, unknown>])[],
+) {
+  return [
+    {
+      type: "session_started",
+      ts: "2026-07-18T00:00:00.000Z",
+      sessionId: "sess_lifecycle",
+      payload: { workflow: "coding", taskHash: "taskhash" },
+    },
+    ...steps.map(([type, payload], index) => ({
+      type,
+      ts: `2026-07-18T00:00:0${index + 1}.000Z`,
+      sessionId: "sess_lifecycle",
+      payload,
+    })),
+  ]
+    .map((event) => parseTraceEventLine(JSON.stringify(event)))
+    .filter(isTraceEvent);
+}
+
+test("a failed resume attempt re-arms the pause in the lifecycle fold", () => {
+  const events = lifecycleTrace([
+    ["session_paused", { reason: "out_of_envelope" }],
+    ["session_resumed", { decision: "approve" }],
+    ["session_resume_failed", { reason: "model_execution_error" }],
+  ]);
+
+  expect(foldSessionTrace(events)).toMatchObject({
+    status: "paused",
+    pausedAt: "2026-07-18T00:00:01.000Z",
+    hasFinished: false,
+  });
+});
+
+test("the last session_finished decides status for a historical retried trace", () => {
+  const events = lifecycleTrace([
+    ["session_paused", { reason: "out_of_envelope" }],
+    ["session_resumed", { decision: "approve" }],
+    ["session_finished", { status: "failed", reason: "model_execution_error" }],
+    ["session_resumed", { decision: "approve" }],
+    ["session_finished", { status: "completed" }],
+  ]);
+
+  expect(foldSessionTrace(events)).toMatchObject({ status: "completed" });
+});
+
+test("a historical crashed resume without retry still reads as failed", () => {
+  const events = lifecycleTrace([
+    ["session_paused", { reason: "out_of_envelope" }],
+    ["session_resumed", { decision: "approve" }],
+    ["session_finished", { status: "failed", reason: "model_execution_error" }],
+  ]);
+
+  expect(foldSessionTrace(events)).toMatchObject({ status: "failed" });
+});
+
 test("lists completed and incomplete project sessions from traces", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-sessions-"));
   const sessionDir = join(workspaceRoot, ".forgelet", "sessions");

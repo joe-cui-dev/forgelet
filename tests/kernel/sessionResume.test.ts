@@ -7,7 +7,10 @@ import { runCodingSession, resumeCodingSession } from "../../src/workflows/codin
 import { FakeModelClient } from "../../src/models/testing/index.js";
 import { readPauseSnapshot } from "../../src/sessions/pauseSnapshot.js";
 import { readPidMarker } from "../../src/sessions/pidMarker.js";
+import { foldSessionTrace } from "../../src/sessions/index.js";
+import { listPausedSessions } from "../../src/sessions/queue.js";
 import { readTraceFile } from "../../src/trace/index.js";
+import { readTypedTrace } from "../testSupport/trace.js";
 
 function execGit(workspaceRoot: string, args: string[]): Promise<void> {
   return new Promise((resolveExec, rejectExec) => {
@@ -254,7 +257,7 @@ test("stop: resuming forces a wrap-up turn and finishes as stopped", async () =>
   expect(events.at(-1)?.payload.reason).toBe("user_stopped");
 });
 
-test("a failed resume records failure evidence, clears its PID marker, and preserves the snapshot for retry", async () => {
+test("a failed resume records attempt evidence, re-arms the pause, and preserves the snapshot for retry", async () => {
   const { workspaceRoot, result } = await pauseOnOutOfEnvelopePatch([
     { id: "call_notes", patchPath: "docs/notes.md", patchContent: "notes" },
   ]);
@@ -277,27 +280,33 @@ test("a failed resume records failure evidence, clears its PID marker, and prese
   ).rejects.toThrow("DeepSeek API response aborted before completion.");
 
   const events = await readTraceFile(result.tracePath);
-  const finalSummary = events.find((event) => event.type === "final_summary");
-  const finished = events.find(
-    (event) =>
-      event.type === "session_finished" && event.payload.status === "failed",
+  const resumeFailed = events.find(
+    (event) => event.type === "session_resume_failed",
   );
-  expect(finalSummary?.payload.error).toMatchObject({
-    message: "DeepSeek API response aborted before completion.",
-  });
-  expect(finished?.payload).toMatchObject({
-    status: "failed",
+  expect(resumeFailed?.payload).toMatchObject({
     reason: "model_execution_error",
+    error: { message: "DeepSeek API response aborted before completion." },
   });
+  // Attempt evidence only: the Session did not finish, so terminal evidence
+  // must not appear (ADR 0061).
+  expect(events.some((event) => event.type === "final_summary")).toBe(false);
+  expect(events.some((event) => event.type === "session_finished")).toBe(false);
   expect(liveEvents).toContainEqual({
-    type: "session_finished",
-    status: "failed",
+    type: "session_resume_failed",
+    sessionId: result.session.id,
     reason: "model_execution_error",
   });
   await expect(readPidMarker(workspaceRoot, result.session.id)).resolves.toBeUndefined();
   await expect(readPauseSnapshot(workspaceRoot, result.session.id)).resolves.toMatchObject({
     sessionId: result.session.id,
   });
+
+  // The pause is back in force: the fold reads paused and the Decision Queue
+  // lists the Session again.
+  const folded = foldSessionTrace(await readTypedTrace(result.tracePath));
+  expect(folded?.status).toBe("paused");
+  const queue = await listPausedSessions(workspaceRoot);
+  expect(queue.map((entry) => entry.sessionId)).toContain(result.session.id);
 
   const retried = await resumeCodingSession({
     workspaceRoot,
@@ -307,4 +316,6 @@ test("a failed resume records failure evidence, clears its PID marker, and prese
   });
   expect(retried.summary).toMatch(/Retried successfully\./);
   await expect(readPauseSnapshot(workspaceRoot, result.session.id)).rejects.toThrow();
+  const foldedAfterRetry = foldSessionTrace(await readTypedTrace(result.tracePath));
+  expect(foldedAfterRetry?.status).toBe("completed");
 });

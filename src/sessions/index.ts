@@ -75,13 +75,25 @@ export function foldSessionTrace(
   if (!started) return undefined;
   const task = events.find((event) => event.type === "user_task");
   const route = events.find((event) => event.type === "routing_selected");
-  const finalSummary = events.find((event) => event.type === "final_summary");
-  const finished = events.find((event) => event.type === "session_finished");
+  const finalSummary = lastEvent(events, "final_summary");
+  const finished = lastEvent(events, "session_finished");
   const paused = lastEvent(events, "session_paused");
-  const resumed = lastEvent(events, "session_resumed");
-  const isPaused = paused !== undefined && (
-    resumed === undefined || events.indexOf(paused) > events.indexOf(resumed)
-  );
+  // The last lifecycle event decides the state: a failed resume attempt
+  // re-arms the pause (ADR 0061), and a retried Session reads by its final
+  // outcome even when older attempt evidence recorded a failure.
+  const lastLifecycle = events
+    .filter(
+      (event) =>
+        event.type === "session_paused" ||
+        event.type === "session_resumed" ||
+        event.type === "session_resume_failed" ||
+        event.type === "session_finished",
+    )
+    .at(-1);
+  const isPaused =
+    paused !== undefined &&
+    (lastLifecycle?.type === "session_paused" ||
+      lastLifecycle?.type === "session_resume_failed");
 
   return {
     id: started.sessionId,
@@ -93,7 +105,12 @@ export function foldSessionTrace(
     ...(isPaused ? { pausedAt: paused.ts } : {}),
     hasFinalSummary: finalSummary !== undefined,
     hasFinished: finished !== undefined,
-    status: finished?.payload.status ?? (isPaused ? "paused" : "incomplete"),
+    status:
+      lastLifecycle?.type === "session_finished"
+        ? lastLifecycle.payload.status ?? "incomplete"
+        : isPaused
+          ? "paused"
+          : "incomplete",
     ...(route
       ? { route: { model: route.payload.model ?? "", reason: route.payload.reason ?? "" } }
       : {}),

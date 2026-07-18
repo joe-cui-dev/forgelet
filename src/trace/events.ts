@@ -115,6 +115,12 @@ export interface TraceEventPayloads {
     finishedAt?: string;
   };
   session_resumed: { decision?: "approve" | "deny" | "widen" | "stop" };
+  session_resume_failed: {
+    reason?: string;
+    error?: unknown;
+    summary?: string;
+    failedAt?: string;
+  };
   envelope_amended: {
     before?: { writeScopePrefixes: string[]; allowedCommands: string[] };
     after?: { writeScopePrefixes: string[]; allowedCommands: string[] };
@@ -313,6 +319,7 @@ const traceEventTypes = [
   "final_summary",
   "session_finished",
   "session_resumed",
+  "session_resume_failed",
   "envelope_amended",
   "session_paused",
   "budget_wrapup_triggered",

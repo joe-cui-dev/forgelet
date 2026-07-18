@@ -41,7 +41,8 @@ export type SessionLiveEvent =
       status: SessionFinishStatus;
       reason?: string;
     }
-  | { type: "session_paused"; sessionId: string };
+  | { type: "session_paused"; sessionId: string }
+  | { type: "session_resume_failed"; sessionId: string; reason?: string };
 
 export type SessionLiveEventSink = (
   event: SessionLiveEvent,
@@ -84,6 +85,8 @@ export const formatSessionLiveEvent = (event: SessionLiveEvent): string => {
         : `Session ${event.status}`;
     case "session_paused":
       return `Session paused: ${event.sessionId}`;
+    case "session_resume_failed":
+      return `Resume attempt failed${event.reason ? `: ${event.reason}` : ""}. Session remains paused; run \`forge decide ${event.sessionId}\` to retry.`;
   }
 };
 
