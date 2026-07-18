@@ -12,7 +12,7 @@ import type { ToolRegistry } from "../../src/tools/toolRegistry.js";
 import {
   executeParallelReadToolCalls,
   groupToolCallsForExecution,
-} from "../../src/kernel/reactNode.js";
+} from "../../src/kernel/toolCallBatch.js";
 import { runCodingSession } from "../../src/workflows/coding.js";
 import { FakeModelClient } from "../../src/models/testing/index.js";
 
