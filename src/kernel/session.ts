@@ -293,18 +293,7 @@ export async function runKernelSession<TCompletion = void>(
         route,
         plan,
         limits,
-        actionableTools: {
-          safeCommands: config.safeCommands,
-          commandTimeoutMs: config.commandTimeoutMs,
-          maxPatchBytes: config.maxPatchBytes,
-        },
-        activeContext: {
-          ...config.activeContext,
-          maxConversationBytes: maxConversationBytesForRoute(
-            config,
-            input.definition.kind,
-          ),
-        },
+        ...loopConfigFor(config, input.definition.kind),
         readScope,
         act: input.act === true,
         baselineDirtyPaths,
@@ -480,18 +469,7 @@ export async function resumeKernelSession<TCompletion = void>(
       route: snapshot.route,
       plan: snapshot.plan,
       limits: snapshot.limits,
-      actionableTools: {
-        safeCommands: config.safeCommands,
-        commandTimeoutMs: config.commandTimeoutMs,
-        maxPatchBytes: config.maxPatchBytes,
-      },
-      activeContext: {
-        ...config.activeContext,
-        maxConversationBytes: maxConversationBytesForRoute(
-          config,
-          snapshot.workflow,
-        ),
-      },
+      ...loopConfigFor(config, snapshot.workflow),
       readScope: snapshot.readScope,
       act: true,
       baselineDirtyPaths: snapshot.working.sessionState.baselineDirtyPaths,
@@ -817,6 +795,21 @@ const sessionTraitFields = (
   ...(traits?.creativeInputKind
     ? { creativeInputKind: traits.creativeInputKind }
     : {}),
+});
+
+const loopConfigFor = (
+  config: Awaited<ReturnType<typeof loadConfig>>,
+  workflow: WorkflowKind,
+) => ({
+  actionableTools: {
+    safeCommands: config.safeCommands,
+    commandTimeoutMs: config.commandTimeoutMs,
+    maxPatchBytes: config.maxPatchBytes,
+  },
+  activeContext: {
+    ...config.activeContext,
+    maxConversationBytes: maxConversationBytesForRoute(config, workflow),
+  },
 });
 
 /**
