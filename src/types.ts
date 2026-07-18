@@ -1,3 +1,5 @@
+import type { ToolObservationErrorCode } from "./observation/index.js";
+
 export type WorkflowKind = "coding" | "writing" | "learning";
 
 export type WorkflowVariant = "creative";
@@ -223,64 +225,6 @@ export interface ToolResult {
   data?: unknown;
   error?: string;
   errorCode?: ToolObservationErrorCode;
-}
-
-export type ToolObservationErrorCode =
-  | "unknown_tool"
-  | "permission_denied"
-  | "invalid_input"
-  | "tool_failed"
-  | "web_egress_denied"
-  | "web_fetch_failed"
-  | "web_content_rejected"
-  | "web_budget_exhausted"
-  | "web_search_failed";
-
-export interface ToolObservation {
-  ok: boolean;
-  toolCallId: string;
-  toolName: string;
-  summary: string;
-  content?: string;
-  error?: {
-    code: ToolObservationErrorCode;
-    message: string;
-  };
-  metadata: {
-    truncated?: boolean;
-    totalBytes?: number;
-    returnedBytes?: number;
-    contentHash?: string;
-    path?: string;
-    rangeKind?: string;
-    offsetBytes?: number;
-    limitBytes?: number;
-    startLine?: number;
-    lineCount?: number;
-    tailLines?: number;
-    returnedStartByte?: number;
-    returnedEndByte?: number;
-    returnedStartLine?: number;
-    returnedEndLine?: number;
-    nextOffsetBytes?: number;
-    preview?: string;
-    changedFiles?: string[];
-    command?: string;
-    exitCode?: number | null;
-    durationMs?: number;
-    timedOut?: boolean;
-    scopeConstrained?: boolean;
-    url?: string;
-    finalUrl?: string;
-    httpStatus?: number;
-    fetchedBytes?: number;
-    storedBytes?: number;
-    contentType?: string;
-    sourceId?: string;
-    deduplicated?: boolean;
-    requestedCount?: number;
-    returnedCount?: number;
-  };
 }
 
 export interface ToolRequest {

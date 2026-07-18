@@ -6,8 +6,8 @@ import { tmpdir } from "os";
 import type {
   Capability,
   ModelToolCall,
-  ToolObservation,
 } from "../../src/types.js";
+import type { ToolObservation } from "../../src/observation/index.js";
 import type { ToolRegistry } from "../../src/tools/toolRegistry.js";
 import {
   executeParallelReadToolCalls,

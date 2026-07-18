@@ -10,8 +10,9 @@ import type {
 } from "../types.js";
 import type { EffectEnvelope } from "../permissions/envelope.js";
 import type { ActLoopRoute, ReactNodeWorkingState } from "../kernel/reactNode.js";
+import type { ObservationRange } from "../observation/index.js";
 
-const PAUSE_SNAPSHOT_VERSION = 2;
+const PAUSE_SNAPSHOT_VERSION = 3;
 
 export interface PauseSnapshot {
   sessionId: string;
@@ -105,13 +106,20 @@ export async function readPauseSnapshot(
   } catch {
     throw new Error(`Pause Snapshot is not valid JSON: ${sessionId} (${path}).`);
   }
-  if (!isRecord(parsed) || parsed.version !== PAUSE_SNAPSHOT_VERSION)
+  if (
+    !isRecord(parsed) ||
+    (parsed.version !== PAUSE_SNAPSHOT_VERSION && parsed.version !== 2)
+  )
     throw new Error(
       `Pause Snapshot version mismatch for Session ${sessionId}: expected ${PAUSE_SNAPSHOT_VERSION}, got ${
         isRecord(parsed) ? String(parsed.version) : "unknown"
       }.`,
     );
-  const { version, working, ...rest } = parsed as SerializedPauseSnapshot;
+  const migrated =
+    parsed.version === 2
+      ? migrateVersionTwoSnapshot(parsed as unknown as SerializedPauseSnapshot)
+      : (parsed as unknown as SerializedPauseSnapshot);
+  const { version, working, ...rest } = migrated;
   const { maxInputTokens: _retiredInputTokenBudget, ...limits } = rest.limits as BudgetLimits & {
     maxInputTokens?: unknown;
   };
@@ -164,3 +172,45 @@ const isNodeError = (error: unknown): error is NodeJS.ErrnoException =>
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
+
+function migrateVersionTwoSnapshot(
+  snapshot: SerializedPauseSnapshot,
+): SerializedPauseSnapshot {
+  const rollingSummary = snapshot.working.rollingSummary;
+  if (!rollingSummary) return { ...snapshot, version: PAUSE_SNAPSHOT_VERSION };
+  return {
+    ...snapshot,
+    version: PAUSE_SNAPSHOT_VERSION,
+    working: {
+      ...snapshot.working,
+      rollingSummary: {
+        ...rollingSummary,
+        ledger: {
+          ...rollingSummary.ledger,
+          files: rollingSummary.ledger.files.map((file) => ({
+            ...file,
+            ranges: (file.ranges as unknown[])
+              .map(parseLegacyRange)
+              .filter((range): range is ObservationRange => range !== undefined),
+          })),
+        },
+      },
+    },
+  };
+}
+
+function parseLegacyRange(value: unknown): ObservationRange | undefined {
+  if (typeof value !== "string") return undefined;
+  const byte = /^byte range (\d+)-(\d+)(?: of (\d+))?$/.exec(value);
+  if (byte)
+    return {
+      kind: "byte",
+      start: Number(byte[1]),
+      end: Number(byte[2]),
+      ...(byte[3] === undefined ? {} : { total: Number(byte[3]) }),
+    };
+  const line = /^line range (\d+)-(\d+)$/.exec(value);
+  return line
+    ? { kind: "line", start: Number(line[1]), end: Number(line[2]) }
+    : undefined;
+}

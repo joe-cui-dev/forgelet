@@ -260,7 +260,12 @@ test("a refold absorbs the previous Rolling Summary into the new one", async () 
     rollingSummary: {
       text: "Prior narrative.\n\nFact Ledger:\nFiles read:\n- oldest.ts: byte range 0-100 of 100",
       ledger: {
-        files: [{ path: "oldest.ts", ranges: ["byte range 0-100 of 100"] }],
+        files: [
+          {
+            path: "oldest.ts",
+            ranges: [{ kind: "byte", start: 0, end: 100, total: 100 }],
+          },
+        ],
         changedFiles: [],
         commands: [],
       },
@@ -324,7 +329,12 @@ test("passes only the prior narrative into the fold prompt, not the Fact Ledger"
     rollingSummary: {
       text: "Prior narrative.\n\nFact Ledger:\nFiles read:\n- oldest.ts: byte range 0-100 of 100",
       ledger: {
-        files: [{ path: "oldest.ts", ranges: ["byte range 0-100 of 100"] }],
+        files: [
+          {
+            path: "oldest.ts",
+            ranges: [{ kind: "byte", start: 0, end: 100, total: 100 }],
+          },
+        ],
         changedFiles: [],
         commands: [],
       },

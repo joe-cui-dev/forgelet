@@ -1,5 +1,10 @@
 import type { ModelMessage } from "../types.js";
-import { clipUtf8WithSuffix, conversationBudgetBytes } from "./budget.js";
+import {
+  parseObservation,
+  toObservationDigest,
+  type ParsedObservation,
+} from "../observation/index.js";
+import { conversationBudgetBytes } from "./budget.js";
 
 export interface CompactionOptions {
   maxConversationBytes: number;
@@ -15,21 +20,6 @@ export interface CompactionResult {
   targetConversationBytes: number;
   toolNames: string[];
   residualOverageBytes: number;
-}
-
-export interface ParsedObservation {
-  ok: boolean;
-  toolCallId: string;
-  toolName: string;
-  summary: string;
-  content?: string;
-  digest?: string;
-  compacted?: boolean;
-  error?: {
-    code?: unknown;
-    message?: unknown;
-  };
-  metadata?: Record<string, unknown>;
 }
 
 const PRIORITY_TOOL_NAMES = new Set(["read_file", "git_diff", "run_command"]);
@@ -114,38 +104,23 @@ function hasPriorityToolName(message: ModelMessage): boolean {
   return parsed ? PRIORITY_TOOL_NAMES.has(parsed.toolName) : false;
 }
 
-export function parseObservation(
-  content: string,
-): ParsedObservation | undefined {
-  try {
-    const value = JSON.parse(content) as unknown;
-    if (!isRecord(value)) return undefined;
-    if (
-      typeof value.ok !== "boolean" ||
-      typeof value.toolCallId !== "string" ||
-      typeof value.toolName !== "string" ||
-      typeof value.summary !== "string"
-    )
-      return undefined;
-    return value as unknown as ParsedObservation;
-  } catch {
-    return undefined;
-  }
-}
-
 function compactObservation(
   observation: ParsedObservation,
   options: CompactionOptions,
 ): ParsedObservation {
+  const digest = toObservationDigest(
+    observation,
+    options.observationDigestPreviewBytes ?? 2_048,
+  );
   return {
     ok: observation.ok,
     toolCallId: observation.toolCallId,
     toolName: observation.toolName,
     summary: observation.summary,
-    digest: digestObservation(observation),
+    digest: digest.digest,
     compacted: true,
     error: compactError(observation.error),
-    metadata: compactMetadata(observation, options),
+    metadata: digest.metadata,
   };
 }
 
@@ -157,103 +132,4 @@ function compactError(
     code: error.code,
     message: error.message,
   };
-}
-
-function compactMetadata(
-  observation: ParsedObservation,
-  options: CompactionOptions,
-): Record<string, unknown> {
-  const metadata = observation.metadata;
-  if (!metadata) return {};
-  const compact: Record<string, unknown> = {};
-  for (const key of COMPACT_METADATA_KEYS) {
-    if (metadata[key] !== undefined) compact[key] = metadata[key];
-  }
-  const previewSource =
-    typeof observation.content === "string"
-      ? observation.content
-      : typeof metadata.preview === "string"
-        ? metadata.preview
-        : undefined;
-  if (previewSource)
-    compact.preview = clipUtf8(
-      previewSource,
-      options.observationDigestPreviewBytes ?? 2_048,
-    );
-  return compact;
-}
-
-function digestObservation(observation: ParsedObservation): string {
-  const metadata = observation.metadata ?? {};
-  const subject =
-    typeof metadata.path === "string" && metadata.path
-      ? metadata.path
-      : observation.toolName;
-  const range = digestRange(metadata);
-  const state =
-    metadata.truncated === true
-      ? "truncated"
-      : metadata.truncated === false
-        ? "complete"
-        : "returned";
-  const continuation =
-    typeof metadata.nextOffsetBytes === "number"
-      ? `, next offset ${metadata.nextOffsetBytes}`
-      : "";
-  return [
-    `Compacted ${observation.toolName} result for ${subject}`,
-    `${range}, ${state}${continuation}.`,
-  ].join("");
-}
-
-function digestRange(metadata: Record<string, unknown>): string {
-  if (
-    typeof metadata.returnedStartByte === "number" &&
-    typeof metadata.returnedEndByte === "number"
-  ) {
-    const total =
-      typeof metadata.totalBytes === "number"
-        ? ` of ${metadata.totalBytes}`
-        : "";
-    return `, byte range ${metadata.returnedStartByte}-${metadata.returnedEndByte}${total}`;
-  }
-  if (
-    typeof metadata.returnedStartLine === "number" &&
-    typeof metadata.returnedEndLine === "number"
-  )
-    return `, line range ${metadata.returnedStartLine}-${metadata.returnedEndLine}`;
-  return "";
-}
-
-const COMPACT_METADATA_KEYS = [
-  "path",
-  "contentHash",
-  "rangeKind",
-  "offsetBytes",
-  "limitBytes",
-  "startLine",
-  "lineCount",
-  "tailLines",
-  "returnedStartByte",
-  "returnedEndByte",
-  "returnedStartLine",
-  "returnedEndLine",
-  "returnedBytes",
-  "totalBytes",
-  "nextOffsetBytes",
-  "truncated",
-  "changedFiles",
-  "command",
-  "exitCode",
-  "durationMs",
-  "timedOut",
-  "scopeConstrained",
-] as const;
-
-function clipUtf8(value: string, maxBytes: number): string {
-  return clipUtf8WithSuffix(value, maxBytes, "").text;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

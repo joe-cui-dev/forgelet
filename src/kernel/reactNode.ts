@@ -12,10 +12,13 @@ import type {
   SessionAudit,
   SessionFinishStatus,
   SessionStopReason,
-  ToolObservation,
   ToolRequest,
   WorkflowKind,
 } from "../types.js";
+import {
+  observationForModel,
+  type ToolObservation,
+} from "../observation/index.js";
 import { execFile } from "node:child_process";
 import {
   createActiveContextCompactor,
@@ -1086,20 +1089,6 @@ const isUsableFinalContent = (content: string): boolean => {
   const trimmed = content.trim();
   if (!trimmed) return false;
   return !trimmed.includes("<｜｜DSML｜｜tool_calls>");
-};
-
-const observationForModel = (
-  observation: ToolObservation,
-): Record<string, unknown> => {
-  return {
-    ok: observation.ok,
-    toolCallId: observation.toolCallId,
-    toolName: observation.toolName,
-    summary: observation.summary,
-    content: observation.content,
-    error: observation.error,
-    metadata: observation.metadata,
-  };
 };
 
 const formatCompletedSummary = (

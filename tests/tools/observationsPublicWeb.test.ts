@@ -1,4 +1,4 @@
-import { toolResultToObservation } from "../../src/tools/observations.js";
+import { toolResultToObservation } from "../../src/observation/index.js";
 
 test("preserves typed public-web errors and receipt metadata", () => {
   const observation = toolResultToObservation(

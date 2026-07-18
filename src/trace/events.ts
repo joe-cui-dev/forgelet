@@ -8,9 +8,9 @@ import type {
   RiskTier,
   SessionAudit,
   SessionFinishStatus,
-  ToolObservation,
   WorkflowKind,
 } from "../types.js";
+import type { ObservationMetadata, ToolObservation } from "../observation/index.js";
 
 /**
  * The complete, additive vocabulary for Session Trace evidence. Fields stay
@@ -217,34 +217,59 @@ interface ModelTurnFailurePayload extends Record<string, unknown> {
   error?: unknown;
 }
 
+export const TRACED_OBSERVATION_KEYS = [
+  "path",
+  "truncated",
+  "totalBytes",
+  "returnedBytes",
+  "contentHash",
+  "rangeKind",
+  "offsetBytes",
+  "limitBytes",
+  "startLine",
+  "lineCount",
+  "tailLines",
+  "returnedStartByte",
+  "returnedEndByte",
+  "returnedStartLine",
+  "returnedEndLine",
+  "nextOffsetBytes",
+  "preview",
+  "changedFiles",
+  "command",
+  "exitCode",
+  "durationMs",
+  "timedOut",
+  "scopeConstrained",
+] as const satisfies readonly (keyof ObservationMetadata)[];
+
 type TraceToolObservationPayload = Pick<
   ToolObservation,
   "ok" | "toolCallId" | "toolName" | "summary" | "error"
-> & Record<string, unknown> & {
-  path?: string;
-  truncated?: boolean;
-  totalBytes?: number;
-  returnedBytes?: number;
-  contentHash?: string;
-  rangeKind?: string;
-  offsetBytes?: number;
-  limitBytes?: number;
-  startLine?: number;
-  lineCount?: number;
-  tailLines?: number;
-  returnedStartByte?: number;
-  returnedEndByte?: number;
-  returnedStartLine?: number;
-  returnedEndLine?: number;
-  nextOffsetBytes?: number;
-  preview?: string;
-  changedFiles?: string[];
-  command?: string;
-  exitCode?: number | null;
-  durationMs?: number;
-  timedOut?: boolean;
-  scopeConstrained?: boolean;
+> & TracedObservationMetadata;
+
+type TracedObservationMetadata = {
+  -readonly [Key in (typeof TRACED_OBSERVATION_KEYS)[number]]?: ObservationMetadata[Key];
 };
+
+export function projectToolObservationForTrace(
+  observation: ToolObservation,
+): TraceToolObservationPayload {
+  // Trace payloads intentionally omit content and web metadata; content belongs
+  // only in the active model observation, while web provenance is recorded as
+  // a context attachment under the Trace vocabulary.
+  const metadata: TracedObservationMetadata = {};
+  for (const key of TRACED_OBSERVATION_KEYS)
+    (metadata as Record<string, unknown>)[key] = observation.metadata[key];
+  return {
+    ok: observation.ok,
+    toolCallId: observation.toolCallId,
+    toolName: observation.toolName,
+    summary: observation.summary,
+    error: observation.error,
+    ...metadata,
+  };
+}
 
 export type TraceEventType = keyof TraceEventPayloads;
 

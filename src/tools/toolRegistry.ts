@@ -6,16 +6,16 @@ import type {
   PermissionPolicy,
   ToolContext,
   ToolDefinition,
-  ToolObservation,
   ToolRequest,
   ToolSchema,
 } from "../types.js";
+import type { ToolObservation } from "../observation/index.js";
 import { createPermissionPolicy } from "../permissions/index.js";
 import {
   deniedToolObservation,
   toolResultToObservation,
   unknownToolObservation,
-} from "./observations.js";
+} from "../observation/index.js";
 
 export interface ToolRegistry {
   listTools(grantedCapabilities: readonly Capability[]): ToolSchema[];

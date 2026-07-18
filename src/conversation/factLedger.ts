@@ -1,15 +1,21 @@
 import type { ModelMessage } from "../types.js";
 import {
+  formatObservationRange,
+  mergeObservationRanges,
+  observationRangeFromMetadata,
+  parseObservation,
+  type ObservationRange,
+} from "../observation/index.js";
+import {
   byteLengthUtf8,
   FACT_LEDGER_BUDGET_RATIO,
   subBudgetBytes,
 } from "./budget.js";
-import { parseObservation } from "./compaction.js";
 
 export interface FactLedgerFileEntry {
   path: string;
   contentHash?: string;
-  ranges: string[];
+  ranges: ObservationRange[];
 }
 
 export interface FactLedger {
@@ -53,8 +59,8 @@ export function buildFactLedger(
       };
       if (typeof metadata.contentHash === "string")
         entry.contentHash = metadata.contentHash;
-      const range = rangeText(metadata);
-      if (range) entry.ranges = mergeRanges([...entry.ranges, range]);
+      const range = observationRangeFromMetadata(metadata);
+      if (range) entry.ranges = mergeObservationRanges([...entry.ranges, range]);
       files.set(metadata.path, entry);
     }
     if (Array.isArray(metadata.changedFiles))
@@ -127,7 +133,7 @@ function renderLedgerLines(
     lines.push("Files read:");
     for (const file of files)
       lines.push(
-        `- ${file.path}${file.contentHash ? ` (hash: ${file.contentHash})` : ""}: ${file.ranges.join("; ")}`,
+        `- ${file.path}${file.contentHash ? ` (hash: ${file.contentHash})` : ""}: ${file.ranges.map(formatObservationRange).join("; ")}`,
       );
   }
   if (ledger.changedFiles.length > 0) {
@@ -170,83 +176,4 @@ function commandText(command: FactLedgerCommandEntry): string {
   const duration =
     typeof command.durationMs === "number" ? `, ${command.durationMs}ms` : "";
   return `${command.command} (exit ${command.exitCode}${duration})`;
-}
-
-function rangeText(metadata: Record<string, unknown>): string | undefined {
-  if (
-    typeof metadata.returnedStartByte === "number" &&
-    typeof metadata.returnedEndByte === "number"
-  ) {
-    const total =
-      typeof metadata.totalBytes === "number" ? ` of ${metadata.totalBytes}` : "";
-    return `byte range ${metadata.returnedStartByte}-${metadata.returnedEndByte}${total}`;
-  }
-  if (
-    typeof metadata.returnedStartLine === "number" &&
-    typeof metadata.returnedEndLine === "number"
-  )
-    return `line range ${metadata.returnedStartLine}-${metadata.returnedEndLine}`;
-  return undefined;
-}
-
-function mergeRanges(ranges: string[]): string[] {
-  const byteRanges = ranges.map(parseByteRange);
-  if (byteRanges.every(Boolean)) {
-    const merged = mergeNumericRanges(byteRanges as ParsedByteRange[]);
-    return merged.map(
-      (range) =>
-        `byte range ${range.start}-${range.end}${range.total === undefined ? "" : ` of ${range.total}`}`,
-    );
-  }
-  const lineRanges = ranges.map(parseLineRange);
-  if (lineRanges.every(Boolean)) {
-    const merged = mergeNumericRanges(lineRanges as ParsedLineRange[]);
-    return merged.map((range) => `line range ${range.start}-${range.end}`);
-  }
-  return [...new Set(ranges)];
-}
-
-interface ParsedByteRange {
-  start: number;
-  end: number;
-  total?: number;
-}
-
-type ParsedLineRange = Pick<ParsedByteRange, "start" | "end">;
-
-function mergeNumericRanges<T extends ParsedByteRange | ParsedLineRange>(
-  ranges: T[],
-): T[] {
-  const sorted = [...ranges].sort((a, b) => a.start - b.start);
-  const merged: T[] = [];
-  for (const range of sorted) {
-    const previous = merged.at(-1);
-    if (
-      previous &&
-      range.start <= previous.end &&
-      ("total" in previous ? previous.total : undefined) ===
-        ("total" in range ? range.total : undefined)
-    ) {
-      previous.end = Math.max(previous.end, range.end);
-    } else {
-      merged.push({ ...range });
-    }
-  }
-  return merged;
-}
-
-function parseByteRange(range: string): ParsedByteRange | undefined {
-  const match = /^byte range (\d+)-(\d+)(?: of (\d+))?$/.exec(range);
-  if (!match) return undefined;
-  return {
-    start: Number(match[1]),
-    end: Number(match[2]),
-    total: match[3] === undefined ? undefined : Number(match[3]),
-  };
-}
-
-function parseLineRange(range: string): ParsedLineRange | undefined {
-  const match = /^line range (\d+)-(\d+)$/.exec(range);
-  if (!match) return undefined;
-  return { start: Number(match[1]), end: Number(match[2]) };
 }

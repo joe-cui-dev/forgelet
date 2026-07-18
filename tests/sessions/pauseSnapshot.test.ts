@@ -30,7 +30,7 @@ test("PauseSnapshot round-trips through write and read, including Sets", async (
   );
   const loaded = await readPauseSnapshot(workspaceRoot, "sess_abc123");
 
-  expect(serialized.version).toBe(2);
+  expect(serialized.version).toBe(3);
   expect(serialized.working.sessionState.baselineDirtyPaths).toEqual(["a.txt"]);
   expect(loaded.working.sessionState.baselineDirtyPaths).toEqual(new Set(["a.txt"]));
   expect(loaded.working.sessionState.continuationOwnedDirtyPaths).toEqual(new Set(["b.txt"]));
@@ -101,6 +101,41 @@ test("readPauseSnapshot tolerates a retired token limit and initializes unpriced
 
   expect(loaded.working.usage.unpricedTurns).toBe(0);
   expect(loaded.limits).not.toHaveProperty("maxInputTokens");
+});
+
+test("readPauseSnapshot upgrades version two ledger ranges", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-pause-"));
+  const snapshot = testSnapshot({
+    sessionId: "sess_legacy_ranges",
+    working: {
+      ...testSnapshot().working,
+      rollingSummary: {
+        text: "Earlier work.",
+        ledger: {
+          files: [
+            {
+              path: "src/index.ts",
+              ranges: [{ kind: "byte", start: 0, end: 20, total: 20 }],
+            },
+          ],
+          changedFiles: [],
+          commands: [],
+        },
+      },
+    },
+  });
+  await writePauseSnapshot(workspaceRoot, snapshot);
+  const path = pauseSnapshotPath(workspaceRoot, snapshot.sessionId);
+  const legacy = JSON.parse(await readFile(path, "utf8"));
+  legacy.version = 2;
+  legacy.working.rollingSummary.ledger.files[0].ranges = ["byte range 0-20 of 20"];
+  await writeFile(path, JSON.stringify(legacy), "utf8");
+
+  const loaded = await readPauseSnapshot(workspaceRoot, snapshot.sessionId);
+
+  expect(loaded.working.rollingSummary?.ledger.files[0]?.ranges).toEqual([
+    { kind: "byte", start: 0, end: 20, total: 20 },
+  ]);
 });
 
 function testSnapshot(overrides: Partial<PauseSnapshot> = {}): PauseSnapshot {

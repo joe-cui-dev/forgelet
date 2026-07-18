@@ -24,7 +24,7 @@ test("records a read file's path, hash, and range from a folded observation", ()
     {
       path: "src/index.ts",
       contentHash: "src/index.ts-hash",
-      ranges: ["byte range 0-500 of 500"],
+      ranges: [{ kind: "byte", start: 0, end: 500, total: 500 }],
     },
   ]);
 });
@@ -102,12 +102,12 @@ test("carries a previous ledger forward across refolds, merging by path", () => 
     {
       path: "src/index.ts",
       contentHash: "hash-v2",
-      ranges: ["byte range 0-1000 of 1000"],
+      ranges: [{ kind: "byte", start: 0, end: 1000, total: 1000 }],
     },
     {
       path: "src/other.ts",
       contentHash: "other-hash",
-      ranges: ["byte range 0-200 of 200"],
+      ranges: [{ kind: "byte", start: 0, end: 200, total: 200 }],
     },
   ]);
 });

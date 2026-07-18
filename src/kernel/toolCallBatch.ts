@@ -2,9 +2,10 @@ import type {
   AgentSession,
   Capability,
   ModelToolCall,
-  ToolObservation,
   ToolRequest,
 } from "../types.js";
+import type { ToolObservation } from "../observation/index.js";
+import { projectToolObservationForTrace } from "../trace/events.js";
 import type {
   DebugTranscriptEvent,
   DebugTranscriptWriter,
@@ -319,7 +320,7 @@ const executeToolCall = async (input: {
       reason: execution.approvalDecision.reason,
       fullPatchShown: execution.approvalDecision.fullPatchShown,
     });
-  await input.appendTrace("tool_result", traceToolObservation(execution.observation));
+  await input.appendTrace("tool_result", projectToolObservationForTrace(execution.observation));
   await input.debugTranscript?.append({
     type: "tool_result",
     ts: new Date().toISOString(),
@@ -367,43 +368,6 @@ const liveCommand = (toolCall: ModelToolCall): string | undefined => {
   return typeof toolCall.input.command === "string"
     ? toolCall.input.command
     : undefined;
-};
-
-const traceToolObservation = (
-  observation: ToolObservation,
-): TraceEventPayloads["tool_result"] => {
-  // Trace payloads intentionally omit `content`; full read-only results should
-  // only live in the active model observation.
-  return {
-    ok: observation.ok,
-    toolCallId: observation.toolCallId,
-    toolName: observation.toolName,
-    summary: observation.summary,
-    error: observation.error,
-    path: observation.metadata.path,
-    truncated: observation.metadata.truncated,
-    totalBytes: observation.metadata.totalBytes,
-    returnedBytes: observation.metadata.returnedBytes,
-    contentHash: observation.metadata.contentHash,
-    rangeKind: observation.metadata.rangeKind,
-    offsetBytes: observation.metadata.offsetBytes,
-    limitBytes: observation.metadata.limitBytes,
-    startLine: observation.metadata.startLine,
-    lineCount: observation.metadata.lineCount,
-    tailLines: observation.metadata.tailLines,
-    returnedStartByte: observation.metadata.returnedStartByte,
-    returnedEndByte: observation.metadata.returnedEndByte,
-    returnedStartLine: observation.metadata.returnedStartLine,
-    returnedEndLine: observation.metadata.returnedEndLine,
-    nextOffsetBytes: observation.metadata.nextOffsetBytes,
-    preview: observation.metadata.preview,
-    changedFiles: observation.metadata.changedFiles,
-    command: observation.metadata.command,
-    exitCode: observation.metadata.exitCode,
-    durationMs: observation.metadata.durationMs,
-    timedOut: observation.metadata.timedOut,
-    scopeConstrained: observation.metadata.scopeConstrained,
-  };
 };
 
 const emitLiveEvent = async (
