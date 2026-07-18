@@ -17,7 +17,8 @@ test("ingests registered metadata by runtime category and derives a bounded prev
         content: "x".repeat(600),
         path: "src/index.ts",
         totalBytes: 600,
-        exitCode: null,
+        truncated: false,
+        exitCode: 7,
         changedFiles: ["src/a.ts", 7, "src/b.ts"],
         url: 7,
       },
@@ -29,13 +30,24 @@ test("ingests registered metadata by runtime category and derives a bounded prev
   expect(observation.metadata).toEqual({
     path: "src/index.ts",
     totalBytes: 600,
-    exitCode: null,
+    truncated: false,
+    exitCode: 7,
     changedFiles: ["src/a.ts", "src/b.ts"],
     preview: "x".repeat(500),
   });
 });
 
-test("round-trips a model observation and preserves the existing digest form", () => {
+test("ingests both exit-code variants", () => {
+  const observation = toolResultToObservation(
+    { ok: true, summary: "No process status.", data: { exitCode: null } },
+    "call_null_exit",
+    "run_command",
+  );
+
+  expect(observation.metadata.exitCode).toBeNull();
+});
+
+test("round-trips a model observation and preserves web source identity in its digest", () => {
   const observation = toolResultToObservation(
     {
       ok: true,
@@ -55,9 +67,11 @@ test("round-trips a model observation and preserves the existing digest form", (
 
   const parsed = parseObservation(JSON.stringify(observationForModel(observation)));
   expect(parsed).toEqual(observation);
-  expect(toObservationDigest(parsed!, 2_048).digest).toBe(
-    "Compacted web_read result for web_read, byte range 0-11 of 11, complete.",
-  );
+  expect(toObservationDigest(parsed!, 2_048)).toMatchObject({
+    digest:
+      "Compacted web_read result for https://example.com/article, byte range 0-11 of 11, complete.",
+    metadata: { url: "https://example.com/article" },
+  });
 });
 
 test("merges overlapping and adjacent equal-total ranges without merging unequal totals", () => {

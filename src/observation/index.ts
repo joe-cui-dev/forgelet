@@ -36,13 +36,13 @@ export const OBSERVATION_METADATA_FIELDS = {
   durationMs: { kind: "number", digestKept: true },
   timedOut: { kind: "boolean", digestKept: true },
   scopeConstrained: { kind: "boolean", digestKept: true },
-  url: { kind: "string", digestKept: false },
+  url: { kind: "string", digestKept: true },
   finalUrl: { kind: "string", digestKept: false },
   httpStatus: { kind: "number", digestKept: false },
   fetchedBytes: { kind: "number", digestKept: false },
   storedBytes: { kind: "number", digestKept: false },
   contentType: { kind: "string", digestKept: false },
-  sourceId: { kind: "string", digestKept: false },
+  sourceId: { kind: "string", digestKept: true },
   deduplicated: { kind: "boolean", digestKept: false },
   requestedCount: { kind: "number", digestKept: false },
   returnedCount: { kind: "number", digestKept: false },
@@ -215,7 +215,9 @@ export function digestObservation(observation: ParsedObservation): string {
   const subject =
     typeof metadata.path === "string" && metadata.path
       ? metadata.path
-      : observation.toolName;
+      : typeof metadata.url === "string" && metadata.url
+        ? metadata.url
+        : observation.toolName;
   const range = observationRangeFromMetadata(metadata);
   const state =
     metadata.truncated === true

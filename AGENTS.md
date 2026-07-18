@@ -26,6 +26,7 @@ Do not default to reading deleted or historical planning docs from git history. 
 - Agent Kernel session shell and bounded ReAct node: `src/kernel/`
 - Workflow definitions and typed entries: `src/workflows/`
 - Tool registry and tools: `src/tools/`
+- Tool Observation intake, model projection, digest projection, and range handling: `src/observation/`
 - Permissions and read scope: `src/permissions/`, `src/readScope/`
 - Model adapters, provider-for-model mapping and runnability (`routing.ts`), and test clients: `src/models/`
 - Workflow-to-model routing (`routeModel`) and user config: `src/config/`
