@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { runCodingSession, resumeCodingSession } from "../../src/workflows/coding.js";
 import { FakeModelClient } from "../../src/models/testing/index.js";
 import { readPauseSnapshot } from "../../src/sessions/pauseSnapshot.js";
+import { readPidMarker } from "../../src/sessions/pidMarker.js";
 import { readTraceFile } from "../../src/trace/index.js";
 
 function execGit(workspaceRoot: string, args: string[]): Promise<void> {
@@ -251,4 +252,59 @@ test("stop: resuming forces a wrap-up turn and finishes as stopped", async () =>
   expect(events.at(-1)?.type).toBe("session_finished");
   expect(events.at(-1)?.payload.status).toBe("stopped");
   expect(events.at(-1)?.payload.reason).toBe("user_stopped");
+});
+
+test("a failed resume records failure evidence, clears its PID marker, and preserves the snapshot for retry", async () => {
+  const { workspaceRoot, result } = await pauseOnOutOfEnvelopePatch([
+    { id: "call_notes", patchPath: "docs/notes.md", patchContent: "notes" },
+  ]);
+  const liveEvents: unknown[] = [];
+
+  await expect(
+    resumeCodingSession({
+      workspaceRoot,
+      sessionId: result.session.id,
+      modelClient: {
+        async createTurn() {
+          throw new Error("DeepSeek API response aborted before completion.");
+        },
+      },
+      decision: { kind: "approve" },
+      onLiveEvent: (event) => {
+        liveEvents.push(event);
+      },
+    }),
+  ).rejects.toThrow("DeepSeek API response aborted before completion.");
+
+  const events = await readTraceFile(result.tracePath);
+  const finalSummary = events.find((event) => event.type === "final_summary");
+  const finished = events.find(
+    (event) =>
+      event.type === "session_finished" && event.payload.status === "failed",
+  );
+  expect(finalSummary?.payload.error).toMatchObject({
+    message: "DeepSeek API response aborted before completion.",
+  });
+  expect(finished?.payload).toMatchObject({
+    status: "failed",
+    reason: "model_execution_error",
+  });
+  expect(liveEvents).toContainEqual({
+    type: "session_finished",
+    status: "failed",
+    reason: "model_execution_error",
+  });
+  await expect(readPidMarker(workspaceRoot, result.session.id)).resolves.toBeUndefined();
+  await expect(readPauseSnapshot(workspaceRoot, result.session.id)).resolves.toMatchObject({
+    sessionId: result.session.id,
+  });
+
+  const retried = await resumeCodingSession({
+    workspaceRoot,
+    sessionId: result.session.id,
+    modelClient: new FakeModelClient([{ content: "Retried successfully.", toolCalls: [] }]),
+    decision: { kind: "approve" },
+  });
+  expect(retried.summary).toMatch(/Retried successfully\./);
+  await expect(readPauseSnapshot(workspaceRoot, result.session.id)).rejects.toThrow();
 });
