@@ -97,6 +97,7 @@ export interface ReactNodeResumeState {
   decision: "approve" | "deny" | "stop";
   pendingToolCall: ModelToolCall;
   remainingToolCalls: ModelToolCall[];
+  executedObservations: ToolObservation[];
   conversation: ModelMessage[];
   rollingSummary?: RollingSummaryState;
   failedFoldAttempts: number;
@@ -380,6 +381,12 @@ export const runReactNode = async (
   let forcedStopReason: SessionStopReason | undefined;
 
   if (input.resume) {
+    for (const observation of input.resume.executedObservations)
+      conversation.push({
+        role: "tool",
+        toolCallId: observation.toolCallId,
+        content: JSON.stringify(observationForModel(observation)),
+      });
     const batchOutcome = await executeToolCallBatch({
       toolCalls: [input.resume.pendingToolCall, ...input.resume.remainingToolCalls],
       toolRegistry,

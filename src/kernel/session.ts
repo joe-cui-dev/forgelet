@@ -604,6 +604,7 @@ export async function resumeKernelSession<TCompletion = void>(
         decision: decisionKind,
         pendingToolCall: snapshot.pendingToolCall,
         remainingToolCalls: snapshot.remainingToolCalls,
+        executedObservations: snapshot.executedObservations,
         conversation: snapshot.conversation,
         rollingSummary: snapshot.rollingSummary,
         failedFoldAttempts: snapshot.failedFoldAttempts,

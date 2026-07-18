@@ -1,6 +1,6 @@
 import { expect, test } from "@jest/globals";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { runCodingSession, resumeCodingSession } from "../../src/workflows/coding.js";
@@ -94,6 +94,56 @@ test("approve: resuming applies the pending patch and the session completes", as
   expect(approval?.payload.reason).toMatch(/forge decide/);
   expect(events.at(-1)?.type).toBe("session_finished");
   expect(events.at(-1)?.payload.status).toBe("completed");
+});
+
+test("approve: resuming a partially executed batch preserves every declared tool observation", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-resume-partial-batch-"));
+  await execGit(workspaceRoot, ["init"]);
+  await writeFile(join(workspaceRoot, "source.txt"), "source\n", "utf8");
+
+  const initialModelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        { id: "call_read", name: "read_file", input: { path: "source.txt" } },
+        {
+          id: "call_notes",
+          name: "apply_patch",
+          input: { patch: newFilePatch("docs/notes.md", "notes") },
+        },
+      ],
+    },
+  ]);
+  const paused = await runCodingSession({
+    task: "read source and write notes",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient: initialModelClient,
+    act: true,
+    envelope: { writeScopePrefixes: ["src"], allowedCommands: [] },
+  });
+  expect(paused.status).toBe("paused");
+
+  const resumeModelClient = new FakeModelClient([
+    { content: "Read source and wrote notes.", toolCalls: [] },
+  ]);
+  await resumeCodingSession({
+    workspaceRoot,
+    sessionId: paused.session.id,
+    modelClient: resumeModelClient,
+    decision: { kind: "approve" },
+  });
+
+  const toolMessages = resumeModelClient.turnInputs[0]?.messages.filter(
+    (message) => message.role === "tool",
+  );
+  expect(toolMessages?.map((message) => message.toolCallId)).toEqual([
+    "call_read",
+    "call_notes",
+  ]);
+  const declaredToolCallIds = resumeModelClient.turnInputs[0]?.messages
+    .filter((message) => message.role === "assistant")
+    .flatMap((message) => message.toolCalls?.map((toolCall) => toolCall.id) ?? []);
+  expect(toolMessages?.map((message) => message.toolCallId)).toEqual(declaredToolCallIds);
 });
 
 test("deny: resuming denies the pending patch, the model is told, and the session continues", async () => {
