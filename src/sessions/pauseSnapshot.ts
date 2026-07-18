@@ -9,7 +9,13 @@ import type {
   WorkflowVariant,
 } from "../types.js";
 import type { EffectEnvelope } from "../permissions/envelope.js";
-import type { ActLoopRoute, ReactNodeWorkingState } from "../kernel/reactNode.js";
+import type { ActLoopRoute } from "../kernel/reactNode.js";
+import {
+  deserializeWorkingState,
+  serializeWorkingState,
+  type ReactNodeWorkingState,
+  type SerializedWorkingState,
+} from "../kernel/workingState.js";
 import type { ObservationRange } from "../observation/index.js";
 
 const PAUSE_SNAPSHOT_VERSION = 3;
@@ -34,17 +40,9 @@ export interface PauseSnapshot {
   pausedAt: string;
 }
 
-interface SerializedWorkingSessionState {
-  baselineDirtyPaths: string[];
-  continuationOwnedDirtyPaths?: string[];
-  forgeletTouchedPaths: string[];
-}
-
 type SerializedPauseSnapshot = Omit<PauseSnapshot, "working"> & {
   version: number;
-  working: Omit<ReactNodeWorkingState, "sessionState"> & {
-    sessionState: SerializedWorkingSessionState;
-  };
+  working: SerializedWorkingState;
 };
 
 export function pauseSnapshotPath(
@@ -71,20 +69,7 @@ export async function writePauseSnapshot(
   const serialized: SerializedPauseSnapshot = {
     ...snapshot,
     version: PAUSE_SNAPSHOT_VERSION,
-    working: {
-      ...snapshot.working,
-      sessionState: {
-        baselineDirtyPaths: [...snapshot.working.sessionState.baselineDirtyPaths],
-        ...(snapshot.working.sessionState.continuationOwnedDirtyPaths
-        ? {
-            continuationOwnedDirtyPaths: [
-                ...snapshot.working.sessionState.continuationOwnedDirtyPaths,
-            ],
-          }
-        : {}),
-        forgeletTouchedPaths: [...snapshot.working.sessionState.forgeletTouchedPaths],
-      },
-    },
+    working: serializeWorkingState(snapshot.working),
   };
   await writeFile(path, `${JSON.stringify(serialized, null, 2)}\n`, "utf8");
 }
@@ -126,21 +111,7 @@ export async function readPauseSnapshot(
   return {
     ...rest,
     limits,
-    working: {
-      ...working,
-      usage: { ...working.usage, unpricedTurns: working.usage.unpricedTurns ?? 0 },
-      sessionState: {
-        baselineDirtyPaths: new Set(working.sessionState.baselineDirtyPaths),
-        ...(working.sessionState.continuationOwnedDirtyPaths
-        ? {
-            continuationOwnedDirtyPaths: new Set(
-                working.sessionState.continuationOwnedDirtyPaths,
-            ),
-          }
-        : {}),
-        forgeletTouchedPaths: new Set(working.sessionState.forgeletTouchedPaths),
-      },
-    },
+    working: deserializeWorkingState(working),
   } as PauseSnapshot;
 }
 

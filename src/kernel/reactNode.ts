@@ -12,7 +12,6 @@ import type {
   SessionAudit,
   SessionFinishStatus,
   SessionStopReason,
-  ToolRequest,
   WorkflowKind,
 } from "../types.js";
 import {
@@ -40,6 +39,10 @@ import {
   costBudgetStopReason,
   turnGate,
 } from "./turnGate.js";
+import type {
+  ReactNodePausedSessionState,
+  ReactNodeWorkingState,
+} from "./workingState.js";
 import type {
   ActionableToolSettings,
   ExecutionPolicy,
@@ -105,27 +108,6 @@ export interface ReactNodeResumeState {
   working: ReactNodeWorkingState;
 }
 
-/** The complete resumable working state for a ReAct Node. This stays flat so
- * the kernel owns one shape for an in-memory run, a paused result, and a Pause
- * Snapshot rather than translating among near-identical mirrors. */
-export interface ReactNodeWorkingState {
-  conversation: ModelMessage[];
-  rollingSummary?: RollingSummaryState;
-  failedFoldAttempts: number;
-  usage: BudgetUsage;
-  activeWallClockMs: number;
-  turnIndex: number;
-  audit: {
-    changedFiles: string[];
-    commands: { command: string; exitCode: number | null; timedOut: boolean }[];
-  };
-  sessionState: ReactNodePausedSessionState;
-  pendingToolCall: ModelToolCall;
-  pendingToolRequest: ToolRequest;
-  remainingToolCalls: ModelToolCall[];
-  executedObservations: ToolObservation[];
-}
-
 export type ReactNodeResult = ReactNodeFinishResult | ReactNodePausedResult;
 
 export interface ReactNodeFinishResult {
@@ -134,12 +116,6 @@ export interface ReactNodeFinishResult {
   summary: string;
   finalContent?: string;
   audit?: SessionAudit;
-}
-
-export interface ReactNodePausedSessionState {
-  baselineDirtyPaths: Set<string>;
-  continuationOwnedDirtyPaths?: Set<string>;
-  forgeletTouchedPaths: Set<string>;
 }
 
 export interface ReactNodePausedResult {
@@ -389,33 +365,59 @@ export const runReactNode = async (
     },
   ): ReactNodeFinishResult => {
     input.session.stage = "final";
-    if (extras?.wrapupContent !== undefined)
-      return {
-        status: "stopped",
-        reason,
-        summary: formatBudgetWrapupSummary(
-          input.session,
-          input.route,
-          usage,
-          reason,
-          input.limits,
-          extras.wrapupContent,
-        ),
-        finalContent: extras.wrapupContent,
-      };
+    const stopped: Omit<ReactNodeFinishResult, "status"> =
+      extras?.wrapupContent !== undefined
+        ? {
+            reason,
+            summary: formatBudgetWrapupSummary(
+              input.session,
+              input.route,
+              usage,
+              reason,
+              input.limits,
+              extras.wrapupContent,
+            ),
+            finalContent: extras.wrapupContent,
+          }
+        : {
+            reason,
+            summary: formatStoppedSummary(
+              input.session,
+              input.route,
+              usage,
+              reason,
+              input.limits,
+              extras?.blockedToolCalls,
+            ),
+          };
     return {
       status: "stopped",
-      reason,
-      summary: formatStoppedSummary(
-        input.session,
-        input.route,
-        usage,
-        reason,
-        input.limits,
-        extras?.blockedToolCalls,
-      ),
+      ...stopped,
     };
   };
+  const captureWorkingState = (
+    batchOutcome: Extract<
+      Awaited<ReturnType<typeof executeToolCallBatch>>,
+      { outcome: "paused" }
+    >,
+    turnIndex: number,
+  ): ReactNodeWorkingState => ({
+    pendingToolCall: batchOutcome.pendingToolCall,
+    pendingToolRequest: batchOutcome.pendingToolRequest,
+    remainingToolCalls: batchOutcome.remainingToolCalls,
+    executedObservations: batchOutcome.executedObservations,
+    conversation,
+    ...(rollingSummary ? { rollingSummary } : {}),
+    failedFoldAttempts,
+    usage,
+    turnIndex,
+    audit: {
+      changedFiles: [...audit.changedFiles],
+      commands: audit.commands,
+    },
+    sessionState: actionableSessionState,
+    activeWallClockMs: elapsedWallClockMs(),
+  });
   const taskContext: TaskContext = {
     definition: input.definition,
     session: input.session,
@@ -463,23 +465,10 @@ export const runReactNode = async (
     if (batchOutcome.outcome === "paused")
       return {
         status: "paused",
-        working: {
-          pendingToolCall: batchOutcome.pendingToolCall,
-          pendingToolRequest: batchOutcome.pendingToolRequest,
-          remainingToolCalls: batchOutcome.remainingToolCalls,
-          executedObservations: batchOutcome.executedObservations,
-          conversation,
-          ...(rollingSummary ? { rollingSummary } : {}),
-          failedFoldAttempts,
-          usage,
-          turnIndex: input.resume.working.turnIndex,
-          audit: {
-            changedFiles: [...audit.changedFiles],
-            commands: audit.commands,
-          },
-          sessionState: actionableSessionState,
-          activeWallClockMs: elapsedWallClockMs(),
-        },
+        working: captureWorkingState(
+          batchOutcome,
+          input.resume.working.turnIndex,
+        ),
       };
     for (const observation of batchOutcome.observations)
       conversation.push({
@@ -799,23 +788,7 @@ export const runReactNode = async (
     if (batchOutcome.outcome === "paused")
       return {
         status: "paused",
-        working: {
-          pendingToolCall: batchOutcome.pendingToolCall,
-          pendingToolRequest: batchOutcome.pendingToolRequest,
-          remainingToolCalls: batchOutcome.remainingToolCalls,
-          executedObservations: batchOutcome.executedObservations,
-          conversation,
-          ...(rollingSummary ? { rollingSummary } : {}),
-          failedFoldAttempts,
-          usage,
-          turnIndex,
-          audit: {
-            changedFiles: [...audit.changedFiles],
-            commands: audit.commands,
-          },
-          sessionState: actionableSessionState,
-          activeWallClockMs: elapsedWallClockMs(),
-        },
+        working: captureWorkingState(batchOutcome, turnIndex),
       };
     for (const observation of batchOutcome.observations) {
       conversation.push({
