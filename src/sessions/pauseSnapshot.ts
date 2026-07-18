@@ -3,32 +3,15 @@ import { join } from "node:path";
 import type {
   AgentPlan,
   BudgetLimits,
-  BudgetUsage,
   CreativeInputKind,
   CreativeStyle,
-  ModelMessage,
-  ModelToolCall,
-  ToolObservation,
-  ToolRequest,
   WorkflowKind,
   WorkflowVariant,
 } from "../types.js";
-import type { RollingSummaryState } from "../conversation/fold.js";
 import type { EffectEnvelope } from "../permissions/envelope.js";
-import type { ActLoopRoute } from "../kernel/reactNode.js";
+import type { ActLoopRoute, ReactNodeWorkingState } from "../kernel/reactNode.js";
 
-const PAUSE_SNAPSHOT_VERSION = 1;
-
-export interface PauseSnapshotAuditState {
-  changedFiles: string[];
-  commands: { command: string; exitCode: number | null; timedOut: boolean }[];
-}
-
-export interface PauseSnapshotSessionState {
-  baselineDirtyPaths: Set<string>;
-  continuationOwnedDirtyPaths?: Set<string>;
-  forgeletTouchedPaths: Set<string>;
-}
+const PAUSE_SNAPSHOT_VERSION = 2;
 
 export interface PauseSnapshot {
   sessionId: string;
@@ -43,33 +26,24 @@ export interface PauseSnapshot {
   route: ActLoopRoute;
   readScope?: string[];
   plan: AgentPlan;
-  conversation: ModelMessage[];
-  rollingSummary?: RollingSummaryState;
-  failedFoldAttempts: number;
-  usage: BudgetUsage;
-  activeWallClockMs: number;
   limits: BudgetLimits;
-  turnIndex: number;
-  audit: PauseSnapshotAuditState;
-  sessionState: PauseSnapshotSessionState;
   debug: boolean;
-  pendingToolCall: ModelToolCall;
-  pendingToolRequest: ToolRequest;
-  remainingToolCalls: ModelToolCall[];
-  executedObservations: ToolObservation[];
+  working: ReactNodeWorkingState;
   tracePath: string;
   pausedAt: string;
 }
 
-interface SerializedPauseSnapshotSessionState {
+interface SerializedWorkingSessionState {
   baselineDirtyPaths: string[];
   continuationOwnedDirtyPaths?: string[];
   forgeletTouchedPaths: string[];
 }
 
-type SerializedPauseSnapshot = Omit<PauseSnapshot, "sessionState"> & {
+type SerializedPauseSnapshot = Omit<PauseSnapshot, "working"> & {
   version: number;
-  sessionState: SerializedPauseSnapshotSessionState;
+  working: Omit<ReactNodeWorkingState, "sessionState"> & {
+    sessionState: SerializedWorkingSessionState;
+  };
 };
 
 export function pauseSnapshotPath(
@@ -96,16 +70,19 @@ export async function writePauseSnapshot(
   const serialized: SerializedPauseSnapshot = {
     ...snapshot,
     version: PAUSE_SNAPSHOT_VERSION,
-    sessionState: {
-      baselineDirtyPaths: [...snapshot.sessionState.baselineDirtyPaths],
-      ...(snapshot.sessionState.continuationOwnedDirtyPaths
+    working: {
+      ...snapshot.working,
+      sessionState: {
+        baselineDirtyPaths: [...snapshot.working.sessionState.baselineDirtyPaths],
+        ...(snapshot.working.sessionState.continuationOwnedDirtyPaths
         ? {
             continuationOwnedDirtyPaths: [
-              ...snapshot.sessionState.continuationOwnedDirtyPaths,
+                ...snapshot.working.sessionState.continuationOwnedDirtyPaths,
             ],
           }
         : {}),
-      forgeletTouchedPaths: [...snapshot.sessionState.forgeletTouchedPaths],
+        forgeletTouchedPaths: [...snapshot.working.sessionState.forgeletTouchedPaths],
+      },
     },
   };
   await writeFile(path, `${JSON.stringify(serialized, null, 2)}\n`, "utf8");
@@ -134,24 +111,27 @@ export async function readPauseSnapshot(
         isRecord(parsed) ? String(parsed.version) : "unknown"
       }.`,
     );
-  const { version, sessionState, ...rest } = parsed as SerializedPauseSnapshot;
+  const { version, working, ...rest } = parsed as SerializedPauseSnapshot;
   const { maxInputTokens: _retiredInputTokenBudget, ...limits } = rest.limits as BudgetLimits & {
     maxInputTokens?: unknown;
   };
   return {
     ...rest,
-    usage: { ...rest.usage, unpricedTurns: rest.usage.unpricedTurns ?? 0 },
     limits,
-    sessionState: {
-      baselineDirtyPaths: new Set(sessionState.baselineDirtyPaths),
-      ...(sessionState.continuationOwnedDirtyPaths
+    working: {
+      ...working,
+      usage: { ...working.usage, unpricedTurns: working.usage.unpricedTurns ?? 0 },
+      sessionState: {
+        baselineDirtyPaths: new Set(working.sessionState.baselineDirtyPaths),
+        ...(working.sessionState.continuationOwnedDirtyPaths
         ? {
             continuationOwnedDirtyPaths: new Set(
-              sessionState.continuationOwnedDirtyPaths,
+                working.sessionState.continuationOwnedDirtyPaths,
             ),
           }
         : {}),
-      forgeletTouchedPaths: new Set(sessionState.forgeletTouchedPaths),
+        forgeletTouchedPaths: new Set(working.sessionState.forgeletTouchedPaths),
+      },
     },
   } as PauseSnapshot;
 }

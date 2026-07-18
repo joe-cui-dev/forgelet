@@ -535,7 +535,7 @@ export async function resumeKernelSession<TCompletion = void>(
   if (input.decision.kind === "widen") {
     const widened = widenEnvelopeForRequest(
       snapshot.envelope,
-      snapshot.pendingToolRequest,
+      snapshot.working.pendingToolRequest,
     );
     await traceWriter.append(
       createTraceEvent(snapshot.sessionId, "envelope_amended", resumedAt, {
@@ -596,23 +596,13 @@ export async function resumeKernelSession<TCompletion = void>(
       protectedRecentTurns: config.activeContext.protectedRecentTurns,
       readScope: snapshot.readScope,
       act: true,
-      baselineDirtyPaths: snapshot.sessionState.baselineDirtyPaths,
+      baselineDirtyPaths: snapshot.working.sessionState.baselineDirtyPaths,
       tracePath: traceWriter.tracePath,
       definition: input.definition,
       envelope: effectiveEnvelope,
       resume: {
         decision: decisionKind,
-        pendingToolCall: snapshot.pendingToolCall,
-        remainingToolCalls: snapshot.remainingToolCalls,
-        executedObservations: snapshot.executedObservations,
-        conversation: snapshot.conversation,
-        rollingSummary: snapshot.rollingSummary,
-        failedFoldAttempts: snapshot.failedFoldAttempts,
-        usage: snapshot.usage,
-        turnIndex: snapshot.turnIndex,
-        audit: snapshot.audit,
-        sessionState: snapshot.sessionState,
-        activeWallClockMs: snapshot.activeWallClockMs,
+        working: snapshot.working,
       },
       now: input.now,
       onLiveEvent: input.onLiveEvent,
@@ -843,22 +833,9 @@ async function pauseKernelExecution<TCompletion>(input: {
     route: input.route,
     ...(input.readScope ? { readScope: input.readScope } : {}),
     plan: input.plan,
-    conversation: execution.conversation,
-    ...(execution.rollingSummary
-      ? { rollingSummary: execution.rollingSummary }
-      : {}),
-    failedFoldAttempts: execution.failedFoldAttempts,
-    usage: execution.usage,
-    activeWallClockMs: execution.activeWallClockMs,
     limits: input.limits,
-    turnIndex: execution.turnIndex,
-    audit: execution.audit,
-    sessionState: execution.sessionState,
     debug: input.debug,
-    pendingToolCall: execution.pendingToolCall,
-    pendingToolRequest: execution.pendingToolRequest,
-    remainingToolCalls: execution.remainingToolCalls,
-    executedObservations: execution.executedObservations,
+    working: execution.working,
     tracePath: traceWriter.tracePath,
     pausedAt,
   };
@@ -867,8 +844,8 @@ async function pauseKernelExecution<TCompletion>(input: {
   await traceWriter.append(
     createTraceEvent(sessionId, "session_paused", pausedAt, {
       reason: "out_of_envelope",
-      toolName: execution.pendingToolCall.name,
-      targets: execution.pendingToolRequest.targets,
+      toolName: execution.working.pendingToolCall.name,
+      targets: execution.working.pendingToolRequest.targets,
       snapshotPath,
     }),
   );

@@ -124,7 +124,7 @@ test("pause/resume accumulates wall-clock across process segments instead of res
   const snapshot = await readPauseSnapshot(workspaceRoot, initialResult.session.id);
   // runStartedAtMs consumes the clock's first tick; the next loop check sees
   // the elapsed time once and pause capture reuses that accumulated value.
-  expect(snapshot.activeWallClockMs).toBe(200);
+  expect(snapshot.working.activeWallClockMs).toBe(200);
 
   const resumeTurns = [
     { toolCalls: [{ id: "call_list_1", name: "list_files", input: {} }] },

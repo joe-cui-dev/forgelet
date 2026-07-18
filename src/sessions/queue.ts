@@ -30,8 +30,8 @@ export async function listPausedSessions(
     entries.push({
       sessionId,
       task: snapshot.task,
-      pendingToolName: snapshot.pendingToolCall.name,
-      pendingTargets: (snapshot.pendingToolRequest.targets ?? []).map(
+      pendingToolName: snapshot.working.pendingToolCall.name,
+      pendingTargets: (snapshot.working.pendingToolRequest.targets ?? []).map(
         (target) =>
           target.kind === "path"
             ? target.path

@@ -72,12 +72,12 @@ test("a session auto-approves an in-envelope patch, then pauses on an out-of-env
   expect(result.snapshotPath).toBeDefined();
 
   const snapshot = await readPauseSnapshot(workspaceRoot, result.session.id);
-  expect(snapshot.pendingToolCall.id).toBe("call_out_of_envelope");
-  expect(snapshot.pendingToolRequest.targets).toEqual([
+  expect(snapshot.working.pendingToolCall.id).toBe("call_out_of_envelope");
+  expect(snapshot.working.pendingToolRequest.targets).toEqual([
     { kind: "path", path: "docs/notes.md", classification: "ordinary" },
   ]);
-  expect(snapshot.remainingToolCalls).toEqual([]);
-  expect(snapshot.sessionState.forgeletTouchedPaths).toEqual(new Set(["src/app.ts"]));
+  expect(snapshot.working.remainingToolCalls).toEqual([]);
+  expect(snapshot.working.sessionState.forgeletTouchedPaths).toEqual(new Set(["src/app.ts"]));
   expect(snapshot.tracePath).toBe(result.tracePath);
   expect(snapshot.envelope).toEqual({
     writeScopePrefixes: ["src"],

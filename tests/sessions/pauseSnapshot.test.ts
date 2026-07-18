@@ -14,19 +14,27 @@ test("PauseSnapshot round-trips through write and read, including Sets", async (
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-pause-"));
   const snapshot = testSnapshot({
     sessionId: "sess_abc123",
-    sessionState: {
-      baselineDirtyPaths: new Set(["a.txt"]),
-      continuationOwnedDirtyPaths: new Set(["b.txt"]),
-      forgeletTouchedPaths: new Set(["c.txt", "d.txt"]),
+    working: {
+      ...testSnapshot().working,
+      sessionState: {
+        baselineDirtyPaths: new Set(["a.txt"]),
+        continuationOwnedDirtyPaths: new Set(["b.txt"]),
+        forgeletTouchedPaths: new Set(["c.txt", "d.txt"]),
+      },
     },
   });
 
   await writePauseSnapshot(workspaceRoot, snapshot);
+  const serialized = JSON.parse(
+    await readFile(pauseSnapshotPath(workspaceRoot, snapshot.sessionId), "utf8"),
+  );
   const loaded = await readPauseSnapshot(workspaceRoot, "sess_abc123");
 
-  expect(loaded.sessionState.baselineDirtyPaths).toEqual(new Set(["a.txt"]));
-  expect(loaded.sessionState.continuationOwnedDirtyPaths).toEqual(new Set(["b.txt"]));
-  expect(loaded.sessionState.forgeletTouchedPaths).toEqual(new Set(["c.txt", "d.txt"]));
+  expect(serialized.version).toBe(2);
+  expect(serialized.working.sessionState.baselineDirtyPaths).toEqual(["a.txt"]);
+  expect(loaded.working.sessionState.baselineDirtyPaths).toEqual(new Set(["a.txt"]));
+  expect(loaded.working.sessionState.continuationOwnedDirtyPaths).toEqual(new Set(["b.txt"]));
+  expect(loaded.working.sessionState.forgeletTouchedPaths).toEqual(new Set(["c.txt", "d.txt"]));
   expect(loaded).toEqual(snapshot);
 });
 
@@ -37,7 +45,7 @@ test("PauseSnapshot round-trips without an optional continuationOwnedDirtyPaths 
   await writePauseSnapshot(workspaceRoot, snapshot);
   const loaded = await readPauseSnapshot(workspaceRoot, "sess_no_continuation");
 
-  expect(loaded.sessionState.continuationOwnedDirtyPaths).toBeUndefined();
+  expect(loaded.working.sessionState.continuationOwnedDirtyPaths).toBeUndefined();
   expect(loaded).toEqual(snapshot);
 });
 
@@ -84,14 +92,14 @@ test("readPauseSnapshot tolerates a retired token limit and initializes unpriced
   await writePauseSnapshot(workspaceRoot, snapshot);
   const path = pauseSnapshotPath(workspaceRoot, snapshot.sessionId);
   const legacy = JSON.parse(await readFile(path, "utf8"));
-  legacy.usage = { ...legacy.usage };
+  legacy.working.usage = { ...legacy.working.usage };
   legacy.limits = { ...legacy.limits, maxInputTokens: 100_000 };
-  delete legacy.usage.unpricedTurns;
+  delete legacy.working.usage.unpricedTurns;
   await writeFile(path, JSON.stringify(legacy), "utf8");
 
   const loaded = await readPauseSnapshot(workspaceRoot, snapshot.sessionId);
 
-  expect(loaded.usage.unpricedTurns).toBe(0);
+  expect(loaded.working.usage.unpricedTurns).toBe(0);
   expect(loaded.limits).not.toHaveProperty("maxInputTokens");
 });
 
@@ -105,40 +113,42 @@ function testSnapshot(overrides: Partial<PauseSnapshot> = {}): PauseSnapshot {
     envelope: { writeScopePrefixes: ["src"], allowedCommands: ["npm test"] },
     route: { workflow: "coding", stage: "act_loop", model: "deepseek-chat", reason: "default" },
     plan: { items: [{ step: "Do the thing", status: "in_progress" }] },
-    conversation: [{ role: "user", content: "fix the bug" }],
-    failedFoldAttempts: 0,
-    usage: {
-      modelTurns: 2,
-      inputTokens: 100,
-      outputTokens: 50,
-      estimatedCostUsd: 0.01,
-      unpricedTurns: 0,
-    },
-    activeWallClockMs: 1234,
     limits: {
       maxModelTurns: 12,
       maxEstimatedCostUsd: 1,
       maxWallClockMs: 1_800_000,
     },
-    turnIndex: 2,
-    audit: { changedFiles: ["src/app.ts"], commands: [{ command: "npm test", exitCode: 0, timedOut: false }] },
-    sessionState: {
-      baselineDirtyPaths: new Set(),
-      forgeletTouchedPaths: new Set(["src/app.ts"]),
-    },
     debug: false,
-    pendingToolCall: { id: "call_1", name: "apply_patch", input: { patch: "diff" } },
-    pendingToolRequest: {
-      workflow: "coding",
-      toolName: "apply_patch",
-      capability: "write_workspace",
-      riskTier: "medium",
-      input: { patch: "diff" },
-      workspaceRoot: "/workspace",
-      targets: [{ kind: "path", path: "docs/notes.md", classification: "ordinary" }],
+    working: {
+      conversation: [{ role: "user", content: "fix the bug" }],
+      failedFoldAttempts: 0,
+      usage: {
+        modelTurns: 2,
+        inputTokens: 100,
+        outputTokens: 50,
+        estimatedCostUsd: 0.01,
+        unpricedTurns: 0,
+      },
+      activeWallClockMs: 1234,
+      turnIndex: 2,
+      audit: { changedFiles: ["src/app.ts"], commands: [{ command: "npm test", exitCode: 0, timedOut: false }] },
+      sessionState: {
+        baselineDirtyPaths: new Set(),
+        forgeletTouchedPaths: new Set(["src/app.ts"]),
+      },
+      pendingToolCall: { id: "call_1", name: "apply_patch", input: { patch: "diff" } },
+      pendingToolRequest: {
+        workflow: "coding",
+        toolName: "apply_patch",
+        capability: "write_workspace",
+        riskTier: "medium",
+        input: { patch: "diff" },
+        workspaceRoot: "/workspace",
+        targets: [{ kind: "path", path: "docs/notes.md", classification: "ordinary" }],
+      },
+      remainingToolCalls: [],
+      executedObservations: [],
     },
-    remainingToolCalls: [],
-    executedObservations: [],
     tracePath: "/workspace/.forgelet/sessions/20260101_000000_sess_test.jsonl",
     pausedAt: "2026-01-01T00:00:00.000Z",
     ...overrides,

@@ -21,8 +21,8 @@ export async function runDecideCommand(
 
   const snapshot = await readPauseSnapshot(workspaceRoot, sessionId);
   const prompt = formatApprovalPrompt({
-    toolCall: snapshot.pendingToolCall,
-    toolRequest: snapshot.pendingToolRequest,
+    toolCall: snapshot.working.pendingToolCall,
+    toolRequest: snapshot.working.pendingToolRequest,
     permissionDecision: {
       kind: "confirm",
       riskTier: "medium",

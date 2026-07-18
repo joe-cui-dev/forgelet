@@ -91,24 +91,32 @@ export interface ReactNodeInput {
 
 /** Restored loop state for re-entering a paused Session. The pending call is
  * resolved (approved, denied, or abandoned via stop) before the main loop
- * resumes at resume.turnIndex + 1; approve-and-widen is expressed by the
+ * resumes at resume.working.turnIndex + 1; approve-and-widen is expressed by the
  * caller passing an already-widened `envelope` alongside decision "approve". */
 export interface ReactNodeResumeState {
   decision: "approve" | "deny" | "stop";
-  pendingToolCall: ModelToolCall;
-  remainingToolCalls: ModelToolCall[];
-  executedObservations: ToolObservation[];
+  working: ReactNodeWorkingState;
+}
+
+/** The complete resumable working state for a ReAct Node. This stays flat so
+ * the kernel owns one shape for an in-memory run, a paused result, and a Pause
+ * Snapshot rather than translating among near-identical mirrors. */
+export interface ReactNodeWorkingState {
   conversation: ModelMessage[];
   rollingSummary?: RollingSummaryState;
   failedFoldAttempts: number;
   usage: BudgetUsage;
+  activeWallClockMs: number;
   turnIndex: number;
   audit: {
     changedFiles: string[];
     commands: { command: string; exitCode: number | null; timedOut: boolean }[];
   };
   sessionState: ReactNodePausedSessionState;
-  activeWallClockMs: number;
+  pendingToolCall: ModelToolCall;
+  pendingToolRequest: ToolRequest;
+  remainingToolCalls: ModelToolCall[];
+  executedObservations: ToolObservation[];
 }
 
 export type ReactNodeResult = ReactNodeFinishResult | ReactNodePausedResult;
@@ -129,21 +137,7 @@ export interface ReactNodePausedSessionState {
 
 export interface ReactNodePausedResult {
   status: "paused";
-  pendingToolCall: ModelToolCall;
-  pendingToolRequest: ToolRequest;
-  remainingToolCalls: ModelToolCall[];
-  executedObservations: ToolObservation[];
-  conversation: ModelMessage[];
-  rollingSummary?: RollingSummaryState;
-  failedFoldAttempts: number;
-  usage: BudgetUsage;
-  turnIndex: number;
-  audit: {
-    changedFiles: string[];
-    commands: { command: string; exitCode: number | null; timedOut: boolean }[];
-  };
-  sessionState: ReactNodePausedSessionState;
-  activeWallClockMs: number;
+  working: ReactNodeWorkingState;
 }
 
 interface BudgetBlockedToolCalls {
@@ -292,17 +286,20 @@ export const runReactNode = async (
 ): Promise<ReactNodeResult> => {
   const now = input.now ?? Date.now;
   const runStartedAtMs = now();
-  const priorWallClockMs = input.resume?.activeWallClockMs ?? 0;
+  const priorWallClockMs = input.resume?.working.activeWallClockMs ?? 0;
   const elapsedWallClockMs = (): number => priorWallClockMs + (now() - runStartedAtMs);
   const usage: BudgetUsage = input.resume
-    ? { ...input.resume.usage, unpricedTurns: input.resume.usage.unpricedTurns ?? 0 }
+    ? {
+        ...input.resume.working.usage,
+        unpricedTurns: input.resume.working.usage.unpricedTurns ?? 0,
+      }
     : { modelTurns: 0, inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0, unpricedTurns: 0 };
   const grantedCapabilities = input.definition.capabilities({
     act: input.act,
     readScope: input.readScope,
   });
   const actionableSessionState: ReactNodePausedSessionState = input.resume
-    ? input.resume.sessionState
+    ? input.resume.working.sessionState
     : {
         baselineDirtyPaths: input.baselineDirtyPaths,
         continuationOwnedDirtyPaths: input.continuationContext
@@ -335,7 +332,7 @@ export const runReactNode = async (
     {
       approvalHandler: input.resume
         ? createResumeApprovalHandler(
-            input.resume.pendingToolCall.id,
+            input.resume.working.pendingToolCall.id,
             input.resume.decision === "approve" ? "approve" : "deny",
             input.envelope ?? { writeScopePrefixes: [], allowedCommands: [] },
             input.resume.decision === "stop"
@@ -367,35 +364,38 @@ export const runReactNode = async (
     ? []
     : toolRegistry.listTools(grantedCapabilities);
   const conversation: ModelMessage[] = input.resume
-    ? input.resume.conversation
+    ? input.resume.working.conversation
     : [];
   const audit: RunAuditState = input.resume
     ? {
-        changedFiles: new Set(input.resume.audit.changedFiles),
-        commands: [...input.resume.audit.commands],
+        changedFiles: new Set(input.resume.working.audit.changedFiles),
+        commands: [...input.resume.working.audit.commands],
       }
     : { changedFiles: new Set(), commands: [] };
   let finalContent = "";
-  let rollingSummary: RollingSummaryState | undefined = input.resume?.rollingSummary;
-  let failedFoldAttempts = input.resume?.failedFoldAttempts ?? 0;
+  let rollingSummary: RollingSummaryState | undefined = input.resume?.working.rollingSummary;
+  let failedFoldAttempts = input.resume?.working.failedFoldAttempts ?? 0;
   let forcedStopReason: SessionStopReason | undefined;
 
   if (input.resume) {
-    for (const observation of input.resume.executedObservations)
+    for (const observation of input.resume.working.executedObservations)
       conversation.push({
         role: "tool",
         toolCallId: observation.toolCallId,
         content: JSON.stringify(observationForModel(observation)),
       });
     const batchOutcome = await executeToolCallBatch({
-      toolCalls: [input.resume.pendingToolCall, ...input.resume.remainingToolCalls],
+      toolCalls: [
+        input.resume.working.pendingToolCall,
+        ...input.resume.working.remainingToolCalls,
+      ],
       toolRegistry,
       session: input.session,
       workspaceRoot: input.workspaceRoot,
       grantedCapabilities,
       readScope: input.readScope,
       onLiveEvent: input.onLiveEvent,
-      turnIndex: input.resume.turnIndex,
+      turnIndex: input.resume.working.turnIndex,
       debugTranscript: input.debugTranscript,
       appendTrace: input.appendTrace,
       audit,
@@ -403,21 +403,23 @@ export const runReactNode = async (
     if (batchOutcome.outcome === "paused")
       return {
         status: "paused",
-        pendingToolCall: batchOutcome.pendingToolCall,
-        pendingToolRequest: batchOutcome.pendingToolRequest,
-        remainingToolCalls: batchOutcome.remainingToolCalls,
-        executedObservations: batchOutcome.executedObservations,
-        conversation,
-        rollingSummary,
-        failedFoldAttempts,
-        usage,
-        turnIndex: input.resume.turnIndex,
-        audit: {
-          changedFiles: [...audit.changedFiles],
-          commands: audit.commands,
+        working: {
+          pendingToolCall: batchOutcome.pendingToolCall,
+          pendingToolRequest: batchOutcome.pendingToolRequest,
+          remainingToolCalls: batchOutcome.remainingToolCalls,
+          executedObservations: batchOutcome.executedObservations,
+          conversation,
+          ...(rollingSummary ? { rollingSummary } : {}),
+          failedFoldAttempts,
+          usage,
+          turnIndex: input.resume.working.turnIndex,
+          audit: {
+            changedFiles: [...audit.changedFiles],
+            commands: audit.commands,
+          },
+          sessionState: actionableSessionState,
+          activeWallClockMs: elapsedWallClockMs(),
         },
-        sessionState: actionableSessionState,
-        activeWallClockMs: elapsedWallClockMs(),
       };
     for (const observation of batchOutcome.observations)
       conversation.push({
@@ -435,7 +437,7 @@ export const runReactNode = async (
   }
 
   for (
-    let turnIndex = input.resume ? input.resume.turnIndex + 1 : 0;
+    let turnIndex = input.resume ? input.resume.working.turnIndex + 1 : 0;
     ;
     turnIndex += 1
   ) {
@@ -889,21 +891,23 @@ export const runReactNode = async (
     if (batchOutcome.outcome === "paused")
       return {
         status: "paused",
-        pendingToolCall: batchOutcome.pendingToolCall,
-        pendingToolRequest: batchOutcome.pendingToolRequest,
-        remainingToolCalls: batchOutcome.remainingToolCalls,
-        executedObservations: batchOutcome.executedObservations,
-        conversation,
-        rollingSummary,
-        failedFoldAttempts,
-        usage,
-        turnIndex,
-        audit: {
-          changedFiles: [...audit.changedFiles],
-          commands: audit.commands,
+        working: {
+          pendingToolCall: batchOutcome.pendingToolCall,
+          pendingToolRequest: batchOutcome.pendingToolRequest,
+          remainingToolCalls: batchOutcome.remainingToolCalls,
+          executedObservations: batchOutcome.executedObservations,
+          conversation,
+          ...(rollingSummary ? { rollingSummary } : {}),
+          failedFoldAttempts,
+          usage,
+          turnIndex,
+          audit: {
+            changedFiles: [...audit.changedFiles],
+            commands: audit.commands,
+          },
+          sessionState: actionableSessionState,
+          activeWallClockMs: elapsedWallClockMs(),
         },
-        sessionState: actionableSessionState,
-        activeWallClockMs: elapsedWallClockMs(),
       };
     for (const observation of batchOutcome.observations) {
       conversation.push({
