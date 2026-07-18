@@ -76,8 +76,12 @@ _Avoid_: Prompt paste, hidden source, trace content
 The current model-facing working set assembled for a Session turn, including task context, attachments, recent interaction, and tool observations. Active Context may be compacted without changing the Trace.
 _Avoid_: Trace, durable memory, full session history
 
+**Tool Observation**:
+The structured outcome of one tool call within a ReAct Node: whether it succeeded, a summary, optional content, an error, and compact metadata carrying source identity, ranges, hashes, truncation state, and command outcomes. The Tool Observation is the single shared currency behind the model-facing conversation, Trace evidence of tool results, the Observation Digest, and the Fact Ledger.
+_Avoid_: Tool output, raw result, log line, trace payload
+
 **Observation Digest**:
-The deterministic compacted form of a tool observation in Active Context. A digest preserves source identity, range, content hash, truncation state, and a bounded excerpt of what was actually returned, without passing through a model.
+The deterministic compacted form of a Tool Observation in Active Context. A digest preserves source identity, range, content hash, truncation state, and a bounded excerpt of what was actually returned, without passing through a model.
 _Avoid_: Model summary, truncated log, preview
 
 **Rolling Summary**:
