@@ -224,6 +224,10 @@ _Avoid_: Browser chat, live-page chat, general assistant conversation
 The ordered user questions and normalized final answers inherited by each new Session in a Page Conversation. Its complete record remains in ancestor Traces; each child Session may compact older turns inside its own Active Context, and streamed model text never enters the history.
 _Avoid_: Transcript, Trace replay, streamed output, Continuation Context
 
+**Page Conversation Turn**:
+One entry in a Page Conversation History: the recorded task or follow-up question of a successfully completed Session in the chain, paired with that Session's normalized final answer and its Session identity. The root Session's turn pairs the recorded root task with the Page Brief's normalized content. Only successfully completed Sessions form turns; streamed text, stopped and failed attempts never do.
+_Avoid_: the Side Panel projection's successful-turn cards (presentation state, a different shape), chat message
+
 **Page Conversation Head**:
 The most recent successfully completed Session in a Page Conversation and the parent of its next follow-up. Running, stopped, and failed child Sessions never advance the head.
 _Avoid_: Latest Session, active invocation, newest Trace, cursor
