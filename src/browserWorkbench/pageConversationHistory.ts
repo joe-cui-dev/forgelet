@@ -1,13 +1,8 @@
 import { findSessionTracePath, isTraceEvent, readTraceFile, type TraceEvent } from "../trace/index.js";
-
-/** Matches `BrowserInvocationRequest["kind"]` (src/browser/protocol.ts); kept
- * as a separate literal union here so this read model does not import the
- * protocol layer for a browser-policy-free Trace concern. */
-export type PageConversationAttemptKind =
-  | "root"
-  | "root_retry"
-  | "follow_up"
-  | "follow_up_retry";
+import type {
+  PageConversationAttemptKind,
+  PageConversationTurn,
+} from "../pageConversation/index.js";
 
 /** The `session_started.payload.trigger` shape a Page Conversation Session
  * launcher (WP8) is expected to record, per ADR 0051. */
@@ -19,12 +14,6 @@ export interface PageConversationTrigger {
   workspaceProfileId?: string;
   parentSessionId?: string;
   outputLanguage?: string;
-}
-
-export interface PageConversationTurn {
-  sessionId: string;
-  question: string;
-  answer: string;
 }
 
 export interface PageConversationHistory {

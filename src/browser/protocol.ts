@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { SessionLiveEvent, SessionLiveEventSink } from "../sessionLiveView/index.js";
-import type { PageBrief } from "../workflows/learning.js";
+import type { PageAnswer, PageBrief } from "../pageConversation/index.js";
 import {
   claimInvocation,
   recordInvocationOutcome,
@@ -240,7 +240,7 @@ export type BrowserRunFrame =
       invocationId: string;
       seq: number;
       summary: string;
-      pageAnswer: BrowserPageAnswer;
+      pageAnswer: PageAnswer;
     }
   | { type: "stopped"; conversationId: string; invocationId: string; seq: number; reason: string }
   | {
@@ -253,14 +253,8 @@ export type BrowserRunFrame =
     }
   | { type: "action_conflict"; conversationId: string; invocationId: string; seq: number };
 
-export interface BrowserPageAnswer {
-  answer: string;
-  groundingStatus: "supported" | "not_found";
-  evidence: string[];
-}
-
 export type ProtocolLaunchResult =
-  | { status: "completed"; summary: string; pageBrief?: PageBrief; pageAnswer?: BrowserPageAnswer }
+  | { status: "completed"; summary: string; pageBrief?: PageBrief; pageAnswer?: PageAnswer }
   | { status: "stopped"; reason: string }
   | { status: "failed"; message: string };
 

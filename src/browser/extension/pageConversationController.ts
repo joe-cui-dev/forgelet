@@ -6,6 +6,7 @@ import {
   modelOutputDeltaText,
   startPageConversationAttempt,
   type PageConversationAttemptKind,
+  type PageConversationFrame,
   type PageConversationProjection,
 } from "./pageConversationProjection.js";
 import {
@@ -23,7 +24,7 @@ export interface BrowserWorkspaceProfileProjection {
 
 export interface BrowserWorkbenchPort {
   postMessage(frame: Record<string, unknown>): void;
-  onFrame(listener: (frame: Record<string, unknown>) => void): void;
+  onFrame(listener: (frame: PageConversationFrame) => void): void;
   onDisconnect?(listener: () => void): void;
   /** Chrome's Port#disconnect. A Page Conversation never keeps an idle port
    * between attempts (ADR 0039): the controller calls this once an attempt
@@ -149,15 +150,14 @@ export function createPageConversationController(input: {
     });
   };
 
-  const applyFrame = (windowId: number, frame: Record<string, unknown>): void => {
+  const applyFrame = (windowId: number, frame: PageConversationFrame): void => {
     const previous = projections.get(windowId);
     if (!previous) return;
     const deltaText = modelOutputDeltaText(frame);
     if (deltaText !== undefined) {
       const next = applyPageConversationFrame(previous, frame);
       projections.set(windowId, next);
-      const invocationId = typeof frame.invocationId === "string" ? frame.invocationId : "";
-      input.broadcastDelta?.(windowId, { invocationId, text: deltaText });
+      input.broadcastDelta?.(windowId, { invocationId: frame.invocationId, text: deltaText });
       return;
     }
     const next = applyPageConversationFrame(previous, frame);

@@ -6,8 +6,8 @@ import type {
   ProtocolLaunchResult,
 } from "../browser/protocol.js";
 import type { ExecutionPolicy } from "../kernel/workflowDefinition.js";
+import type { PageAnswer, PageBrief, PageConversationTurn } from "../pageConversation/index.js";
 import type { SessionLiveEventSink } from "../sessionLiveView/index.js";
-import type { PageAnswer, PageAnswerConversationTurn, PageBrief } from "../workflows/learning.js";
 import {
   preflightBrowserFollowUp,
   preflightBrowserRootRetry,
@@ -45,7 +45,7 @@ export interface AuthorizedBrowserPageAnswerLaunch {
   question: string;
   browserSnapshot: LoadedBrowserSnapshot;
   continuationSourceSessionId: string;
-  pageConversationHistory: PageAnswerConversationTurn[];
+  pageConversationHistory: PageConversationTurn[];
   executionPolicy: ExecutionPolicy;
   trigger: BrowserSessionTrigger;
   debug?: boolean;

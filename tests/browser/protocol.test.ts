@@ -106,6 +106,60 @@ test("Page Answer completion is distinct from Page Brief completion", async () =
   expect(result.at(-1)).toMatchObject({ type: "page_answer_completed", pageAnswer: { answer: "Because." } });
 });
 
+test("serialized Page completion frames lock their wire keys", async () => {
+  // This is the explicit confirmation point for a Browser protocol wire
+  // change. If these keys change, review ADR 0054 and consider a protocol
+  // version bump instead of treating the change as a type-only refactor.
+  const briefLauncher: ProtocolLauncher = {
+    async launch() {
+      return { status: "completed", summary: "brief", pageBrief };
+    },
+  };
+  const answerLauncher: ProtocolLauncher = {
+    async launch() {
+      return {
+        status: "completed",
+        summary: "answer",
+        pageAnswer: {
+          answer: "Because.",
+          groundingStatus: "supported",
+          evidence: ["A captured passage."],
+        },
+      };
+    },
+  };
+  const answerRequest = {
+    ...rootRequest,
+    kind: "follow_up" as const,
+    invocationId: "invocation_wire_answer",
+    captureId: "capture_1",
+    rootSessionId: "sess_root",
+    parentSessionId: "sess_root",
+    question: "Why?",
+  };
+  delete (answerRequest as { capture?: unknown }).capture;
+
+  const brief = JSON.parse(JSON.stringify((await frames(
+    runBrowserInvocation(rootRequest, briefLauncher, { homeDir: await homeDir() }),
+  )).at(-1))) as Record<string, unknown>;
+  const answer = JSON.parse(JSON.stringify((await frames(
+    runBrowserInvocation(answerRequest, answerLauncher, { homeDir: await homeDir() }),
+  )).at(-1))) as Record<string, unknown>;
+
+  expect(Object.keys(brief).sort()).toEqual([
+    "conversationId", "invocationId", "pageBrief", "seq", "summary", "type",
+  ]);
+  expect(Object.keys(brief.pageBrief as Record<string, unknown>).sort()).toEqual([
+    "keyConcepts", "summary",
+  ]);
+  expect(Object.keys(answer).sort()).toEqual([
+    "conversationId", "invocationId", "pageAnswer", "seq", "summary", "type",
+  ]);
+  expect(Object.keys(answer.pageAnswer as Record<string, unknown>).sort()).toEqual([
+    "answer", "evidence", "groundingStatus",
+  ]);
+});
+
 test("replaying an invocation returns the persisted terminal Page Brief without a second Session", async () => {
   let launches = 0;
   const launcher: ProtocolLauncher = { async launch() { launches += 1; return { status: "completed", summary: "done", pageBrief }; } };

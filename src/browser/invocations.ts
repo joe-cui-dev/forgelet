@@ -2,12 +2,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { LearningPack, PageBrief } from "../workflows/learning.js";
+import type { LearningPack } from "../workflows/learning.js";
 import type {
   BrowserAttemptFailureCode,
   BrowserLaunchRejectionCode,
-  BrowserPageAnswer,
 } from "./protocol.js";
+import type { PageAnswer, PageBrief } from "../pageConversation/index.js";
 
 type BrowserAttemptKind = "root" | "root_retry" | "follow_up" | "follow_up_retry";
 
@@ -36,7 +36,7 @@ export interface InvocationReceipt {
   summary?: string;
   learningPack?: LearningPack;
   pageBrief?: PageBrief;
-  pageAnswer?: BrowserPageAnswer;
+  pageAnswer?: PageAnswer;
 }
 
 export type ClaimInvocationResult =
@@ -101,7 +101,7 @@ export async function recordInvocationOutcome(input: {
   summary?: string;
   learningPack?: LearningPack;
   pageBrief?: PageBrief;
-  pageAnswer?: BrowserPageAnswer;
+  pageAnswer?: PageAnswer;
   now?: Date;
 }): Promise<void> {
   const path = receiptPath(input.homeDir, "v3", input.invocationId);

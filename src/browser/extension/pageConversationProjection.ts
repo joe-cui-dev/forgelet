@@ -1,18 +1,37 @@
 // Type-only: erased at compile time, so the copied extension bundle stays
 // dependency-free (buildExtension copies compiled files as-is).
-import type { PageAnswer, PageBrief } from "../../workflows/learning.js";
+import type {
+  PageAnswer,
+  PageBrief,
+  PageConversationAttemptKind,
+} from "../../pageConversation/index.js";
+import type { BrowserRunFrame } from "../protocol.js";
+import type { SessionLiveEvent } from "../../sessionLiveView/index.js";
 
-export type { PageAnswer, PageBrief };
+export type { PageAnswer, PageBrief, PageConversationAttemptKind };
 
 /** Schema-versioned per ADR 0054: unversioned or older projection state is
  * discarded rather than migrated (WP11), never silently reinterpreted. */
 export const PAGE_CONVERSATION_PROJECTION_SCHEMA_VERSION = 3;
 
-export type PageConversationAttemptKind =
-  | "root"
-  | "root_retry"
-  | "follow_up"
-  | "follow_up_retry";
+type BrowserFrameOf<Type extends BrowserRunFrame["type"]> = Extract<
+  BrowserRunFrame,
+  { type: Type }
+>;
+
+/** The projection consumes only these protocol fields. The envelope is
+ * intentionally omitted so controller-synthesized terminal frames remain
+ * valid after a Native Messaging disconnect. */
+export type PageConversationFrame =
+  | Pick<BrowserFrameOf<"invocation_accepted" | "action_conflict">, "type" | "invocationId">
+  | Pick<BrowserFrameOf<"session_ready">, "type" | "invocationId" | "sessionId">
+      & Partial<Pick<BrowserFrameOf<"session_ready">, "tracePath">>
+  | Pick<BrowserFrameOf<"live_event">, "type" | "invocationId" | "event">
+  | Pick<BrowserFrameOf<"page_brief_completed">, "type" | "invocationId" | "pageBrief">
+  | Pick<BrowserFrameOf<"page_answer_completed">, "type" | "invocationId" | "pageAnswer">
+  | Pick<BrowserFrameOf<"stopped">, "type" | "invocationId" | "reason">
+  | Pick<BrowserFrameOf<"failed">, "type" | "invocationId" | "message">
+  | Pick<BrowserFrameOf<"launch_rejected">, "type" | "invocationId" | "reason">;
 
 export interface PageConversationSourceHeader {
   url: string;
@@ -162,7 +181,7 @@ export function markPageConversationAttemptStopping(
  * a terminal state (e.g. a Retry started before an old frame arrived). */
 export function applyPageConversationFrame(
   projection: PageConversationProjection,
-  frame: Record<string, unknown>,
+  frame: PageConversationFrame,
 ): PageConversationProjection {
   const current = projection.currentAttempt;
   if (!current || frame.invocationId !== current.invocationId) return projection;
@@ -173,8 +192,8 @@ export function applyPageConversationFrame(
       currentAttempt: {
         ...current,
         status: "running",
-        sessionId: typeof frame.sessionId === "string" ? frame.sessionId : undefined,
-        tracePath: typeof frame.tracePath === "string" ? frame.tracePath : undefined,
+        sessionId: frame.sessionId,
+        tracePath: frame.tracePath,
       },
     };
   }
@@ -190,7 +209,7 @@ export function applyPageConversationFrame(
       sessionId,
       kind: "root",
       ...(current.order !== undefined ? { order: current.order } : {}),
-      pageBrief: frame.pageBrief as PageBrief,
+      pageBrief: frame.pageBrief,
     };
     return {
       ...projection,
@@ -209,7 +228,7 @@ export function applyPageConversationFrame(
       kind: "follow_up",
       ...(current.order !== undefined ? { order: current.order } : {}),
       ...(current.question !== undefined ? { question: current.question } : {}),
-      pageAnswer: frame.pageAnswer as PageAnswer,
+      pageAnswer: frame.pageAnswer,
     };
     return {
       ...projection,
@@ -224,7 +243,7 @@ export function applyPageConversationFrame(
       ...projection,
       terminalCards: [
         ...projection.terminalCards,
-        terminalCardFrom(current, "stopped", String(frame.reason ?? "user_stopped")),
+        terminalCardFrom(current, "stopped", frame.reason),
       ],
       currentAttempt: undefined,
     };
@@ -235,7 +254,7 @@ export function applyPageConversationFrame(
       ...projection,
       terminalCards: [
         ...projection.terminalCards,
-        terminalCardFrom(current, "failed", String(frame.message ?? "Browser Workbench failed.")),
+        terminalCardFrom(current, "failed", frame.message),
       ],
       currentAttempt: undefined,
     };
@@ -246,7 +265,7 @@ export function applyPageConversationFrame(
       ...projection,
       terminalCards: [
         ...projection.terminalCards,
-        terminalCardFrom(current, "rejected", String(frame.reason ?? "Browser Workbench rejected the attempt.")),
+        terminalCardFrom(current, "rejected", frame.reason),
       ],
       currentAttempt: undefined,
     };
@@ -287,14 +306,13 @@ function terminalCardFrom(
 
 function applyLiveEvent(
   current: PageConversationCurrentAttempt,
-  event: unknown,
+  event: SessionLiveEvent,
 ): PageConversationCurrentAttempt {
-  if (!isRecord(event)) return current;
   if (event.type === "model_turn_started") {
     return {
       ...current,
-      turnIndex: typeof event.turnIndex === "number" ? event.turnIndex : current.turnIndex,
-      model: typeof event.model === "string" ? event.model : current.model,
+      turnIndex: event.turnIndex,
+      model: event.model,
       liveText: "",
       activity: undefined,
     };
@@ -302,28 +320,28 @@ function applyLiveEvent(
   if (event.type === "model_output_delta") {
     return {
       ...current,
-      turnIndex: typeof event.turnIndex === "number" ? event.turnIndex : current.turnIndex,
-      model: typeof event.model === "string" ? event.model : current.model,
-      liveText: (current.liveText ?? "") + (typeof event.text === "string" ? event.text : ""),
+      turnIndex: event.turnIndex,
+      model: event.model,
+      liveText: (current.liveText ?? "") + event.text,
     };
   }
   if (event.type === "tool_call_started") {
-    const target = typeof event.target === "string" ? ` ${event.target}` : "";
-    return { ...current, activity: `Tool started: ${String(event.toolName ?? "")}${target}` };
+    const target = event.target ? ` ${event.target}` : "";
+    return { ...current, activity: `Tool started: ${event.toolName}${target}` };
   }
   if (event.type === "tool_call_finished") {
     return {
       ...current,
-      activity: `Tool finished: ${String(event.toolName ?? "")} (${event.ok ? "ok" : "failed"})`,
+      activity: `Tool finished: ${event.toolName} (${event.ok ? "ok" : "failed"})`,
     };
   }
   return current;
 }
 
-export function modelOutputDeltaText(frame: Record<string, unknown>): string | undefined {
-  if (frame.type !== "live_event" || !isRecord(frame.event)) return undefined;
+export function modelOutputDeltaText(frame: PageConversationFrame): string | undefined {
+  if (frame.type !== "live_event") return undefined;
   if (frame.event.type !== "model_output_delta") return undefined;
-  return typeof frame.event.text === "string" ? frame.event.text : "";
+  return frame.event.text;
 }
 
 /** The deterministic byte budget ADR 0052 requires: implementation-tuned,

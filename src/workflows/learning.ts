@@ -8,6 +8,12 @@ import type {
 } from "../kernel/workflowDefinition.js";
 import type { LoadedContextAttachment } from "../types.js";
 import type { PublicWebAdapters } from "../publicWeb/index.js";
+import type {
+  PageAnswer,
+  PageAnswerGroundingStatus,
+  PageBrief,
+  PageConversationTurn,
+} from "../pageConversation/index.js";
 import type { TraceEventPayloads } from "../trace/index.js";
 
 export type LearningSessionInput = Omit<
@@ -27,17 +33,6 @@ export type PageBriefSessionInput = Omit<LearningSessionInput, "publicWeb"> & {
   deliverableShape: "pageBrief";
 };
 
-/** The prior-turn shape the internal Browser Workbench launcher passes in
- * (structurally identical to `PageConversationTurn` in
- * src/browserWorkbench/pageConversationHistory.ts). Declared locally instead
- * of imported so this generic workflow module does not depend on the
- * browser-specific application module that already depends on it. */
-export interface PageAnswerConversationTurn {
-  sessionId: string;
-  question: string;
-  answer: string;
-}
-
 /** Internal, browser-only continuation path (ADR 0040, ADR 0045): every
  * `pageAnswer` Session is a follow-up child, so it always names the Session
  * it continues from and the exact ordered history that precedes it. This is
@@ -46,7 +41,7 @@ export interface PageAnswerConversationTurn {
 export type PageAnswerSessionInput = Omit<LearningSessionInput, "publicWeb"> & {
   deliverableShape: "pageAnswer";
   continuationSourceSessionId: string;
-  pageConversationHistory: PageAnswerConversationTurn[];
+  pageConversationHistory: PageConversationTurn[];
   outputLanguage?: string;
 };
 
@@ -60,19 +55,6 @@ export interface LearningPack {
   sourceLinks: string;
   openQuestions: string;
   reviewPrompts: string;
-}
-
-export interface PageBrief {
-  summary: string;
-  keyConcepts: string;
-}
-
-export type PageAnswerGroundingStatus = "supported" | "not_found";
-
-export interface PageAnswer {
-  answer: string;
-  groundingStatus: PageAnswerGroundingStatus;
-  evidence: string[];
 }
 
 /** Thrown by the pageAnswer normalizer when the model's Answer/Evidence shape
@@ -190,7 +172,7 @@ export function createPageBriefWorkflowDefinition(
 
 export function createPageAnswerWorkflowDefinition(
   startTraceExtras?: LearningSessionInput["startTraceExtras"],
-  pageConversationHistory?: PageAnswerConversationTurn[],
+  pageConversationHistory?: PageConversationTurn[],
   outputLanguage?: string,
 ): WorkflowDefinition<PageAnswer> {
   return createSourceBackedLearningDefinition({
@@ -219,7 +201,7 @@ export function createPageAnswerWorkflowDefinition(
 function createSourceBackedLearningDefinition<T>(input: {
   deliverableShape: "learningPack" | "pageBrief" | "pageAnswer";
   startTraceExtras?: LearningSessionInput["startTraceExtras"];
-  pageConversationHistory?: PageAnswerConversationTurn[];
+  pageConversationHistory?: PageConversationTurn[];
   systemPromptLines: string[];
   normalize(content: string, contextAttachments: LoadedContextAttachment[]): string;
   completion(markdown: string): T;
@@ -502,7 +484,7 @@ function stripBalancedEvidencePresentationQuotes(excerpt: string): string {
  * is the seam responsible for failing the launch outright, rather than this
  * function silently dropping older turns, when history cannot be trusted. */
 function formatPageConversationHistoryForPrompt(
-  turns: PageAnswerConversationTurn[],
+  turns: PageConversationTurn[],
 ): string[] {
   if (turns.length === 0) return [];
   const lines = ["Page Conversation History (most recent turn last):"];

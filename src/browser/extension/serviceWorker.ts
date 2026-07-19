@@ -10,6 +10,7 @@ import {
   createPageConversationController,
   type PageConversationBridge,
 } from "./pageConversationController.js";
+import type { PageConversationFrame } from "./pageConversationProjection.js";
 
 declare const chrome: any;
 
@@ -35,7 +36,7 @@ const bridge: PageConversationBridge = {
     });
     return {
       postMessage: (frame: Record<string, unknown>) => port.postMessage(frame),
-      onFrame: (listener: (frame: Record<string, unknown>) => void) => port.onMessage.addListener(listener),
+      onFrame: (listener: (frame: PageConversationFrame) => void) => port.onMessage.addListener(listener),
       onDisconnect: (listener: () => void) => port.onDisconnect.addListener(listener),
       disconnect: () => port.disconnect(),
     };

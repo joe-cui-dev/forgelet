@@ -100,7 +100,12 @@ test.each(["stopped", "failed"] as const)(
     projection = applyPageConversationFrame(projection, {
       type: "live_event",
       invocationId: "invocation_2",
-      event: { type: "model_output_delta", text: "partial streamed text" },
+      event: {
+        type: "model_output_delta",
+        turnIndex: 0,
+        model: "test-model",
+        text: "partial streamed text",
+      },
     });
     expect(projection.currentAttempt?.liveText).toBe("partial streamed text");
 

@@ -7,6 +7,7 @@ import {
   type PageConversationStartRequest,
 } from "../../src/browser/extension/pageConversationController.js";
 import type { PageConversationProjection } from "../../src/browser/extension/pageConversationProjection.js";
+import type { PageConversationFrame } from "../../src/browser/extension/pageConversationProjection.js";
 import type { PageConversationSessionStorage } from "../../src/browser/extension/pageConversationStore.js";
 
 function fakeStorage(): PageConversationSessionStorage {
@@ -30,7 +31,7 @@ function idFactory(): () => string {
 
 interface PortRecord {
   postMessage: unknown[];
-  frame: (frame: Record<string, unknown>) => void;
+  frame: (frame: PageConversationFrame) => void;
   disconnected: boolean;
 }
 

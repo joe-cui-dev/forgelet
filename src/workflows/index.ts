@@ -10,7 +10,6 @@ export {
   runLearningSession,
   type LearningSessionInput,
   type LearningSessionResult,
-  type PageBrief,
   type PageBriefSessionInput,
   type PageBriefSessionResult,
 } from "./learning.js";
