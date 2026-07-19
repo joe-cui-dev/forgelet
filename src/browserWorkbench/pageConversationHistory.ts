@@ -1,20 +1,32 @@
-import { findSessionTracePath, isTraceEvent, readTraceFile, type TraceEvent } from "../trace/index.js";
-import type {
-  PageConversationAttemptKind,
-  PageConversationTurn,
-} from "../pageConversation/index.js";
+import {
+  findSessionTracePath,
+  isTraceEvent,
+  readTraceFile,
+  type TraceEvent,
+  type TraceEventPayloads,
+} from "../trace/index.js";
+import type { PageConversationTurn } from "../pageConversation/index.js";
+
+type SessionStartedTrigger = NonNullable<
+  TraceEventPayloads["session_started"]["trigger"]
+>;
 
 /** The `session_started.payload.trigger` shape a Page Conversation Session
- * launcher (WP8) is expected to record, per ADR 0051. */
-export interface PageConversationTrigger {
-  kind: PageConversationAttemptKind;
-  conversationId: string;
-  captureId: string;
-  invocationId?: string;
-  workspaceProfileId?: string;
-  parentSessionId?: string;
-  outputLanguage?: string;
-}
+ * launcher (WP8) is expected to record, per ADR 0051, narrowed to the fields
+ * this reader uses. `kind`/`conversationId`/`captureId` stay required as the
+ * Trace Vocabulary (ADR 0059, src/trace/events.ts) declares them; the rest
+ * stay optional here because this reader treats an older or malformed
+ * ancestor Trace as absent rather than as a parse failure. */
+export type PageConversationTrigger = Pick<
+  SessionStartedTrigger,
+  "kind" | "conversationId" | "captureId"
+> &
+  Partial<
+    Pick<
+      SessionStartedTrigger,
+      "invocationId" | "workspaceProfileId" | "parentSessionId" | "outputLanguage"
+    >
+  >;
 
 export interface PageConversationHistory {
   conversationId: string;
