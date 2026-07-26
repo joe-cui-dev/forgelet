@@ -3,7 +3,7 @@ import type { ToolObservationErrorCode } from "./observation/index.js";
 export type WorkflowKind = "coding" | "writing" | "learning";
 
 export type WorkflowVariant = "creative";
-/** The Style Preset vocabulary is workspace-defined (see creativeStylePresets/index.ts), not a fixed union. */
+/** Style Preset names remain open to workspace-defined additions and replacements. */
 export type CreativeStyle = string;
 export type CreativeInputKind = "draft" | "revision" | "continuation";
 

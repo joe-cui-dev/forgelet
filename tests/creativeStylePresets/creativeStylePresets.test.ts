@@ -3,12 +3,13 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  COMMITTED_CREATIVE_STYLE_PRESETS_PATH,
   LOCAL_CREATIVE_STYLE_PRESETS_PATH,
   formatCreativeStylePresetForPrompt,
   formatCreativeStylePresetForWorkspacePrompt,
   loadCreativeStylePresets,
+  validateCreativeStylePresets,
 } from "../../src/creativeStylePresets/index.js";
+import { BUILT_IN_CREATIVE_STYLE_PRESETS } from "../../src/creativeStylePresets/defaults.js";
 
 function preset(overrides: Partial<Record<string, string | string[]>> = {}) {
   return {
@@ -54,42 +55,45 @@ Revision focus:
 `);
 });
 
-test("throws a clear error when no Style Preset file exists", async () => {
+test("loads all built-in Style Presets when no local file exists", async () => {
   const workspaceRoot = await makeWorkspace();
 
-  await expect(loadCreativeStylePresets(workspaceRoot)).rejects.toThrow(
-    /No Style Preset file found/,
+  await expect(loadCreativeStylePresets(workspaceRoot)).resolves.toEqual(
+    BUILT_IN_CREATIVE_STYLE_PRESETS,
   );
 });
 
-test("loads Style Presets from the committed workspace file", async () => {
+test("does not expose mutable references to built-in Style Presets", async () => {
+  const workspaceRoot = await makeWorkspace();
+  const first = await loadCreativeStylePresets(workspaceRoot);
+  first.vivid.label = "Mutated label.";
+  first.vivid.instructions[0] = "Mutated instruction.";
+
+  const second = await loadCreativeStylePresets(workspaceRoot);
+  expect(second.vivid.label).toBe("Concrete sensory prose with visible action.");
+  expect(second.vivid.instructions[0]).toBe(
+    "Anchor abstractions in concrete sights, sounds, textures, and actions.",
+  );
+});
+
+test("a local Style Preset adds to the built-in vocabulary", async () => {
   const workspaceRoot = await makeWorkspace();
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
   await writeFile(
-    join(workspaceRoot, COMMITTED_CREATIVE_STYLE_PRESETS_PATH),
-    JSON.stringify({ plain: preset({ label: "Committed plain label." }) }),
+    join(workspaceRoot, LOCAL_CREATIVE_STYLE_PRESETS_PATH),
+    JSON.stringify({ custom: preset({ label: "Custom label." }) }),
     "utf8",
   );
 
   const presets = await loadCreativeStylePresets(workspaceRoot);
-  expect(presets.plain?.label).toBe("Committed plain label.");
-
-  const prompt = await formatCreativeStylePresetForWorkspacePrompt(
-    "plain",
-    workspaceRoot,
-  );
-  expect(prompt).toMatch(/Style Preset: plain/);
-  expect(prompt).toMatch(/Committed plain label/);
+  expect(Object.keys(presets)).toHaveLength(11);
+  expect(presets.vivid).toEqual(BUILT_IN_CREATIVE_STYLE_PRESETS.vivid);
+  expect(presets.custom?.label).toBe("Custom label.");
 });
 
-test("a local Style Preset file fully shadows the committed file", async () => {
+test("a local Style Preset replaces a built-in entry whole", async () => {
   const workspaceRoot = await makeWorkspace();
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
-  await writeFile(
-    join(workspaceRoot, COMMITTED_CREATIVE_STYLE_PRESETS_PATH),
-    JSON.stringify({ plain: preset(), noir: preset() }),
-    "utf8",
-  );
   await writeFile(
     join(workspaceRoot, LOCAL_CREATIVE_STYLE_PRESETS_PATH),
     JSON.stringify({ vivid: preset({ label: "Private vivid label." }) }),
@@ -97,33 +101,24 @@ test("a local Style Preset file fully shadows the committed file", async () => {
   );
 
   const presets = await loadCreativeStylePresets(workspaceRoot);
-  expect(Object.keys(presets)).toEqual(["vivid"]);
+  expect(Object.keys(presets)).toHaveLength(10);
   expect(presets.vivid?.label).toBe("Private vivid label.");
-
-  await expect(
-    formatCreativeStylePresetForWorkspacePrompt("plain", workspaceRoot),
-  ).rejects.toThrow(/Unknown Style Preset: plain/);
+  expect(presets.vivid?.aim).toBe("An aim.");
+  expect(presets.vivid?.aim).not.toBe(BUILT_IN_CREATIVE_STYLE_PRESETS.vivid.aim);
 });
 
 test("rejects an unknown Style Preset key and lists the available ones", async () => {
   const workspaceRoot = await makeWorkspace();
-  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
-  await writeFile(
-    join(workspaceRoot, COMMITTED_CREATIVE_STYLE_PRESETS_PATH),
-    JSON.stringify({ plain: preset(), noir: preset() }),
-    "utf8",
-  );
-
   await expect(
     formatCreativeStylePresetForWorkspacePrompt("gothic", workspaceRoot),
-  ).rejects.toThrow(/Unknown Style Preset: gothic.*plain, noir/s);
+  ).rejects.toThrow(/Unknown Style Preset: gothic.*plain.*sharp/s);
 });
 
 test("accepts non-ASCII Style Preset keys", async () => {
   const workspaceRoot = await makeWorkspace();
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
   await writeFile(
-    join(workspaceRoot, COMMITTED_CREATIVE_STYLE_PRESETS_PATH),
+    join(workspaceRoot, LOCAL_CREATIVE_STYLE_PRESETS_PATH),
     JSON.stringify({ 冷峻: preset({ label: "冷峻风格。" }) }),
     "utf8",
   );
@@ -140,7 +135,7 @@ test("rejects a Style Preset key with leading or trailing whitespace", async () 
   const workspaceRoot = await makeWorkspace();
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
   await writeFile(
-    join(workspaceRoot, COMMITTED_CREATIVE_STYLE_PRESETS_PATH),
+    join(workspaceRoot, LOCAL_CREATIVE_STYLE_PRESETS_PATH),
     JSON.stringify({ " noir": preset() }),
     "utf8",
   );
@@ -154,7 +149,7 @@ test("rejects a Style Preset missing required fields", async () => {
   const workspaceRoot = await makeWorkspace();
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
   await writeFile(
-    join(workspaceRoot, COMMITTED_CREATIVE_STYLE_PRESETS_PATH),
+    join(workspaceRoot, LOCAL_CREATIVE_STYLE_PRESETS_PATH),
     JSON.stringify({ noir: { label: "Noir label." } }),
     "utf8",
   );
@@ -162,4 +157,54 @@ test("rejects a Style Preset missing required fields", async () => {
   await expect(loadCreativeStylePresets(workspaceRoot)).rejects.toThrow(
     /preset "noir" aim must be a non-empty string/,
   );
+});
+
+test("rejects malformed local JSON instead of falling back to built-ins", async () => {
+  const workspaceRoot = await makeWorkspace();
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, LOCAL_CREATIVE_STYLE_PRESETS_PATH),
+    "{",
+    "utf8",
+  );
+
+  await expect(loadCreativeStylePresets(workspaceRoot)).rejects.toThrow(
+    /Unable to parse .forgelet\/style-presets\.local\.json/,
+  );
+});
+
+test("an empty local Style Preset file preserves all built-ins", async () => {
+  const workspaceRoot = await makeWorkspace();
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, LOCAL_CREATIVE_STYLE_PRESETS_PATH),
+    "{}",
+    "utf8",
+  );
+
+  await expect(loadCreativeStylePresets(workspaceRoot)).resolves.toEqual(
+    BUILT_IN_CREATIVE_STYLE_PRESETS,
+  );
+});
+
+test("the built-in Style Preset roster is stable and every entry passes validation", () => {
+  expect(Object.keys(BUILT_IN_CREATIVE_STYLE_PRESETS)).toEqual([
+    "plain",
+    "vivid",
+    "tight",
+    "literary",
+    "cinematic",
+    "minimal",
+    "lyrical",
+    "noir",
+    "warm",
+    "sharp",
+  ]);
+
+  expect(() =>
+    validateCreativeStylePresets(
+      "built-in Style Presets",
+      BUILT_IN_CREATIVE_STYLE_PRESETS,
+    ),
+  ).not.toThrow();
 });

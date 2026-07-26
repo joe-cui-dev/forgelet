@@ -10,7 +10,6 @@ import {
   loadWritingProject,
   saveWritingProject,
 } from "../../src/writingProjects/index.js";
-import { writeStylePresetsFixture } from "../testSupport/stylePresets.js";
 
 test("creates a project session trace for a coding workflow", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-run-"));
@@ -92,7 +91,6 @@ test("selects the built-in model route when project config tries to override def
 
 test("records creative writing variant metadata in the Session trace", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-creative-"));
-  await writeStylePresetsFixture(workspaceRoot, ["vivid"]);
   await writeFile(join(workspaceRoot, "draft.md"), "The room was cold.\n", "utf8");
 
   const result = await runWritingSession({
@@ -124,7 +122,6 @@ test("records creative writing variant metadata in the Session trace", async () 
 
 test("keeps scoped read tools available for creative Writing Project continuation", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-project-tools-"));
-  await writeStylePresetsFixture(workspaceRoot, ["vivid"]);
   await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
   await writeFile(
     join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"),
@@ -163,7 +160,6 @@ test("keeps scoped read tools available for creative Writing Project continuatio
 
 test("keeps prompt-only creative writing runs tool-free outside Writing Projects", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-creative-tools-"));
-  await writeStylePresetsFixture(workspaceRoot, ["vivid"]);
   const modelClient = new FakeModelClient([
     { content: "Draft\n\nA quiet opening.", toolCalls: [] },
   ]);
@@ -183,7 +179,6 @@ test("keeps prompt-only creative writing runs tool-free outside Writing Projects
 
 test("narrows Writing Project read scope to project members", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-project-scope-"));
-  await writeStylePresetsFixture(workspaceRoot, ["vivid"]);
   await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
   await writeFile(
     join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"),
@@ -230,7 +225,6 @@ test("narrows Writing Project read scope to project members", async () => {
 
 test("denies workspace reads when a Writing Project has no readable members", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-empty-project-"));
-  await writeStylePresetsFixture(workspaceRoot, ["vivid"]);
   await writeFile(join(workspaceRoot, "secret.txt"), "repo secret\n", "utf8");
   const modelClient = new FakeModelClient([
     {
@@ -267,7 +261,6 @@ test("denies workspace reads when a Writing Project has no readable members", as
 
 test("includes a Writing Project member list in the model prompt", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-project-prompt-"));
-  await writeStylePresetsFixture(workspaceRoot, ["vivid"]);
   await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
   await writeFile(
     join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"),
@@ -313,7 +306,6 @@ test("includes a Writing Project member list in the model prompt", async () => {
 
 test("records Writing Project slug in session_started trace metadata", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-project-trace-"));
-  await writeStylePresetsFixture(workspaceRoot, ["vivid"]);
   await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
   await writeFile(
     join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"),
@@ -351,7 +343,6 @@ test("records Writing Project slug in session_started trace metadata", async () 
 
 test("updates Writing Project manifest and trace when project writing creates an artifact", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-project-update-"));
-  await writeStylePresetsFixture(workspaceRoot, ["vivid"]);
   await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
   await writeFile(
     join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"),

@@ -2,7 +2,6 @@ node_modules/
 dist/
 dist-test/
 .forgelet/*
-!.forgelet/style-presets.json
 .env
 .env.*
 !.env.example

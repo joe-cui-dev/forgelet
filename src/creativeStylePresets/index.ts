@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { CreativeStyle } from "../types.js";
+import { BUILT_IN_CREATIVE_STYLE_PRESETS } from "./defaults.js";
 
 export interface CreativeStylePreset {
   key: CreativeStyle;
@@ -10,9 +11,6 @@ export interface CreativeStylePreset {
   avoid: string[];
   revisionFocus: string[];
 }
-
-export const COMMITTED_CREATIVE_STYLE_PRESETS_PATH =
-  ".forgelet/style-presets.json";
 
 export const LOCAL_CREATIVE_STYLE_PRESETS_PATH =
   ".forgelet/style-presets.local.json";
@@ -24,15 +22,10 @@ export async function loadCreativeStylePresets(
     workspaceRoot,
     LOCAL_CREATIVE_STYLE_PRESETS_PATH,
   );
-  if (local) return local;
-  const committed = await readCreativeStylePresetFile(
-    workspaceRoot,
-    COMMITTED_CREATIVE_STYLE_PRESETS_PATH,
-  );
-  if (committed) return committed;
-  throw new Error(
-    `No Style Preset file found. Create ${COMMITTED_CREATIVE_STYLE_PRESETS_PATH} or ${LOCAL_CREATIVE_STYLE_PRESETS_PATH} to define Style Presets.`,
-  );
+  return {
+    ...cloneCreativeStylePresets(BUILT_IN_CREATIVE_STYLE_PRESETS),
+    ...local,
+  };
 }
 
 export function getCreativeStylePreset(
@@ -96,22 +89,44 @@ async function readCreativeStylePresetFile(
     throw new Error(`Unable to parse ${relativePath}: ${message}`);
   }
 
+  return validateCreativeStylePresets(relativePath, parsed);
+}
+
+export function validateCreativeStylePresets(
+  sourceLabel: string,
+  parsed: unknown,
+): Record<string, CreativeStylePreset> {
   if (!isRecord(parsed))
     throw new Error(
-      `${relativePath} must contain a JSON object keyed by Style Preset name.`,
+      `${sourceLabel} must contain a JSON object keyed by Style Preset name.`,
     );
-
   const presets: Record<string, CreativeStylePreset> = {};
   for (const [key, value] of Object.entries(parsed)) {
     if (key.trim().length === 0)
-      throw new Error(`${relativePath} has a blank Style Preset key.`);
+      throw new Error(`${sourceLabel} has a blank Style Preset key.`);
     if (key.trim() !== key)
       throw new Error(
-        `${relativePath} Style Preset key must not have leading or trailing whitespace: "${key}"`,
+        `${sourceLabel} Style Preset key must not have leading or trailing whitespace: "${key}"`,
       );
-    presets[key] = validateCreativeStylePreset(relativePath, key, value);
+    presets[key] = validateCreativeStylePreset(sourceLabel, key, value);
   }
   return presets;
+}
+
+function cloneCreativeStylePresets(
+  presets: Record<string, CreativeStylePreset>,
+): Record<string, CreativeStylePreset> {
+  return Object.fromEntries(
+    Object.entries(presets).map(([key, preset]) => [
+      key,
+      {
+        ...preset,
+        instructions: [...preset.instructions],
+        avoid: [...preset.avoid],
+        revisionFocus: [...preset.revisionFocus],
+      },
+    ]),
+  );
 }
 
 function validateCreativeStylePreset(
