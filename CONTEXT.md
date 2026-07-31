@@ -161,8 +161,8 @@ User-approved Markdown notes stored in a Knowledge Scope. The Knowledge Library 
 _Avoid_: Memory file, vector database, terminal-only output
 
 **Durable Memory**:
-User-approved project or personal guidance that Forgelet may reuse in later Sessions. Durable Memory must be inspectable, editable, and traceable to its source.
-_Avoid_: Vector cache, session trace
+User-approved guidance discovered in real Sessions — never guidance the user already declared up front — that Forgelet may reuse in later Sessions. It must be inspectable, editable, and traceable to its source, and it stays bounded because entries leave through Memory Graduation.
+_Avoid_: Vector cache, session trace, permanent guidance layer
 
 **Memory Suggestion**:
 A proposed Durable Memory entry with provenance to a source Session or Trace. It is not reusable guidance until the user accepts it.
@@ -200,13 +200,9 @@ _Avoid_: Trace copy, live audit, full session history, preview
 The derived status of a Memory Suggestion's source Trace measured against its Provenance Snapshot: verified, differs, missing, or unreadable. It is computed at read time, never stored, and never blocks a Memory Decision; the one recorded exception is the corroboration observed at decision time inside the Memory Decision.
 _Avoid_: Integrity gate, trace status flag, validation error, stored state
 
-**Memory Scope**:
-The layer a Durable Memory entry belongs to: project scope for guidance about one workspace, personal scope for cross-project preferences and habits. Scope determines where an entry lives and which Sessions may recall it.
-_Avoid_: Folder, config file, global settings
-
-**Memory Recall**:
-The bounded selection of Durable Memory entries into a Session's Active Context, chosen by Memory Scope and task relevance within a budget instead of injecting whole memory files. What was recalled is recorded as Trace evidence.
-_Avoid_: Memory dump, whole-file injection, RAG, hidden context
+**Memory Graduation**:
+Moving a Durable Memory entry into the workspace's declared guidance and deleting it from Durable Memory, once the user has confirmed the discovered convention holds. It is what keeps Durable Memory bounded instead of growing into a second permanent layer of guidance.
+_Avoid_: Promotion, archiving, memory cleanup, expiry
 
 **Browser Context Bridge**:
 The read-only browser integration where a user-approved extension sends page context into Forgelet as a browser Context Attachment.
