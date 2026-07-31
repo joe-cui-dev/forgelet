@@ -16,6 +16,18 @@ _Avoid_: Prompt, mode, command
 A bounded unit of model-and-tool interaction that the Agent Kernel runs for a Workflow, within which model turns, tool calls, permission checks, budget accounting, Active Context compaction, and Trace evidence occur. A Workflow runs one or more ReAct Nodes.
 _Avoid_: Agent loop, chat loop, Session, workflow stage
 
+**Route**:
+The model decision in force for one Workflow stage: which model answers and how much reasoning effort it spends. A Route is chosen by the Routing Policy, recorded in the Trace, and persisted in a Pause Snapshot, so a Session's behaviour stays explainable after the fact.
+_Avoid_: Model, model id, model name, provider
+
+**Model Profile**:
+The recorded facts about a routable model — which protocols it speaks, which reasoning efforts it accepts, its context and output ceilings, its prices, and whether it is retired. A Profile states what a provider offers, which is the opposite direction from a Capability, which states what Forgelet grants a Workflow.
+_Avoid_: Capability, model config, catalog entry
+
+**Provider Carryover**:
+The opaque payload a model turn returns that its provider requires replayed verbatim in later requests of the same tool-calling chain. Forgelet stores and replays it without reading or rewriting it, it is the one part of the conversation Forgelet cannot compact, and it never crosses a Session boundary.
+_Avoid_: Reasoning content, thinking, continuation, provider state
+
 **Coding Workflow**:
 The Forgelet workflow for repository tasks such as searching code, editing files, running tests, and explaining changes.
 _Avoid_: The Forgelet product, generic agent loop
@@ -93,7 +105,7 @@ The deterministic, machine-assembled part of a Rolling Summary that carries fact
 _Avoid_: Model summary, durable memory, trace event, transaction log
 
 **Session Budget**:
-The per-Session resource limits the Agent Kernel enforces, each guarding one distinct resource: model turns guard progress, estimated cost guards money, and wall clock guards the user's time. Estimated cost is a lower bound whenever any turn's usage went unpriced — unknown cost is never counted as zero. Any budget dimension that can stop a Session is visible to the model in Turn Status.
+The per-Session resource limits the Agent Kernel enforces, each guarding one distinct resource: model turns guard progress, estimated cost guards money, and wall clock guards the user's time. Estimated cost is a lower bound whenever any turn's usage went unpriced, or whenever a Model Profile's prices carry a time-of-day policy whose effect is unknown — unknown cost is never counted as zero. Any budget dimension that can stop a Session is visible to the model in Turn Status.
 _Avoid_: Token budget, rate limit, quota, context limit
 
 **Turn Status**:
