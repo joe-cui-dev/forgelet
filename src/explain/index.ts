@@ -10,8 +10,15 @@ export interface SessionExplanation {
   route?: {
     model: string;
     reason: string;
+    effort?: "none" | "low" | "high" | "max";
   };
   modelTurns: number;
+  providerDiagnostics: {
+    inputCacheHitTokens: number;
+    inputCacheMissTokens: number;
+    reasoningTokens: number;
+    providerCarryoverBytes: number;
+  };
   toolResults: ToolResultExplanation[];
   permissionDecisions: PermissionExplanation[];
   approvalDecisions: ApprovalExplanation[];
@@ -64,6 +71,7 @@ export async function explainSession(
     task: folded.task,
     route: folded.route,
     modelTurns: events.filter((event) => event.type === "model_turn").length,
+    providerDiagnostics: explainProviderDiagnostics(events),
     toolResults: events
       .filter((event) => event.type === "tool_result")
       .map(toToolResultExplanation),
@@ -80,6 +88,20 @@ export async function explainSession(
       ...(folded.hasFinished ? [] : ["session_finished"]),
     ],
   };
+}
+
+function explainProviderDiagnostics(events: KnownTraceEvent[]): SessionExplanation["providerDiagnostics"] {
+  return events
+    .filter((event): event is Extract<KnownTraceEvent, { type: "model_turn" }> => event.type === "model_turn")
+    .reduce(
+      (total, event) => ({
+        inputCacheHitTokens: total.inputCacheHitTokens + asNumber(event.payload.usage?.inputCacheHitTokens),
+        inputCacheMissTokens: total.inputCacheMissTokens + asNumber(event.payload.usage?.inputCacheMissTokens),
+        reasoningTokens: total.reasoningTokens + asNumber(event.payload.usage?.reasoningTokens),
+        providerCarryoverBytes: total.providerCarryoverBytes + asNumber(event.payload.providerCarryoverBytes),
+      }),
+      { inputCacheHitTokens: 0, inputCacheMissTokens: 0, reasoningTokens: 0, providerCarryoverBytes: 0 },
+    );
 }
 
 const explainConversationCompaction = (

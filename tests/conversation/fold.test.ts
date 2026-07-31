@@ -78,6 +78,31 @@ test("anchors the fold prompt to the Session task", async () => {
   );
 });
 
+test("excludes opaque Provider Carryover from the folding prompt", async () => {
+  const conversation: ModelMessage[] = [
+    {
+      ...assistantTurn("call_old", 5_000),
+      providerCarryover: "private reasoning",
+    },
+    ...turnWithFileRead("call_new", "new.ts", 500),
+  ];
+  const modelClient = scriptedModelClient([{ content: "Read old.ts." }]);
+
+  await attemptConversationFold({
+    conversation,
+    rollingSummary: undefined,
+    maxConversationBytes: 4_000,
+    protectedRecentTurns: 1,
+    task: "task",
+    modelClient,
+  });
+
+  expect(modelClient.turnInputs[0]?.messages).not.toContainEqual(
+    expect.objectContaining({ providerCarryover: "private reasoning" }),
+  );
+  expect(modelClient.turnInputs[0]?.effort).toBe("none");
+});
+
 test("tells the summarizer not to imitate the Fact Ledger", async () => {
   const conversation: ModelMessage[] = [
     ...turnWithFileRead("call_old", "old.ts", 5_000),

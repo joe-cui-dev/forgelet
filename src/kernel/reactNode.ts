@@ -9,6 +9,7 @@ import type {
   ModelMessage,
   ModelToolCall,
   ModelTurnOutput,
+  ReasoningEffort,
   SessionAudit,
   SessionFinishStatus,
   SessionStopReason,
@@ -24,6 +25,7 @@ import {
   type ActiveContextSettings,
   type ActiveContextCompactorState,
 } from "../conversation/index.js";
+import { providerCarryoverBytes } from "../conversation/budget.js";
 import type { LoadedDurableMemory } from "../memory/index.js";
 import type { DebugTranscriptWriter } from "../debugTranscript/index.js";
 import type { SessionLiveEvent, SessionLiveEventSink } from "../sessionLiveView/index.js";
@@ -55,6 +57,7 @@ export interface ActLoopRoute {
   workflow: WorkflowKind;
   stage: "act_loop";
   model: string;
+  effort?: ReasoningEffort;
   reason: string;
 }
 
@@ -354,6 +357,7 @@ export const runReactNode = async (
       }
     : { changedFiles: new Set(), commands: [] };
   let finalContent = "";
+  let truncatedOutputNotice = input.resume?.working.pendingTruncationNotice ?? false;
   let activeContextState: ActiveContextCompactorState =
     input.resume?.working.activeContext ?? { failedFoldAttempts: 0 };
   let forcedStopReason: SessionStopReason | undefined;
@@ -416,6 +420,7 @@ export const runReactNode = async (
     },
     sessionState: actionableSessionState,
     activeWallClockMs: elapsedWallClockMs(),
+    ...(truncatedOutputNotice ? { pendingTruncationNotice: true } : {}),
   });
   const taskContext: TaskContext = {
     definition: input.definition,
@@ -540,8 +545,14 @@ export const runReactNode = async (
         compactionStatus: activeContext.compactionStatusLine,
         wrapupOnly: turnPlan.wrapupOnly,
         finalToolTurn: turnPlan.finalToolTurn,
+        carryoverBytes: providerCarryoverBytes(conversation),
+        truncatedOutputNotice,
       },
     );
+    // The Turn Status tail is reconstructed for every request. A truncation
+    // warning belongs to exactly the next request, while `messages` preserves
+    // it through a transient retry of that request.
+    truncatedOutputNotice = false;
     if (input.signal?.aborted) return stopWith("user_stopped");
 
     let output: ModelTurnOutput;
@@ -568,6 +579,8 @@ export const runReactNode = async (
         output = await input.modelClient.createTurn({
           messages,
           tools: turnPlan.wrapupOnly ? [] : tools,
+          effort: input.route.effort ?? "high",
+          maxTokens: input.activeContext.maxOutputTokens,
           signal: input.signal,
           onOutputDelta: input.onLiveEvent
             ? async (delta) => {
@@ -588,6 +601,7 @@ export const runReactNode = async (
             turnIndex,
             model: input.route.model,
             content: output.content,
+            providerCarryover: output.providerCarryover,
             toolCalls: output.toolCalls,
             finishReason: output.finishReason,
             usage: output.usage,
@@ -665,7 +679,16 @@ export const runReactNode = async (
       usage: output.usage,
       finishReason: output.finishReason,
       finalOnly: turnPlan.finalOnly,
+      providerCarryoverBytes: Buffer.byteLength(output.providerCarryover ?? "", "utf8"),
     });
+    if (output.finishReason === "length") {
+      truncatedOutputNotice = true;
+      await input.appendTrace("model_turn_truncated", {
+        turnIndex,
+        model: input.route.model,
+        finishReason: output.finishReason,
+      });
+    }
     await emitLiveEvent(input.onLiveEvent, {
       type: "model_turn_finished",
       turnIndex,
@@ -708,6 +731,13 @@ export const runReactNode = async (
       output.toolCalls.length === 0 &&
       !isUsableFinalContent(output.content ?? "")
     ) {
+      if (output.providerCarryover)
+        conversation.push({
+          role: "assistant",
+          content: output.content ?? "",
+          toolCalls: output.toolCalls,
+          providerCarryover: output.providerCarryover,
+        });
       if (!turnPlan.wrapupOnly) continue;
       const reason = turnPlan.emptyContentStopReason;
       return stopWith(reason);
@@ -737,7 +767,9 @@ export const runReactNode = async (
       // instant the model finished still discards the completion honestly.
       if (input.signal?.aborted) return stopWith("user_stopped");
       finalContent = input.definition.normalizeFinalContent?.(
-        output.content ?? "",
+        output.finishReason === "length"
+          ? (input.definition.markTruncatedFinalContent?.(output.content ?? "") ?? output.content ?? "")
+          : (output.content ?? ""),
         {
           contextAttachments: input.contextAttachments,
           sourceLedger: input.sourceLedger?.view,
@@ -769,6 +801,9 @@ export const runReactNode = async (
       role: "assistant",
       content: output.content ?? "",
       toolCalls: output.toolCalls,
+      ...(output.providerCarryover
+        ? { providerCarryover: output.providerCarryover }
+        : {}),
     });
     const batchOutcome = await executeToolCallBatch({
       toolCalls: output.toolCalls,

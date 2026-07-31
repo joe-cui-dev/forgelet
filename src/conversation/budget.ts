@@ -8,7 +8,15 @@ export const FACT_LEDGER_BUDGET_RATIO = 0.25;
 
 export function messageBytes(messages: ModelMessage[]): number {
   return messages.reduce(
-    (total, message) => total + byteLengthUtf8(message.content),
+    (total, message) =>
+      total + byteLengthUtf8(message.content) + byteLengthUtf8(message.providerCarryover ?? ""),
+    0,
+  );
+}
+
+export function providerCarryoverBytes(messages: ModelMessage[]): number {
+  return messages.reduce(
+    (total, message) => total + byteLengthUtf8(message.providerCarryover ?? ""),
     0,
   );
 }

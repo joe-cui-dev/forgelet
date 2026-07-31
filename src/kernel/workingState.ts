@@ -25,6 +25,8 @@ export interface ReactNodeWorkingState {
   pendingToolRequest: ToolRequest;
   remainingToolCalls: ModelToolCall[];
   executedObservations: ToolObservation[];
+  /** One-shot Turn Status notice restored after a pause. */
+  pendingTruncationNotice?: boolean;
 }
 
 export interface ReactNodePausedSessionState {

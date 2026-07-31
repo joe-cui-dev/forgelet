@@ -99,6 +99,8 @@ export async function attemptConversationFold(
     const output = await input.modelClient.createTurn({
       messages: summarizationMessages,
       tools: [],
+      effort: "none",
+      maxTokens: Math.floor(input.maxConversationBytes / 16),
     });
     content = output.content;
     usage = {
@@ -238,7 +240,7 @@ function buildSummarizationMessages(
           },
         ]
       : []),
-    ...foldTurns,
+    ...foldTurns.map(({ providerCarryover: _providerCarryover, ...message }) => message),
     {
       role: "user",
       content:

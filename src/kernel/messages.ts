@@ -47,6 +47,8 @@ export interface TurnStatus {
   compactionStatus?: string;
   wrapupOnly: boolean;
   finalToolTurn: boolean;
+  carryoverBytes?: number;
+  truncatedOutputNotice?: boolean;
 }
 
 export const buildMessages = (
@@ -128,6 +130,12 @@ export const buildMessages = (
         turnStatus.limits,
         turnStatus.elapsedWallClockMs,
       ),
+      ...(turnStatus.carryoverBytes !== undefined
+        ? [`Provider Carryover: ${turnStatus.carryoverBytes} bytes (opaque and replayed).`]
+        : []),
+      ...(turnStatus.truncatedOutputNotice
+        ? ["The previous model response was truncated at its output ceiling; inspect and finish from the available result."]
+        : []),
       ...(turnStatus.compactionStatus ? [turnStatus.compactionStatus] : []),
       ...(turnStatus.finalToolTurn
         ? [

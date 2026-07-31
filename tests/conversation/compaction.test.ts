@@ -219,6 +219,24 @@ test("counts assistant message content toward the conversation-wide budget", () 
   expect(result.compactedCount).toBe(1);
 });
 
+test("counts opaque Provider Carryover toward the conversation-wide budget", () => {
+  const conversation: ModelMessage[] = [
+    {
+      role: "assistant",
+      content: "tool call",
+      providerCarryover: "r".repeat(5_000),
+      toolCalls: [{ id: "call_old", name: "read_file", input: {} }],
+    },
+    toolObservation("call_old", "read_file", "old.txt", "short"),
+    assistantToolCall("call_new", "read_file"),
+    toolObservation("call_new", "read_file", "new.txt", "short"),
+  ];
+
+  const result = compactConversation(conversation, { maxConversationBytes: 4_096 });
+
+  expect(result.beforeConversationBytes).toBeGreaterThan(5_000);
+});
+
 test("counts the rendered Rolling Summary toward the conversation-wide budget", () => {
   const conversation: ModelMessage[] = [
     assistantToolCall("call_old", "read_file"),

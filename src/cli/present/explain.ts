@@ -11,10 +11,11 @@ export function formatSessionExplanation(explanation: SessionExplanation): strin
     `Workflow: ${explanation.workflow}`,
     `Task: ${explanation.task || "none"}`,
     explanation.route
-      ? `Route: ${explanation.route.model} (${explanation.route.reason})`
+      ? `Route: ${explanation.route.model}${explanation.route.effort ? ` at ${explanation.route.effort} effort` : ""} (${explanation.route.reason})`
       : "Route: none",
     `Model turns: ${explanation.modelTurns}`,
     ...formatEstimatedCost(explanation.audit),
+    `Provider diagnostics: ${explanation.providerDiagnostics.inputCacheHitTokens} cache-hit input tokens, ${explanation.providerDiagnostics.inputCacheMissTokens} cache-miss input tokens, ${explanation.providerDiagnostics.reasoningTokens} reasoning tokens, ${explanation.providerDiagnostics.providerCarryoverBytes} Provider Carryover bytes`,
     ...formatMissingEvidence(explanation.missingEvidence),
     "",
     "Tool use",

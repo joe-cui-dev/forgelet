@@ -98,6 +98,24 @@ test("a coding Session can search, read, and finish through read-only tools", as
   expect(finalModelTurn?.payload.finishReason).toBe("stop");
 });
 
+test("a length-truncated Writing response is traced and saved with a visible marker", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-truncated-writing-"));
+  const result = await runWritingSession({
+    task: "draft a short note",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient: new FakeModelClient([
+      { content: "Partial draft", toolCalls: [], finishReason: "length" },
+    ]),
+  });
+
+  expect(result.writingArtifact).toBeDefined();
+  const artifact = await readFile(join(workspaceRoot, result.writingArtifact?.path ?? ""), "utf8");
+  expect(artifact).toContain("[Output truncated at the model output ceiling.]");
+  const events = await readTypedTrace(result.tracePath);
+  expect(events.some((event) => event.type === "model_turn_truncated")).toBe(true);
+});
+
 test("a model-backed coding Session emits Session Live View events without writing them to the trace", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-live-view-"));
   await writeFile(
@@ -779,6 +797,12 @@ test("a Session Continuation includes Continuation Context in the first model in
         },
       }),
       JSON.stringify({
+        type: "model_turn",
+        ts: "2026-06-20T00:00:00.500Z",
+        sessionId: "sess_parent",
+        payload: { providerCarryoverBytes: 123 },
+      }),
+      JSON.stringify({
         type: "final_summary",
         ts: "2026-06-20T00:00:01.000Z",
         sessionId: "sess_parent",
@@ -850,6 +874,9 @@ test("a Session Continuation includes Continuation Context in the first model in
   );
   expect(firstUserMessage).not.toMatch(/diff --git/);
   expect(firstUserMessage).not.toMatch(/parent patch content/);
+  expect(modelClient.turnInputs[0]?.messages).not.toContainEqual(
+    expect.objectContaining({ providerCarryover: expect.any(String) }),
+  );
   expect(firstUserMessage).toMatch(/draft\.md hash=hash_parent/);
   expect(firstUserMessage).not.toMatch(/parent attachment preview/);
 

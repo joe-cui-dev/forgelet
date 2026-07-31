@@ -21,9 +21,18 @@ test("defaults the active observation working-set target", async () => {
 
   const config = await loadConfig({ workspaceRoot });
 
-  expect(config.activeContext.maxConversationBytes).toBe(131_072);
+  expect(config.activeContext.maxConversationBytes).toBe(524_288);
   expect(config.activeContext.observationDigestPreviewBytes).toBe(2_048);
   expect(config.activeContext.protectedRecentTurns).toBe(3);
+});
+
+test("defaults workflow routes to V4-sized conversation budgets and efforts", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-route-defaults-"));
+  const config = await loadConfig({ workspaceRoot });
+
+  expect(config.routing.coding).toMatchObject({ effort: "max", maxConversationBytes: 512 * 1024 });
+  expect(config.routing.learning).toMatchObject({ effort: "high", maxConversationBytes: 256 * 1024 });
+  expect(config.routing.writing).toMatchObject({ effort: "high", maxConversationBytes: 128 * 1024 });
 });
 
 test("defaults and persists Public Web provider settings", async () => {

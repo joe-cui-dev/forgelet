@@ -36,6 +36,7 @@ export interface SessionSummary {
 export interface SessionRouteSummary {
   model: string;
   reason: string;
+  effort?: "none" | "low" | "high" | "max";
 }
 
 export interface SessionDetail extends SessionSummary {
@@ -112,7 +113,13 @@ export function foldSessionTrace(
           ? "paused"
           : "incomplete",
     ...(route
-      ? { route: { model: route.payload.model ?? "", reason: route.payload.reason ?? "" } }
+      ? {
+          route: {
+            model: route.payload.model ?? "",
+            reason: route.payload.reason ?? "",
+            ...(route.payload.effort ? { effort: route.payload.effort } : {}),
+          },
+        }
       : {}),
     finalSummary: finalSummary?.payload.summary ?? "",
     ...(finalSummary?.payload.audit ? { audit: finalSummary.payload.audit } : {}),

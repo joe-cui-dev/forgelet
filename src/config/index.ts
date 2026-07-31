@@ -1,7 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
-import type { WorkflowKind } from "../types.js";
+import type { ReasoningEffort, WorkflowKind } from "../types.js";
+import { modelRunnability } from "../models/routing.js";
 import type { ActiveContextSettings } from "../conversation/index.js";
 
 export interface RoutingConfig {
@@ -14,6 +15,7 @@ export interface RoutingConfig {
 export interface StageRoutingConfig {
   default: string;
   review: string;
+  effort?: ReasoningEffort;
   maxConversationBytes?: number;
 }
 
@@ -65,14 +67,20 @@ export const defaultConfig: ForgeletConfig = {
     coding: {
       default: "deepseek-v4-flash",
       review: "deepseek-v4-flash",
+      effort: "max",
+      maxConversationBytes: 512 * 1024,
     },
     writing: {
       default: "deepseek-v4-flash",
       review: "deepseek-v4-flash",
+      effort: "high",
+      maxConversationBytes: 128 * 1024,
     },
     learning: {
       default: "deepseek-v4-flash",
       review: "deepseek-v4-flash",
+      effort: "high",
+      maxConversationBytes: 256 * 1024,
     },
     fallback: "gpt-5",
   },
@@ -88,7 +96,7 @@ export const defaultConfig: ForgeletConfig = {
     maxWallClockMs: 30 * 60 * 1000,
   },
   activeContext: {
-    maxConversationBytes: 128 * 1024,
+    maxConversationBytes: 512 * 1024,
     observationDigestPreviewBytes: 2_048,
     protectedRecentTurns: 3,
   },
@@ -159,12 +167,17 @@ export function routeModel(
   config: ForgeletConfig,
   workflow: WorkflowKind,
   modelOverride?: string,
-): { model: string; reason: string } {
-  if (modelOverride)
-    return { model: modelOverride, reason: "CLI model override" };
+  effortOverride?: ReasoningEffort,
+): { model: string; reason: string; effort: ReasoningEffort } {
+  const model = modelOverride ?? config.routing[workflow].default;
+  const effort = effortOverride ?? config.routing[workflow].effort ?? "high";
+  const runnability = modelRunnability(model, effort);
+  if (model.startsWith("deepseek-") && !runnability.runnable)
+    throw new Error(runnability.errorMessage);
   return {
-    model: config.routing[workflow].default,
-    reason: `default route for ${workflow} workflow`,
+    model,
+    effort,
+    reason: modelOverride ? "CLI model override" : `default route for ${workflow} workflow`,
   };
 }
 

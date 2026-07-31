@@ -1,4 +1,8 @@
-import { findSessionTracePath, isTraceEvent, readTraceFile } from "../trace/index.js";
+import {
+  findSessionTracePath,
+  isTraceEvent,
+  readTraceFile,
+} from "../trace/index.js";
 import type { ContextAttachment, SessionFinishStatus, WorkflowKind } from "../types.js";
 
 export interface SessionLineage {

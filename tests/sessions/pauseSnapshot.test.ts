@@ -30,7 +30,7 @@ test("PauseSnapshot round-trips through write and read, including Sets", async (
   );
   const loaded = await readPauseSnapshot(workspaceRoot, "sess_abc123");
 
-  expect(serialized.version).toBe(4);
+  expect(serialized.version).toBe(5);
   expect(serialized.working.sessionState.baselineDirtyPaths).toEqual(["a.txt"]);
   expect(loaded.working.sessionState.baselineDirtyPaths).toEqual(new Set(["a.txt"]));
   expect(loaded.working.sessionState.continuationOwnedDirtyPaths).toEqual(new Set(["b.txt"]));
@@ -185,6 +185,25 @@ test("readPauseSnapshot initializes missing version three fold attempts", async 
   expect(loaded.working.activeContext).toEqual({ failedFoldAttempts: 0 });
 });
 
+test("readPauseSnapshot upgrades a version four snapshot without merging Provider Carryover into content", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-pause-"));
+  const snapshot = testSnapshot({ sessionId: "sess_v4_carryover" });
+  snapshot.working.conversation = [
+    { role: "assistant", content: "tool call", providerCarryover: "opaque" },
+  ];
+  await writePauseSnapshot(workspaceRoot, snapshot);
+  const path = pauseSnapshotPath(workspaceRoot, snapshot.sessionId);
+  const legacy = JSON.parse(await readFile(path, "utf8"));
+  legacy.version = 4;
+  await writeFile(path, JSON.stringify(legacy), "utf8");
+
+  const loaded = await readPauseSnapshot(workspaceRoot, snapshot.sessionId);
+
+  expect(loaded.working.conversation[0]).toEqual({
+    role: "assistant", content: "tool call", providerCarryover: "opaque",
+  });
+});
+
 function testSnapshot(overrides: Partial<PauseSnapshot> = {}): PauseSnapshot {
   return {
     sessionId: "sess_test",
@@ -193,7 +212,7 @@ function testSnapshot(overrides: Partial<PauseSnapshot> = {}): PauseSnapshot {
     taskHash: "abcd1234",
     createdAt: "2026-01-01T00:00:00.000Z",
     envelope: { writeScopePrefixes: ["src"], allowedCommands: ["npm test"] },
-    route: { workflow: "coding", stage: "act_loop", model: "deepseek-chat", reason: "default" },
+    route: { workflow: "coding", stage: "act_loop", model: "deepseek-chat", effort: "max", reason: "default" },
     plan: { items: [{ step: "Do the thing", status: "in_progress" }] },
     limits: {
       maxModelTurns: 12,

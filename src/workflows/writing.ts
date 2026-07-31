@@ -83,6 +83,7 @@ export async function runWritingSession(
     browserSnapshot: input.browserSnapshot,
     publicWeb: input.publicWeb,
     model: input.model,
+    effort: input.effort,
     budgetUsd: input.budgetUsd,
     homeDir: input.homeDir,
     workspaceRoot: input.workspaceRoot,
@@ -232,6 +233,9 @@ export function createWritingWorkflowDefinition(
     },
     normalizeFinalContent(content) {
       return normalizeWritingFinalContent(content, input);
+    },
+    markTruncatedFinalContent(content) {
+      return `${content}\n\n[Output truncated at the model output ceiling.]`;
     },
     async onCompleted({
       workspaceRoot,

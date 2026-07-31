@@ -1,5 +1,6 @@
 import {
   maxConversationBytesForRoute,
+  maxOutputTokensForRoute,
   modelRunnability,
   providerForModel,
 } from "../../src/models/routing.js";
@@ -79,9 +80,33 @@ describe("maxConversationBytesForRoute", () => {
   });
 });
 
+test("derives the output ceiling from the route conversation budget", () => {
+  const config: Pick<ForgeletConfig, "routing" | "activeContext"> = {
+    routing: {
+      coding: { default: "deepseek-v4-flash", review: "deepseek-v4-flash", maxConversationBytes: 65_536 },
+      writing: { default: "deepseek-v4-flash", review: "deepseek-v4-flash" },
+      learning: { default: "deepseek-v4-flash", review: "deepseek-v4-flash" },
+      fallback: "gpt-5",
+    },
+    activeContext: { maxConversationBytes: 65_536, observationDigestPreviewBytes: 2_048, protectedRecentTurns: 3 },
+  };
+  expect(maxOutputTokensForRoute(config, "coding", "deepseek-v4-flash")).toBe(4_096);
+});
+
 describe("modelRunnability", () => {
-  it("marks deepseek- models as runnable", () => {
-    expect(modelRunnability("deepseek-chat")).toEqual({ runnable: true });
+  it("rejects retired DeepSeek models with a migration message", () => {
+    expect(modelRunnability("deepseek-chat")).toEqual({
+      runnable: false,
+      errorMessage: "Model deepseek-chat was retired. Migrate to deepseek-v4-flash.",
+      previewReason: "model deepseek-chat was retired; migrate to deepseek-v4-flash.",
+    });
+  });
+
+  it("rejects an effort a profiled model would silently remap", () => {
+    expect(modelRunnability("deepseek-v4-pro", "low")).toMatchObject({
+      runnable: false,
+      errorMessage: expect.stringContaining("does not accept reasoning effort low"),
+    });
   });
 
   it("marks non-deepseek models as not runnable, with distinct wiring and preview texts", () => {

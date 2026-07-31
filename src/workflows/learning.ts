@@ -99,6 +99,7 @@ export function runLearningSession(
     browserSnapshot: input.browserSnapshot,
     ...("publicWeb" in input && input.publicWeb ? { publicWeb: input.publicWeb } : {}),
     model: input.model,
+    effort: input.effort,
     budgetUsd: input.budgetUsd,
     homeDir: input.homeDir,
     workspaceRoot: input.workspaceRoot,

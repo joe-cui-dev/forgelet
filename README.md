@@ -26,11 +26,14 @@ npm run smoke:deepseek
 ```bash
 forge code "inspect this repo"
 forge code --preview --budget 0.10 "summarize the CLI entrypoint"
+forge code --effort max "inspect the CLI entrypoint"
 forge code --allow-read README.md --allow-read src/workflows "summarize the workflow"
 forge code --act --budget 0.25 "fix the small failing test"
 ```
 
 `forge code` starts a model-backed Coding Session. It can read workspace files, inspect Git status/diff, update the Session plan, and write Trace evidence. Add `--act` only when you want the Coding Workflow to request confirmed file edits and configured commands.
+
+Routes select both a model and reasoning effort. `--effort none|low|high|max` overrides a single run; defaults are `max` for Coding and `high` for Learning and Writing. Forgelet validates the selected pair against its Model Profile before a provider call.
 
 ```bash
 forge code --write-scope src --write-scope docs "add a changelog entry"

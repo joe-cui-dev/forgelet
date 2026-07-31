@@ -19,7 +19,7 @@ import {
 import type { ObservationRange } from "../observation/index.js";
 import type { RollingSummaryState } from "../conversation/index.js";
 
-const PAUSE_SNAPSHOT_VERSION = 4;
+const PAUSE_SNAPSHOT_VERSION = 5;
 
 export interface PauseSnapshot {
   sessionId: string;
@@ -104,6 +104,7 @@ export async function readPauseSnapshot(
   if (
     !isRecord(parsed) ||
     (parsed.version !== PAUSE_SNAPSHOT_VERSION &&
+      parsed.version !== 4 &&
       parsed.version !== 3 &&
       parsed.version !== 2)
   )
@@ -122,7 +123,12 @@ export async function readPauseSnapshot(
           migratedFromVersionTwo as VersionThreePauseSnapshot,
         )
       : migratedFromVersionTwo;
-  const { version, working, ...rest } = migrated;
+  const migratedToCurrent = {
+    ...migrated,
+    version: PAUSE_SNAPSHOT_VERSION,
+    route: { ...migrated.route, effort: migrated.route.effort ?? "high" },
+  };
+  const { version, working, ...rest } = migratedToCurrent;
   const { maxInputTokens: _retiredInputTokenBudget, ...limits } = rest.limits as BudgetLimits & {
     maxInputTokens?: unknown;
   };

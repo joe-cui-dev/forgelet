@@ -135,6 +135,8 @@ export interface LoadedContextAttachment {
 export interface ModelTurnInput {
   messages: ModelMessage[];
   tools: ToolSchema[];
+  effort?: ReasoningEffort;
+  maxTokens?: number;
   onOutputDelta?: (delta: ModelOutputDelta) => void | Promise<void>;
   signal?: AbortSignal;
 }
@@ -148,7 +150,11 @@ export interface ModelMessage {
   content: string;
   toolCallId?: string;
   toolCalls?: ModelToolCall[];
+  /** Opaque provider state that must be replayed only within this Session. */
+  providerCarryover?: string;
 }
+
+export type ReasoningEffort = "none" | "low" | "high" | "max";
 
 export interface ModelToolCall {
   id: string;
@@ -160,6 +166,7 @@ export interface ModelTurnOutput {
   content?: string;
   toolCalls: ModelToolCall[];
   finishReason?: string;
+  providerCarryover?: string;
   usage?: ModelUsage;
 }
 
@@ -168,6 +175,7 @@ export interface ModelUsage {
   outputTokens?: number;
   inputCacheHitTokens?: number;
   inputCacheMissTokens?: number;
+  reasoningTokens?: number;
   estimatedCostUsd?: number;
 }
 

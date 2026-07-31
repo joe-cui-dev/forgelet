@@ -21,6 +21,7 @@ import type { ApprovalHandler, ApprovalRequest } from "../tools/toolRegistry.js"
 export interface CreateLiveModelClientInput {
   workflow: WorkflowKind;
   modelOverride?: string;
+  effortOverride?: import("../types.js").ReasoningEffort;
   homeDir?: string;
   workspaceRoot: string;
   env: NodeJS.ProcessEnv;
@@ -34,8 +35,8 @@ export async function createDeepSeekLiveModelClient(
     homeDir: input.homeDir,
     workspaceRoot: input.workspaceRoot,
   });
-  const route = routeModel(config, input.workflow, input.modelOverride);
-  const runnability = modelRunnability(route.model);
+  const route = routeModel(config, input.workflow, input.modelOverride, input.effortOverride);
+  const runnability = modelRunnability(route.model, route.effort);
   if (!runnability.runnable) {
     throw new Error(runnability.errorMessage);
   }

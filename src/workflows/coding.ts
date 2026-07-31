@@ -30,6 +30,7 @@ export function runCodingSession(
     browserSnapshot: input.browserSnapshot,
     publicWeb: input.publicWeb,
     model: input.model,
+    effort: input.effort,
     budgetUsd: input.budgetUsd,
     maxWallClockMs: input.maxWallClockMs,
     maxModelTurns: input.maxModelTurns,

@@ -91,8 +91,54 @@ test("DeepSeekModelClient converts Forgelet turns to chat completions with tools
   expect(result.usage).toEqual({
     inputTokens: 12,
     outputTokens: 5,
-    estimatedCostUsd: 0.001,
+    estimatedCostUsd: 0.00000957,
   });
+});
+
+test("DeepSeekModelClient replays opaque Provider Carryover with an enabled effort", async () => {
+  let requestBody: unknown;
+  const client = new DeepSeekModelClient({
+    apiKey: "test-key",
+    model: "deepseek-v4-flash",
+    postJson: async (_url, body) => {
+      requestBody = body;
+      return {
+        choices: [
+          {
+            message: {
+              content: "Done.",
+              reasoning_content: "opaque reasoning",
+            },
+          },
+        ],
+      };
+    },
+  });
+
+  const result = await client.createTurn({
+    messages: [
+      {
+        role: "assistant",
+        content: "I called the tool.",
+        providerCarryover: "previous opaque reasoning",
+      },
+      { role: "tool", toolCallId: "call_1", content: "tool result" },
+    ],
+    tools: [],
+    effort: "max",
+  });
+
+  expect(requestBody).toMatchObject({
+    thinking: { type: "enabled" },
+    reasoning_effort: "max",
+  });
+  expect((requestBody as { messages: unknown[] }).messages[0]).toEqual({
+    role: "assistant",
+    content: "I called the tool.",
+    tool_calls: undefined,
+    reasoning_content: "previous opaque reasoning",
+  });
+  expect(result.providerCarryover).toBe("opaque reasoning");
 });
 
 test("DeepSeekModelClient forwards a caller AbortSignal to the fetch adapter", async () => {
@@ -142,6 +188,28 @@ test("DeepSeekModelClient estimates cost when the API returns token usage withou
   expect(result.usage?.outputTokens).toBe(200);
   expect(Math.abs((result.usage?.estimatedCostUsd ?? 0) - 0.0005658625) <
       Number.EPSILON).toBeTruthy();
+});
+
+test("DeepSeekModelClient reports reasoning tokens separately from output tokens", async () => {
+  const client = new DeepSeekModelClient({
+    apiKey: "test-key",
+    model: "deepseek-v4-flash",
+    postJson: async () => ({
+      choices: [{ message: { content: "Done." } }],
+      usage: {
+        prompt_tokens: 10,
+        completion_tokens: 20,
+        completion_tokens_details: { reasoning_tokens: 15 },
+      },
+    }),
+  });
+
+  const result = await client.createTurn({
+    messages: [{ role: "user", content: "Hello" }],
+    tools: [],
+  });
+
+  expect(result.usage).toMatchObject({ outputTokens: 20, reasoningTokens: 15 });
 });
 
 test("DeepSeekModelClient requests streaming and emits text deltas when caller observes output", async () => {
@@ -232,6 +300,35 @@ test("readDeepSeekResponse parses streaming chunks into one chat response", asyn
     },
   });
   expect(deltas).toEqual(["Hello", " world"]);
+});
+
+test("readDeepSeekResponse retains streamed Provider Carryover without emitting it", async () => {
+  const response = new PassThrough() as PassThrough & { statusCode?: number };
+  response.statusCode = 200;
+  const deltas: string[] = [];
+  const result = readDeepSeekResponse(response as unknown as IncomingMessage, {
+    stream: true,
+    onOutputDelta: (delta) => {
+      deltas.push(delta.text);
+    },
+  });
+
+  response.write(
+    [
+      'data: {"choices":[{"delta":{"reasoning_content":"private "},"finish_reason":null}]}',
+      "",
+      'data: {"choices":[{"delta":{"reasoning_content":"carryover","content":"Visible."},"finish_reason":"stop"}]}',
+      "",
+      "data: [DONE]",
+      "",
+    ].join("\n"),
+  );
+  response.end();
+
+  await expect(result).resolves.toMatchObject({
+    choices: [{ message: { content: "Visible.", reasoning_content: "private carryover" } }],
+  });
+  expect(deltas).toEqual(["Visible."]);
 });
 
 test("readDeepSeekResponse buffers streaming tool call deltas without emitting text", async () => {

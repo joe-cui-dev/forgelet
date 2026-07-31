@@ -11,6 +11,7 @@ import type {
   CreativeStyle,
   LoadedContextAttachment,
   ModelClient,
+  ReasoningEffort,
   ToolDefinition,
   WorkflowKind,
   WorkflowVariant,
@@ -97,6 +98,9 @@ export interface WorkflowDefinition<TCompletion = void> {
     },
   ): string;
 
+  /** Marks a completed output that ended at the provider's length ceiling. */
+  markTruncatedFinalContent?(content: string): string;
+
   onCompleted?(ctx: {
     workspaceRoot: string;
     session: AgentSession;
@@ -115,6 +119,7 @@ export interface RunKernelSessionInput<TCompletion = void> {
   publicWeb?: PublicWebAdapters;
   readScopeRequest?: string[];
   model?: string;
+  effort?: ReasoningEffort;
   budgetUsd?: number;
   maxWallClockMs?: number;
   maxModelTurns?: number;

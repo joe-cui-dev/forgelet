@@ -9,7 +9,7 @@ export function formatSessionList(sessions: Awaited<ReturnType<typeof listSessio
 
 export function formatSessionDetail(session: Awaited<ReturnType<typeof showSession>>): string {
   const context = session.contextAttachments.length > 0 ? session.contextAttachments.map((attachment) => attachment.title ?? attachment.id).join(", ") : "none";
-  const route = session.route ? `${session.route.model} (${session.route.reason})` : "none";
+  const route = session.route ? `${session.route.model}${session.route.effort ? ` at ${session.route.effort} effort` : ""} (${session.route.reason})` : "none";
   return [
     `Session: ${session.id}`,
     `Status: ${session.status}`,

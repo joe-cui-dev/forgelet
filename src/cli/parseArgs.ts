@@ -1,6 +1,7 @@
 import type {
   CreativeInputKind,
   CreativeStyle,
+  ReasoningEffort,
   WorkflowKind,
   WorkflowVariant,
 } from "../types.js";
@@ -20,6 +21,7 @@ export type ForgeCommand =
       projectSlug?: string;
       allowedReadPaths?: string[];
       model?: string;
+      effort?: ReasoningEffort;
       budgetUsd?: number;
       preview: boolean;
       act: boolean;
@@ -435,6 +437,7 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
   const contextFiles: string[] = [];
   const allowedReadPaths: string[] = [];
   let model: string | undefined;
+  let effort: ReasoningEffort | undefined;
   let budgetUsd: number | undefined;
   let workflowVariant: WorkflowVariant | undefined;
   let creativeStyle: CreativeStyle | undefined;
@@ -509,6 +512,14 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
       const value = args[++i];
       if (!value) throw new Error("Missing value for --model");
       model = value;
+      continue;
+    }
+    if (arg === "--effort") {
+      rejectOptionAfterTask(taskParts, arg);
+      const value = args[++i];
+      if (value !== "none" && value !== "low" && value !== "high" && value !== "max")
+        throw new Error("--effort must be one of: none, low, high, max");
+      effort = value;
       continue;
     }
     if (arg === "--budget") {
@@ -647,6 +658,7 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
     ...(projectSlug ? { projectSlug } : {}),
     ...(allowedReadPaths.length > 0 ? { allowedReadPaths } : {}),
     model,
+    ...(effort ? { effort } : {}),
     budgetUsd,
     preview,
     act,

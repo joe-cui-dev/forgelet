@@ -9,31 +9,14 @@ import type {
   ModelTurnInput,
   ModelTurnOutput,
   ModelUsage,
+  ReasoningEffort,
   ToolSchema,
 } from "../../types.js";
+import { modelProfile } from "../profiles.js";
 
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
 const TOKENS_PER_MILLION = 1_000_000;
 const RESPONSE_PREVIEW_BYTES = 500;
-
-const DEEPSEEK_PRICES_USD_PER_1M: Record<
-  string,
-  { inputCacheHit: number; inputCacheMiss: number; output: number }
-> = {
-  "deepseek-v4-flash": {
-    inputCacheHit: 0.0028,
-    inputCacheMiss: 0.14,
-    output: 0.28,
-  },
-  "deepseek-v4-pro": {
-    inputCacheHit: 0.003625,
-    inputCacheMiss: 0.435,
-    output: 0.87,
-  },
-};
-
-export const hasDeepSeekStaticPricing = (model: string): boolean =>
-  model in DEEPSEEK_PRICES_USD_PER_1M;
 
 export interface DeepSeekModelClientOptions {
   apiKey: string;
@@ -118,6 +101,8 @@ export class DeepSeekModelClient implements ModelClient {
         input.tools.length > 0 ? input.tools.map(toDeepSeekTool) : undefined,
       stream,
       stream_options: stream ? { include_usage: true } : undefined,
+      ...toDeepSeekThinking(input.effort),
+      ...(input.maxTokens !== undefined ? { max_tokens: input.maxTokens } : {}),
     };
     const response = await this.postJson(
       `${this.baseUrl}/chat/completions`,
@@ -138,11 +123,19 @@ export interface DeepSeekChatRequest {
   tools?: DeepSeekTool[];
   stream: boolean;
   stream_options?: { include_usage: true };
+  thinking?: { type: "enabled" | "disabled" };
+  reasoning_effort?: Exclude<ReasoningEffort, "none">;
+  max_tokens?: number;
 }
 
 type DeepSeekMessage =
   | { role: "system" | "user"; content: string }
-  | { role: "assistant"; content: string; tool_calls?: DeepSeekToolCall[] }
+  | {
+      role: "assistant";
+      content: string;
+      tool_calls?: DeepSeekToolCall[];
+      reasoning_content?: string;
+    }
   | { role: "tool"; tool_call_id: string; content: string };
 
 interface DeepSeekTool {
@@ -157,14 +150,18 @@ interface DeepSeekTool {
 export interface DeepSeekChatResponse {
   choices?: Array<{
     finish_reason?: string | null;
-    message?: { content?: string | null; tool_calls?: DeepSeekToolCall[] };
+    message?: {
+      content?: string | null;
+      tool_calls?: DeepSeekToolCall[];
+      reasoning_content?: string | null;
+    };
   }>;
   usage?: {
     prompt_tokens?: number;
     completion_tokens?: number;
     prompt_cache_hit_tokens?: number;
     prompt_cache_miss_tokens?: number;
-    estimated_cost_usd?: number;
+    completion_tokens_details?: { reasoning_tokens?: number };
   };
 }
 
@@ -192,9 +189,25 @@ function toDeepSeekMessage(message: ModelMessage): DeepSeekMessage {
       role: "assistant",
       content: message.content,
       tool_calls: message.toolCalls?.map(toDeepSeekToolCall),
+      ...(message.providerCarryover
+        ? { reasoning_content: message.providerCarryover }
+        : {}),
     };
   }
   return { role: message.role, content: message.content };
+}
+
+function toDeepSeekThinking(
+  effort: ReasoningEffort | undefined,
+): Pick<DeepSeekChatRequest, "thinking" | "reasoning_effort"> {
+  if (effort === "none") return { thinking: { type: "disabled" } };
+  if (effort) {
+    return {
+      thinking: { type: "enabled" },
+      reasoning_effort: effort,
+    };
+  }
+  return {};
 }
 
 function toDeepSeekTool(tool: ToolSchema): DeepSeekTool {
@@ -229,6 +242,7 @@ function fromDeepSeekResponse(
     content: message?.content ?? undefined,
     toolCalls: (message?.tool_calls ?? []).map(fromDeepSeekToolCall),
     finishReason: choice?.finish_reason ?? undefined,
+    providerCarryover: message?.reasoning_content ?? undefined,
     usage: fromDeepSeekUsage(response.usage, model),
   };
 }
@@ -257,13 +271,16 @@ function fromDeepSeekUsage(
   const modelUsage: ModelUsage = {
     inputTokens: usage.prompt_tokens,
     outputTokens: usage.completion_tokens,
-    estimatedCostUsd:
-      usage.estimated_cost_usd ?? estimateDeepSeekCostUsd(model, usage),
+    // DeepSeek does not report USD cost. This regular-rate estimate excludes
+    // its announced but undated peak-hour multiplier.
+    estimatedCostUsd: estimateDeepSeekCostUsd(model, usage),
   };
   if (usage.prompt_cache_hit_tokens !== undefined)
     modelUsage.inputCacheHitTokens = usage.prompt_cache_hit_tokens;
   if (usage.prompt_cache_miss_tokens !== undefined)
     modelUsage.inputCacheMissTokens = usage.prompt_cache_miss_tokens;
+  if (usage.completion_tokens_details?.reasoning_tokens !== undefined)
+    modelUsage.reasoningTokens = usage.completion_tokens_details.reasoning_tokens;
   return modelUsage;
 }
 
@@ -271,8 +288,8 @@ function estimateDeepSeekCostUsd(
   model: string,
   usage: NonNullable<DeepSeekChatResponse["usage"]>,
 ): number | undefined {
-  const pricing = DEEPSEEK_PRICES_USD_PER_1M[model];
-  if (!pricing) return undefined;
+  const pricing = modelProfile(model)?.pricesUsdPerMillion;
+  if (!pricing || modelProfile(model)?.retired) return undefined;
   const promptTokens = usage.prompt_tokens ?? 0;
   const cacheHitTokens = usage.prompt_cache_hit_tokens ?? 0;
   const cacheMissTokens =
@@ -458,6 +475,7 @@ export function readDeepSeekResponse(
 interface DeepSeekStreamState {
   buffer: string;
   content: string;
+  providerCarryover: string;
   toolCalls: Map<number, DeepSeekToolCallAccumulator>;
   finishReason?: string;
   usage?: DeepSeekChatResponse["usage"];
@@ -478,6 +496,7 @@ type DeepSeekStreamChunk = {
     finish_reason?: string | null;
     delta?: {
       content?: string | null;
+      reasoning_content?: string | null;
       tool_calls?: DeepSeekToolCallDelta[];
     };
   }>;
@@ -495,6 +514,7 @@ function createDeepSeekStreamState(
   return {
     buffer: "",
     content: "",
+    providerCarryover: "",
     toolCalls: new Map(),
     sawDone: false,
     onOutputDelta: options.onOutputDelta,
@@ -534,6 +554,8 @@ function processDeepSeekStreamBlock(
   if (chunk.usage) state.usage = chunk.usage;
   const choice = chunk.choices?.[0];
   const text = choice?.delta?.content ?? undefined;
+  const carryover = choice?.delta?.reasoning_content ?? undefined;
+  if (carryover) state.providerCarryover += carryover;
   if (text) {
     state.content += text;
     if (state.onOutputDelta)
@@ -568,6 +590,8 @@ async function finishDeepSeekStream(
     processDeepSeekStreamBlock(state, remaining);
   }
   await Promise.all(state.deltaPromises);
+  // Chat Completions terminates its SSE stream with this sentinel. Responses
+  // API has different terminal events and is intentionally not parsed here.
   if (!state.sawDone)
     throw new Error("DeepSeek API stream ended before data: [DONE].");
   const toolCalls = Array.from(state.toolCalls.entries())
@@ -579,6 +603,7 @@ async function finishDeepSeekStream(
         finish_reason: state.finishReason,
         message: {
           content: state.content,
+          reasoning_content: state.providerCarryover || undefined,
           tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
         },
       },

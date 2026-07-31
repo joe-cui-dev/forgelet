@@ -6,6 +6,7 @@ import type {
   ModelClient,
   SessionFinishStatus,
   WorkflowKind,
+  ReasoningEffort,
 } from "../types.js";
 import { createHash } from "node:crypto";
 import { relative } from "node:path";
@@ -15,8 +16,11 @@ import {
   type SessionSourceLedgerView,
 } from "../sourceLedger/index.js";
 import { loadConfig, routeModel } from "../config/index.js";
-import { maxConversationBytesForRoute } from "../models/routing.js";
-import { hasDeepSeekStaticPricing } from "../models/providers/deepseek.js";
+import {
+  maxConversationBytesForRoute,
+  maxOutputTokensForRoute,
+  modelRunnability,
+} from "../models/routing.js";
 import { loadDurableMemory } from "../memory/index.js";
 import {
   createDebugTranscriptWriter,
@@ -136,9 +140,10 @@ export async function runKernelSession<TCompletion = void>(
     : undefined;
   const route = selectRoute(
     input.definition.kind,
-    routeModel(config, input.definition.kind, input.model),
+    routeModel(config, input.definition.kind, input.model, input.effort),
   );
-  warnForUnpricedModel(route.model);
+  const runnability = modelRunnability(route.model, route.effort);
+  if (!runnability.runnable) throw new Error(runnability.errorMessage);
   const plan: AgentPlan = {
     items: [
       { step: "Create session and load task context", status: "completed" },
@@ -293,7 +298,7 @@ export async function runKernelSession<TCompletion = void>(
         route,
         plan,
         limits,
-        ...loopConfigFor(config, input.definition.kind),
+        ...loopConfigFor(config, input.definition.kind, route.model),
         readScope,
         act: input.act === true,
         baselineDirtyPaths,
@@ -357,21 +362,6 @@ export async function runKernelSession<TCompletion = void>(
     tracePath: traceWriter.tracePath,
   };
 };
-
-const unpricedModelWarnings = new Set<string>();
-
-function warnForUnpricedModel(model: string): void {
-  if (
-    !model.startsWith("deepseek-") ||
-    hasDeepSeekStaticPricing(model) ||
-    unpricedModelWarnings.has(model)
-  )
-    return;
-  unpricedModelWarnings.add(model);
-  process.stderr.write(
-    `Warning: ${model} has no static DeepSeek pricing; estimated cost may be incomplete.\n`,
-  );
-}
 
 export type ResumeDecision =
   | { kind: "approve" }
@@ -469,7 +459,7 @@ export async function resumeKernelSession<TCompletion = void>(
       route: snapshot.route,
       plan: snapshot.plan,
       limits: snapshot.limits,
-      ...loopConfigFor(config, snapshot.workflow),
+      ...loopConfigFor(config, snapshot.workflow, snapshot.route.model),
       readScope: snapshot.readScope,
       act: true,
       baselineDirtyPaths: snapshot.working.sessionState.baselineDirtyPaths,
@@ -824,6 +814,7 @@ const sessionTraitFields = (
 const loopConfigFor = (
   config: Awaited<ReturnType<typeof loadConfig>>,
   workflow: WorkflowKind,
+  model: string,
 ) => ({
   actionableTools: {
     safeCommands: config.safeCommands,
@@ -833,6 +824,7 @@ const loopConfigFor = (
   activeContext: {
     ...config.activeContext,
     maxConversationBytes: maxConversationBytesForRoute(config, workflow),
+    maxOutputTokens: maxOutputTokensForRoute(config, workflow, model),
   },
 });
 
@@ -844,12 +836,13 @@ const loopConfigFor = (
  */
 const selectRoute = (
   workflow: WorkflowKind,
-  selected: { model: string; reason: string },
+  selected: { model: string; reason: string; effort: ReasoningEffort },
 ): ActLoopRoute => {
   return {
     workflow,
     stage: "act_loop",
     model: selected.model,
+    effort: selected.effort,
     reason: selected.reason,
   };
 };

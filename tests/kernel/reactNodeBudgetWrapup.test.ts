@@ -1,4 +1,4 @@
-import { expect, jest, test } from "@jest/globals";
+import { expect, test } from "@jest/globals";
 import { mkdir, mkdtemp, readFile, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -139,31 +139,17 @@ test.each([
     .toMatchObject({ unpricedTurns: 1, estimatedCostUsd: 0 });
 });
 
-test("warns once when a routed DeepSeek model has no static price", async () => {
+test("rejects an unknown DeepSeek model before a Session can spend", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-unpriced-model-"));
-  const write = jest.spyOn(process.stderr, "write").mockImplementation(() => true);
   const modelClient = { async createTurn() { return { content: "Done.", toolCalls: [] }; } };
 
-  await runCodingSession({
+  await expect(runCodingSession({
     task: "first run",
     contextFiles: [],
     workspaceRoot,
     model: "deepseek-uncatalogued",
     modelClient,
-  });
-  await runCodingSession({
-    task: "second run",
-    contextFiles: [],
-    workspaceRoot,
-    model: "deepseek-uncatalogued",
-    modelClient,
-  });
-
-  expect(write).toHaveBeenCalledTimes(1);
-  expect(write).toHaveBeenCalledWith(
-    expect.stringMatching(/deepseek-uncatalogued.*cost may be incomplete/i),
-  );
-  write.mockRestore();
+  })).rejects.toThrow(/Unknown DeepSeek model/);
 });
 
 test("stops on the known cost lower bound even after an unpriced turn", async () => {

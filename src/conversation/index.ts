@@ -27,6 +27,7 @@ export interface ActiveContextSettings {
   maxConversationBytes: number;
   observationDigestPreviewBytes: number;
   protectedRecentTurns: number;
+  maxOutputTokens?: number;
 }
 
 export type ActiveContextFitResult = {

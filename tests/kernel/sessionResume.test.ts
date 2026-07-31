@@ -100,6 +100,46 @@ test("approve: resuming applies the pending patch and the session completes", as
   expect(events.at(-1)?.payload.status).toBe("completed");
 });
 
+test("a truncation notice survives a paused Session and is consumed by the resumed request", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-resume-truncation-"));
+  await execGit(workspaceRoot, ["init"]);
+  const paused = await runCodingSession({
+    task: "write docs",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient: new FakeModelClient([
+      {
+        finishReason: "length",
+        toolCalls: [
+          {
+            id: "call_notes",
+            name: "apply_patch",
+            input: { patch: newFilePatch("docs/notes.md", "notes") },
+          },
+        ],
+      },
+    ]),
+    act: true,
+    envelope: { writeScopePrefixes: ["src"], allowedCommands: [] },
+  });
+  expect(paused.status).toBe("paused");
+  expect((await readPauseSnapshot(workspaceRoot, paused.session.id)).working.pendingTruncationNotice).toBe(true);
+
+  const resumedModelClient = new FakeModelClient([
+    { content: "Applied the notes.", toolCalls: [] },
+  ]);
+  await resumeCodingSession({
+    workspaceRoot,
+    sessionId: paused.session.id,
+    modelClient: resumedModelClient,
+    decision: { kind: "approve" },
+  });
+
+  expect(resumedModelClient.turnInputs[0]?.messages.at(-1)?.content).toContain(
+    "The previous model response was truncated at its output ceiling",
+  );
+});
+
 test("approve: resuming a partially executed batch preserves every declared tool observation", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-resume-partial-batch-"));
   await execGit(workspaceRoot, ["init"]);

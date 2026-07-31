@@ -89,6 +89,7 @@ export interface TraceEventPayloads {
     workflow?: WorkflowKind;
     stage?: "act_loop";
     model?: string;
+    effort?: "none" | "low" | "high" | "max";
     reason?: string;
   };
   workspace_baseline: { dirtyPaths?: string[] };
@@ -167,7 +168,9 @@ export interface TraceEventPayloads {
     usage?: ModelUsage;
     finishReason?: string;
     finalOnly?: boolean;
+    providerCarryoverBytes?: number;
   };
+  model_turn_truncated: { turnIndex?: number; model?: string; finishReason?: string };
   budget_update: { usage?: BudgetUsage; limits?: BudgetLimits };
   budget_blocked_tool_calls: {
     reason?: string;
@@ -332,6 +335,7 @@ const traceEventTypes = [
   "model_turn_retry",
   "model_turn_error",
   "model_turn",
+  "model_turn_truncated",
   "budget_update",
   "budget_blocked_tool_calls",
   "tool_call",

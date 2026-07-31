@@ -28,6 +28,16 @@ test("parses run options", () => {
   });
 });
 
+test("parses a reasoning effort route override", () => {
+  expect(parseArgs(["code", "--effort", "max", "fix bug"])).toMatchObject({
+    kind: "run",
+    effort: "max",
+  });
+  expect(() => parseArgs(["code", "--effort", "fast", "fix bug"])).toThrow(
+    /--effort must be one of/,
+  );
+});
+
 test("parses Debug Transcript flags for model-backed Session commands", () => {
   expect(parseArgs(["code", "--debug", "inspect"])).toMatchObject({
     kind: "run",

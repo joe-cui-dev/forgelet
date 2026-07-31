@@ -11,9 +11,9 @@ export function formatSessionPreview(
   config: LoadedConfig,
   browserSnapshot?: LoadedBrowserSnapshot,
 ): string {
-  const route = routeModel(config, command.workflow, command.model);
+  const route = routeModel(config, command.workflow, command.model, command.effort);
   const provider = providerForModel(route.model, config);
-  const runnability = modelRunnability(route.model);
+  const runnability = modelRunnability(route.model, route.effort);
   return [
     "Session Preview",
     `Workflow: ${command.workflow}`,
@@ -26,6 +26,7 @@ export function formatSessionPreview(
     ...(command.creativeStyle ? [`Creative style: ${command.creativeStyle}`] : []),
     `Task: ${command.task}`,
     `Model route: ${route.model} (${route.reason})`,
+    `Reasoning effort: ${route.effort}`,
     `Runnable: ${runnability.runnable ? "yes" : "no"}`,
     ...(runnability.runnable
       ? []
