@@ -129,8 +129,10 @@ test.each([
   });
 
   expect(turnInputs).toHaveLength(2);
-  expect(turnInputs[1]?.messages.at(-1)?.content).toContain(
-    "≥$0.0000/$1.0000 (1 turns unpriced)",
+  // The ceiling itself is a calibrated default; what this pins is the "≥"
+  // prefix and the unpriced count that go with it.
+  expect(turnInputs[1]?.messages.at(-1)?.content).toMatch(
+    /≥\$0\.0000\/\$\d+\.\d{4} \(1 turns unpriced\)/,
   );
   expect(turnInputs[1]?.messages.at(-1)?.content).toContain("0/30 min elapsed");
   const trace = await readFile(result.tracePath ?? "", "utf8");

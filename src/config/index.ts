@@ -90,9 +90,15 @@ export const defaultConfig: ForgeletConfig = {
     anthropic: { apiKeyEnv: "ANTHROPIC_API_KEY" },
   },
   publicWeb: { provider: "brave", apiKeyEnv: "BRAVE_SEARCH_API_KEY" },
+  // Cost is the primary budget because it is the only one that ends a Session
+  // gracefully: ADR 0029 reserves a wrap-up turn at a fraction of it, so the
+  // Session synthesizes an answer instead of being cut. The turn ceiling is a
+  // runaway backstop, set high enough that reaching it means the loop is stuck
+  // rather than merely working — but it still schedules the reserved final
+  // answer turn, so it cannot be removed.
   budgets: {
-    maxModelTurns: 12,
-    maxEstimatedCostUsd: 1.0,
+    maxModelTurns: 32,
+    maxEstimatedCostUsd: 0.15,
     maxWallClockMs: 30 * 60 * 1000,
   },
   activeContext: {
