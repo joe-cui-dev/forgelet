@@ -201,6 +201,8 @@ forge config set activeContext.maxConversationBytes 16384
 forge config set providers.deepseek.apiKeyEnv DEEPSEEK_API_KEY
 ```
 
+Model defaults and per-workflow routing are fixed in `src/config/index.ts`; `forge config set` rejects those keys. Use `--model` (and `--effort`) for a single-run override.
+
 Project config lives at `.forgelet/config.json`. Durable Memory is user-approved; see [Project Memory Review](#project-memory-review) below for the full review and decision surface.
 
 ## Project Memory Review
