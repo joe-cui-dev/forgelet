@@ -140,6 +140,15 @@ export interface TraceEventPayloads {
     reserveFraction?: number;
     elapsedWallClockMs?: number;
   };
+  session_no_progress: {
+    turnIndex?: number;
+    noProgressTurns?: number;
+    limit?: number;
+    /** Reasoning spent across the barren streak: the cost the gate exists to
+     * stop, in the unit that makes it visible. */
+    reasoningTokensSinceProgress?: number;
+    wrapupTriggered?: boolean;
+  };
   conversation_compacted: ConversationCompactionPayload;
   conversation_compaction_attempted: ConversationCompactionPayload;
   conversation_fold_stopped: {
@@ -331,6 +340,7 @@ const traceEventTypes = [
   "envelope_amended",
   "session_paused",
   "budget_wrapup_triggered",
+  "session_no_progress",
   "conversation_compacted",
   "conversation_compaction_attempted",
   "conversation_fold_stopped",

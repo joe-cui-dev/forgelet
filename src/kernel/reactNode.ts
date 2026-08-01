@@ -41,6 +41,12 @@ import {
   costBudgetStopReason,
   turnGate,
 } from "./turnGate.js";
+import {
+  createProgressState,
+  NO_PROGRESS_TURN_LIMIT,
+  planSignature,
+  recordTurnProgress,
+} from "./progressGate.js";
 import type {
   ReactNodePausedSessionState,
   ReactNodeWorkingState,
@@ -371,6 +377,33 @@ export const runReactNode = async (
   let activeContextState: ActiveContextCompactorState =
     input.resume?.working.activeContext ?? { failedFoldAttempts: 0 };
   let forcedStopReason: SessionStopReason | undefined;
+  // Per-run rather than part of the Working State: a Session that pauses for
+  // approval and resumes gets a fresh benefit of the doubt, which fails toward
+  // letting work continue rather than toward cutting it short.
+  const progressState = createProgressState(planSignature(input.plan.items));
+  const noteTurnProgress = async (
+    turnIndex: number,
+    observations: readonly ToolObservation[],
+    reasoningTokens: number | undefined,
+  ): Promise<void> => {
+    const progress = recordTurnProgress(progressState, {
+      observations,
+      planSignature: planSignature(input.plan.items),
+      reasoningTokens,
+    });
+    if (progress.advanced) return;
+    const wrapupTriggered = progress.noProgressTurns >= NO_PROGRESS_TURN_LIMIT;
+    await input.appendTrace("session_no_progress", {
+      turnIndex,
+      noProgressTurns: progress.noProgressTurns,
+      limit: NO_PROGRESS_TURN_LIMIT,
+      reasoningTokensSinceProgress: progress.reasoningTokensSinceProgress,
+      wrapupTriggered,
+    });
+    // The reserved wrap-up turn of ADR 0029, reached by a different road: the
+    // Session answers from what it has instead of being cut mid-loop.
+    if (wrapupTriggered) forcedStopReason = "no_progress";
+  };
   const stopWith = (
     reason: SessionStopReason,
     extras?: {
@@ -555,6 +588,7 @@ export const runReactNode = async (
         elapsedWallClockMs: currentElapsedWallClockMs,
         compactionStatus: activeContext.compactionStatusLine,
         wrapupOnly: turnPlan.wrapupOnly,
+        ...(turnPlan.wrapupReason ? { wrapupReason: turnPlan.wrapupReason } : {}),
         finalToolTurn: turnPlan.finalToolTurn,
         carryoverBytes: providerCarryoverBytes(conversation),
         truncatedOutputNotice,
@@ -801,7 +835,13 @@ export const runReactNode = async (
           toolCalls: output.toolCalls,
           providerCarryover: output.providerCarryover,
         });
-      if (!turnPlan.wrapupOnly) continue;
+      if (!turnPlan.wrapupOnly) {
+        // Neither an answer nor a tool call: the turn spent its reasoning and
+        // left nothing behind. Without the gate this path loops until a budget
+        // runs out.
+        await noteTurnProgress(turnIndex, [], output.usage?.reasoningTokens);
+        continue;
+      }
       const reason = turnPlan.emptyContentStopReason;
       return stopWith(reason);
     }
@@ -899,6 +939,13 @@ export const runReactNode = async (
       sourceLedger: input.sourceLedger,
       appendTrace: input.appendTrace,
     });
+    // After the batch, so the plan signature reflects any update_plan this turn
+    // made and the observations are the ones the next turn will actually see.
+    await noteTurnProgress(
+      turnIndex,
+      batchOutcome.observations,
+      output.usage?.reasoningTokens,
+    );
   }
 };
 

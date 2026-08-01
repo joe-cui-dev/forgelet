@@ -99,7 +99,9 @@ test("a coding Session can search, read, and finish through read-only tools", as
 });
 
 test("a length-truncated Writing response is traced and saved with a visible marker", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-truncated-writing-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-truncated-writing-"),
+  );
   const result = await runWritingSession({
     task: "draft a short note",
     contextFiles: [],
@@ -110,10 +112,15 @@ test("a length-truncated Writing response is traced and saved with a visible mar
   });
 
   expect(result.writingArtifact).toBeDefined();
-  const artifact = await readFile(join(workspaceRoot, result.writingArtifact?.path ?? ""), "utf8");
+  const artifact = await readFile(
+    join(workspaceRoot, result.writingArtifact?.path ?? ""),
+    "utf8",
+  );
   expect(artifact).toContain("[Output truncated at the model output ceiling.]");
   const events = await readTypedTrace(result.tracePath);
-  expect(events.some((event) => event.type === "model_turn_truncated")).toBe(true);
+  expect(events.some((event) => event.type === "model_turn_truncated")).toBe(
+    true,
+  );
 });
 
 test("a model-backed coding Session emits Session Live View events without writing them to the trace", async () => {
@@ -619,7 +626,7 @@ test("model_turn records the effort and latency the turn actually spent", async 
     .split("\n")
     .map((line) => JSON.parse(line))
     .find((event) => event.type === "model_turn");
-  expect(modelTurn.payload.effort).toBe("max");
+  expect(modelTurn.payload.effort).toBe("high");
   expect(typeof modelTurn.payload.latencyMs).toBe("number");
   expect(modelTurn.payload.latencyMs).toBeGreaterThanOrEqual(0);
 });
@@ -1903,7 +1910,9 @@ test("a coding Session can inspect a truncated git diff without storing the full
   expect(observation.content).toMatch(/Git diff:/);
   expect(observation.content).toMatch(/changed/);
   expect(observation.content).toMatch(
-    new RegExp(`\\[truncated: showing ${observationLimitBytes} of \\d+ bytes\\]`),
+    new RegExp(
+      `\\[truncated: showing ${observationLimitBytes} of \\d+ bytes\\]`,
+    ),
   );
   expect(observation.content).not.toMatch(/Hidden diff tail marker/);
 
@@ -2105,7 +2114,10 @@ test("the internal Page Answer continuation path launches a child Session with t
         type: "session_started",
         ts: "2026-07-12T00:00:00.000Z",
         sessionId: "sess_root",
-        payload: { workflow: "learning", startedAt: "2026-07-12T00:00:00.000Z" },
+        payload: {
+          workflow: "learning",
+          startedAt: "2026-07-12T00:00:00.000Z",
+        },
       }),
       JSON.stringify({
         type: "user_task",
@@ -2117,7 +2129,10 @@ test("the internal Page Answer continuation path launches a child Session with t
         type: "final_summary",
         ts: "2026-07-12T00:00:01.000Z",
         sessionId: "sess_root",
-        payload: { finalContent: "## Summary\nPage summary.\n\n## Key Concepts\nConcept." },
+        payload: {
+          finalContent:
+            "## Summary\nPage summary.\n\n## Key Concepts\nConcept.",
+        },
       }),
       JSON.stringify({
         type: "session_finished",
@@ -2192,13 +2207,16 @@ test("the internal Page Answer continuation path launches a child Session with t
   expect(modelClient.turnInputs).toHaveLength(1);
   expect(modelClient.turnInputs[0]?.tools).toEqual([]);
   const promptContent =
-    modelClient.turnInputs[0]?.messages.find((message) => message.role === "user")
-      ?.content ?? "";
+    modelClient.turnInputs[0]?.messages.find(
+      (message) => message.role === "user",
+    )?.content ?? "";
   expect(promptContent).toContain("Page Conversation History");
   expect(promptContent).toContain("Summarize the page.");
   expect(promptContent).toContain("Page summary.");
   expect(promptContent).toContain(pageContent);
-  expect(promptContent).not.toMatch(/run_command|apply_patch|git_diff|web_search|web_read/);
+  expect(promptContent).not.toMatch(
+    /run_command|apply_patch|git_diff|web_search|web_read/,
+  );
 });
 
 test("answer_once performs exactly one successful model turn with no tool schemas, recorded as an explicit policy rather than a turn budget", async () => {
@@ -2696,7 +2714,11 @@ test("a denied command is not audited as a failed verification and does not mask
     },
     {
       toolCalls: [
-        { id: "call_command", name: "run_command", input: { command: "npm test" } },
+        {
+          id: "call_command",
+          name: "run_command",
+          input: { command: "npm test" },
+        },
       ],
     },
     { content: "Changed example.txt but could not verify it.", toolCalls: [] },
@@ -3731,7 +3753,9 @@ test("input-token telemetry does not block actionable tool calls", async () => {
     .split("\n")
     .map((line) => JSON.parse(line));
   expect(events.some((event) => event.type === "tool_call")).toBe(true);
-  expect(events.some((event) => event.type === "budget_blocked_tool_calls")).toBe(false);
+  expect(
+    events.some((event) => event.type === "budget_blocked_tool_calls"),
+  ).toBe(false);
 });
 
 test("large read_file observations are truncated for the model and not stored fully in trace", async () => {
@@ -4149,9 +4173,9 @@ test("a Session that never plans finishes without a plan claiming outstanding wo
   // The kernel authors no plan item, so a completed Session cannot end with a
   // pending step that nothing in the kernel ever advances.
   expect(
-    planUpdates.at(-1)?.payload.plan?.items.some(
-      (item) => item.status !== "completed",
-    ),
+    planUpdates
+      .at(-1)
+      ?.payload.plan?.items.some((item) => item.status !== "completed"),
   ).toBe(false);
   expect(modelClient.turnInputs[0]?.messages.at(-1)?.content).toMatch(
     /Current plan: none recorded\./,

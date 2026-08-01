@@ -27,23 +27,44 @@ test("defaults the active observation working-set target", async () => {
 });
 
 test("defaults workflow routes to V4-sized conversation budgets and efforts", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-route-defaults-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-route-defaults-"),
+  );
   const config = await loadConfig({ workspaceRoot });
 
-  expect(config.routing.coding).toMatchObject({ effort: "max", maxConversationBytes: 512 * 1024 });
-  expect(config.routing.learning).toMatchObject({ effort: "high", maxConversationBytes: 256 * 1024 });
-  expect(config.routing.writing).toMatchObject({ effort: "high", maxConversationBytes: 128 * 1024 });
+  expect(config.routing.coding).toMatchObject({
+    effort: "high",
+    maxConversationBytes: 512 * 1024,
+  });
+  expect(config.routing.learning).toMatchObject({
+    effort: "high",
+    maxConversationBytes: 256 * 1024,
+  });
+  expect(config.routing.writing).toMatchObject({
+    effort: "high",
+    maxConversationBytes: 128 * 1024,
+  });
 });
 
 test("defaults and persists Public Web provider settings", async () => {
   const homeDir = await mkdtemp(join(tmpdir(), "forgelet-public-web-config-"));
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-public-web-workspace-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-public-web-workspace-"),
+  );
   expect((await loadConfig({ workspaceRoot })).publicWeb).toEqual({
     provider: "brave",
     apiKeyEnv: "BRAVE_SEARCH_API_KEY",
   });
-  await setGlobalConfigValue({ homeDir, key: "publicWeb.provider", value: "fake" });
-  await setGlobalConfigValue({ homeDir, key: "publicWeb.apiKeyEnv", value: "TEST_BRAVE_KEY" });
+  await setGlobalConfigValue({
+    homeDir,
+    key: "publicWeb.provider",
+    value: "fake",
+  });
+  await setGlobalConfigValue({
+    homeDir,
+    key: "publicWeb.apiKeyEnv",
+    value: "TEST_BRAVE_KEY",
+  });
   expect((await loadConfig({ homeDir, workspaceRoot })).publicWeb).toEqual({
     provider: "fake",
     apiKeyEnv: "TEST_BRAVE_KEY",
@@ -156,14 +177,18 @@ test("rejects an invalid observation digest preview cap", async () => {
 });
 
 test("warns once when a config retains the retired input-token budget", async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-retired-budget-"));
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-retired-budget-"),
+  );
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
   await writeFile(
     join(workspaceRoot, ".forgelet", "config.json"),
     JSON.stringify({ budgets: { maxInputTokens: 100_000 } }),
     "utf8",
   );
-  const write = jest.spyOn(process.stderr, "write").mockImplementation(() => true);
+  const write = jest
+    .spyOn(process.stderr, "write")
+    .mockImplementation(() => true);
 
   await loadConfig({ workspaceRoot });
   await loadConfig({ workspaceRoot });

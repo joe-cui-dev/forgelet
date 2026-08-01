@@ -67,7 +67,7 @@ export const defaultConfig: ForgeletConfig = {
     coding: {
       default: "deepseek-v4-flash",
       review: "deepseek-v4-flash",
-      effort: "max",
+      effort: "high",
       maxConversationBytes: 512 * 1024,
     },
     writing: {
@@ -144,7 +144,8 @@ const retiredInputTokenBudgetWarnings = new Set<string>();
 
 function warnForRetiredInputTokenBudget(...configs: WritableConfig[]): void {
   if (!configs.some(hasRetiredInputTokenBudget)) return;
-  const warning = "Warning: budgets.maxInputTokens is no longer enforced; remove it from your config.\n";
+  const warning =
+    "Warning: budgets.maxInputTokens is no longer enforced; remove it from your config.\n";
   if (retiredInputTokenBudgetWarnings.has(warning)) return;
   retiredInputTokenBudgetWarnings.add(warning);
   process.stderr.write(warning);
@@ -183,7 +184,9 @@ export function routeModel(
   return {
     model,
     effort,
-    reason: modelOverride ? "CLI model override" : `default route for ${workflow} workflow`,
+    reason: modelOverride
+      ? "CLI model override"
+      : `default route for ${workflow} workflow`,
   };
 }
 
@@ -255,7 +258,8 @@ function applySupportedConfigValue(
       },
     };
   if (key === "publicWeb.provider") {
-    if (value !== "brave" && value !== "fake") throw new Error("publicWeb.provider must be brave or fake.");
+    if (value !== "brave" && value !== "fake")
+      throw new Error("publicWeb.provider must be brave or fake.");
     return { ...config, publicWeb: { ...config.publicWeb, provider: value } };
   }
   if (key === "publicWeb.apiKeyEnv")

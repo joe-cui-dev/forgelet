@@ -5,6 +5,7 @@ import type {
   BudgetUsage,
   LoadedContextAttachment,
   ModelMessage,
+  SessionStopReason,
 } from "../types.js";
 import type { LoadedDurableMemory } from "../memory/index.js";
 import {
@@ -46,6 +47,7 @@ export interface TurnStatus {
   elapsedWallClockMs: number;
   compactionStatus?: string;
   wrapupOnly: boolean;
+  wrapupReason?: SessionStopReason;
   finalToolTurn: boolean;
   carryoverBytes?: number;
   truncatedOutputNotice?: boolean;
@@ -147,6 +149,13 @@ export const buildMessages = (
             "Do not call or request tools, and do not emit tool-call syntax. If evidence is incomplete, state that limitation in the answer.",
             "This is the reserved final answer turn. No tools are available.",
             "Return a non-empty final answer from existing evidence. Do not request tools or emit tool-call syntax.",
+            // Naming the cause keeps the closing answer honest: this Session is
+            // ending because it stopped converging, not because it finished.
+            ...(turnStatus.wrapupReason === "no_progress"
+              ? [
+                  "This turn was reserved because the last turns added no new evidence and changed nothing. Answer from what you already hold, and state plainly what remains unresolved.",
+                ]
+              : []),
           ]
         : []),
     ].join("\n"),
