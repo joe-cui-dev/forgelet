@@ -144,12 +144,12 @@ export async function runKernelSession<TCompletion = void>(
   );
   const runnability = modelRunnability(route.model, route.effort);
   if (!runnability.runnable) throw new Error(runnability.errorMessage);
-  const plan: AgentPlan = {
-    items: [
-      { step: "Create session and load task context", status: "completed" },
-      { step: "Run workflow graph with model and tools", status: "pending" },
-    ],
-  };
+  // The plan is model-owned: update_plan replaces the whole list, and nothing in
+  // the kernel advances an item it authored. Seeding kernel bootstrap steps here
+  // recorded a pending step no one owned, so a completed Session finished with a
+  // plan still claiming work outstanding. Sessions start with no plan instead;
+  // session_started and session_finished already carry the bootstrap facts.
+  const plan: AgentPlan = { items: [] };
 
   const session: AgentSession = {
     id: sessionId,

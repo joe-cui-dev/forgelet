@@ -3977,6 +3977,38 @@ test("update_plan records the changed Session plan in the trace", async () => {
   ]);
 });
 
+test("a Session that never plans finishes without a plan claiming outstanding work", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-plan-unowned-"));
+  const modelClient = new FakeModelClient([
+    { content: "Answered without planning.", toolCalls: [] },
+  ]);
+
+  const result = await runCodingSession({
+    task: "answer without planning",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const events = await readTypedTrace(result.tracePath ?? "");
+  const planUpdates = events.filter((event) => event.type === "plan_update");
+  const finished = events.find((event) => event.type === "session_finished");
+
+  expect(planUpdates.length).toBe(1);
+  expect(planUpdates[0]?.payload.plan?.items).toEqual([]);
+  expect(finished?.payload.status).toBe("completed");
+  // The kernel authors no plan item, so a completed Session cannot end with a
+  // pending step that nothing in the kernel ever advances.
+  expect(
+    planUpdates.at(-1)?.payload.plan?.items.some(
+      (item) => item.status !== "completed",
+    ),
+  ).toBe(false);
+  expect(modelClient.turnInputs[0]?.messages.at(-1)?.content).toMatch(
+    /Current plan: none recorded\./,
+  );
+});
+
 test("update_plan tells the model the required plan item shape", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-plan-schema-"));
   const modelClient = new FakeModelClient([

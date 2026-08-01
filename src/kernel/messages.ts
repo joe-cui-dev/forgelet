@@ -122,8 +122,7 @@ export const buildMessages = (
   messages.push({
     role: "user",
     content: [
-      "Current plan:",
-      ...turnStatus.plan.items.map((item) => `- ${item.status}: ${item.step}`),
+      ...formatPlanStatus(turnStatus.plan),
       "",
       formatBudgetStatus(
         turnStatus.usage,
@@ -154,6 +153,18 @@ export const buildMessages = (
   });
   return messages;
 };
+
+// An empty plan is reported as empty rather than as a bare "Current plan:"
+// header, and names the tool that owns it so the model can see the affordance.
+const formatPlanStatus = (plan: AgentPlan): string[] =>
+  plan.items.length === 0
+    ? [
+        "Current plan: none recorded. Call update_plan to record one when the task needs tracking across turns.",
+      ]
+    : [
+        "Current plan:",
+        ...plan.items.map((item) => `- ${item.status}: ${item.step}`),
+      ];
 
 const formatBudgetStatus = (
   usage: BudgetUsage,
