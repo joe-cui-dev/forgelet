@@ -20,11 +20,18 @@ import {
   safeWorkspacePath,
 } from "./workspacePaths.js";
 
-const READ_FILE_LIMIT_BYTES = 20 * 1024;
-const GIT_DIFF_LIMIT_BYTES = 20 * 1024;
+// Used when no Route supplied a limit (direct construction in tests and
+// tooling); real Sessions derive theirs from the conversation budget.
+const DEFAULT_OBSERVATION_LIMIT_BYTES = 20 * 1024;
 
-// Builds the low-risk tool set exposed to a read-only Session loop.
-export const createReadOnlyTools = (plan: AgentPlan): ToolDefinition[] => {
+// Builds the low-risk tool set exposed to a read-only Session loop. The
+// observation limit is a Route fact rather than a tool constant: it follows the
+// workflow's conversation budget, so a wider budget buys larger single reads
+// instead of more turns spent re-reading the same file.
+export const createReadOnlyTools = (
+  plan: AgentPlan,
+  maxObservationBytes: number = DEFAULT_OBSERVATION_LIMIT_BYTES,
+): ToolDefinition[] => {
   return [
     {
       name: "list_files",
@@ -147,7 +154,9 @@ export const createReadOnlyTools = (plan: AgentPlan): ToolDefinition[] => {
       capability: "read_workspace",
       // The description is intentionally detailed to guide the model in using the tool effectively for iterative reading of large files and specific ranges.
       description: [
-        "Read a workspace file, truncated to the model observation limit.",
+        // The limit is stated rather than implied: a model that cannot see it
+        // guesses low and spends turns re-reading what one call would return.
+        `Read a workspace file, truncated to the ${maxObservationBytes}-byte model observation limit.`,
         "Use { path } for the first chunk.",
         "If truncated, continue with { path, offsetBytes: metadata.nextOffsetBytes }.",
         "Use 1-based { path, startLine, lineCount } for source ranges.",
@@ -219,7 +228,7 @@ export const createReadOnlyTools = (plan: AgentPlan): ToolDefinition[] => {
           const returnedStartLine = Math.max(lines.length - tailLines + 1, 1); // Calculate the starting line number for the tail range, ensuring it does not go below 1.
           const selected = lines.slice(returnedStartLine - 1); // Select the lines for the tail range based on the calculated starting line.
           const selectedBuffer = Buffer.from(selected.join("\n"), "utf8"); // Convert the selected lines back into a buffer for consistent handling of byte limits and truncation.
-          const returned = selectedBuffer.subarray(0, READ_FILE_LIMIT_BYTES); // Apply byte-level truncation to the selected tail lines to ensure the returned content does not exceed the tool's observation limit, while still providing as much of the tail content as possible.
+          const returned = selectedBuffer.subarray(0, maxObservationBytes); // Apply byte-level truncation to the selected tail lines to ensure the returned content does not exceed the tool's observation limit, while still providing as much of the tail content as possible.
           const returnedContent = returned.toString("utf8"); // Convert the returned buffer back to a string for inclusion in the tool result, allowing the model to read the content directly while also providing metadata about the range and truncation status.
           const returnedLineCount = returnedContent
             ? returnedContent.split("\n").length
@@ -249,7 +258,7 @@ export const createReadOnlyTools = (plan: AgentPlan): ToolDefinition[] => {
             startLine - 1 + lineCount,
           ); // Select the lines for the requested line range based on the provided startLine and lineCount, adjusting for 0-based indexing in the array.
           const selectedBuffer = Buffer.from(selected.join("\n"), "utf8"); // Convert the selected lines back into a buffer for consistent handling of byte limits and truncation, allowing the tool to apply the same byte-level truncation logic regardless of the range mode.
-          const returned = selectedBuffer.subarray(0, READ_FILE_LIMIT_BYTES); // Apply byte-level truncation to the selected lines to ensure the returned content does not exceed the tool's observation limit, while still providing as much of the requested line range as possible.
+          const returned = selectedBuffer.subarray(0, maxObservationBytes); // Apply byte-level truncation to the selected lines to ensure the returned content does not exceed the tool's observation limit, while still providing as much of the requested line range as possible.
           const returnedContent = returned.toString("utf8"); // Convert the returned buffer back to a string for inclusion in the tool result, allowing the model to read the content directly while also providing metadata about the range and truncation status.
           const returnedLineCount = returnedContent
             ? returnedContent.split("\n").length
@@ -272,8 +281,8 @@ export const createReadOnlyTools = (plan: AgentPlan): ToolDefinition[] => {
         // For byte range mode (or default mode if no specific range parameters are provided), calculate the byte range to return based on offsetBytes and limitBytes, applying truncation as needed to ensure the returned content does not exceed the tool's observation limit. The tool result includes metadata about the byte range returned and whether truncation occurred, allowing the model to manage iterative reads effectively if the entire file was not included in the initial response. If no range parameters are provided, the tool defaults to returning the first chunk of the file up to the observation limit, and the metadata indicates that this is the default range mode, which can help the model understand that it is receiving the initial portion of the file and may need to request subsequent byte ranges if it needs more content from the file.
         const startByte = Math.min(offsetBytes ?? 0, buffer.length); // Determine the starting byte offset for the read operation, defaulting to 0 if offsetBytes is not provided, and ensuring it does not exceed the file size.
         const byteLimit = Math.min(
-          limitBytes ?? READ_FILE_LIMIT_BYTES,
-          READ_FILE_LIMIT_BYTES,
+          limitBytes ?? maxObservationBytes,
+          maxObservationBytes,
         ); // Determine the byte limit for the read operation, defaulting to the tool's maximum observation limit if limitBytes is not provided, and ensuring it does not exceed the tool's defined maximum to prevent excessively large reads.
         const endByte = Math.min(startByte + byteLimit, buffer.length); // Calculate the ending byte offset for the read operation based on the starting byte and the byte limit, ensuring it does not exceed the file size.
         const returned = buffer.subarray(startByte, endByte); // Extract the specified byte range from the file buffer to return as the content for this tool execution, allowing for flexible reading of large files in manageable chunks based on the model's requests.
@@ -321,7 +330,7 @@ export const createReadOnlyTools = (plan: AgentPlan): ToolDefinition[] => {
       description: "Show unstaged git diff stat and a truncated diff.",
       inputSchema: { type: "object", additionalProperties: false },
       execute: async (_input, ctx) =>
-        gitDiff(ctx.workspaceRoot, ctx.readScope),
+        gitDiff(ctx.workspaceRoot, ctx.readScope, maxObservationBytes),
     },
     {
       name: "update_plan",
@@ -462,6 +471,7 @@ const gitStatus = (
 const gitDiff = async (
   workspaceRoot: string,
   readScope: string[] | undefined,
+  maxObservationBytes: number,
 ): Promise<ToolResult> => {
   const scopedArgs = (args: string[]) => [
     ...(readScope ? ["--literal-pathspecs"] : []),
@@ -500,7 +510,7 @@ const gitDiff = async (
   }
 
   const buffer = Buffer.from(diff, "utf8");
-  const returned = buffer.subarray(0, GIT_DIFF_LIMIT_BYTES);
+  const returned = buffer.subarray(0, maxObservationBytes);
   const truncated = buffer.length > returned.length;
   const renderedDiff = returned.toString("utf8");
   const truncationNotice = truncated

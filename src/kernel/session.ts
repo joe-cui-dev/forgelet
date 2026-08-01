@@ -18,6 +18,7 @@ import {
 import { loadConfig, routeModel } from "../config/index.js";
 import {
   maxConversationBytesForRoute,
+  maxObservationBytesForRoute,
   maxOutputTokensForRoute,
   modelRunnability,
 } from "../models/routing.js";
@@ -825,6 +826,7 @@ const loopConfigFor = (
     ...config.activeContext,
     maxConversationBytes: maxConversationBytesForRoute(config, workflow),
     maxOutputTokens: maxOutputTokensForRoute(config, workflow, model),
+    maxObservationBytes: maxObservationBytesForRoute(config, workflow),
   },
 });
 

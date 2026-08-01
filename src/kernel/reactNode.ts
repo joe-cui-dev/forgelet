@@ -312,7 +312,14 @@ export const runReactNode = async (
       })
     : [];
   const toolRegistry = createToolRegistry(
-    [...createReadOnlyTools(input.plan), ...publicWebTools, ...actionableTools],
+    [
+      ...createReadOnlyTools(
+        input.plan,
+        input.activeContext.maxObservationBytes,
+      ),
+      ...publicWebTools,
+      ...actionableTools,
+    ],
     {
       approvalHandler: input.resume
         ? createResumeApprovalHandler(

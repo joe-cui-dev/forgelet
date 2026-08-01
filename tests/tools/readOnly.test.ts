@@ -93,6 +93,43 @@ test("list_files skips nested worktrees without hiding the rest of .claude", asy
   });
 });
 
+test("read_file truncates at the Route's observation limit and states it", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-read-limit-"));
+  const content = "x".repeat(30 * 1024);
+  await writeFile(join(workspaceRoot, "big.txt"), content, "utf8");
+
+  const atDefault = findReadFileTool();
+  const defaultResult = await atDefault.execute(
+    { path: "big.txt" },
+    testContext(workspaceRoot),
+  );
+
+  expect(defaultResult.data).toMatchObject({
+    truncated: true,
+    returnedBytes: 20 * 1024,
+  });
+  expect(atDefault.description).toContain("20480-byte");
+
+  const atCodingBudget = findReadFileTool(64 * 1024);
+  const wideResult = await atCodingBudget.execute(
+    { path: "big.txt" },
+    testContext(workspaceRoot),
+  );
+
+  expect(wideResult.data).toMatchObject({
+    truncated: false,
+    returnedBytes: 30 * 1024,
+  });
+  expect(atCodingBudget.description).toContain("65536-byte");
+});
+
+function findReadFileTool(maxObservationBytes?: number) {
+  const tools = createReadOnlyTools({ items: [] }, maxObservationBytes);
+  const tool = tools.find((candidate) => candidate.name === "read_file");
+  if (!tool) throw new Error("read_file tool is not registered.");
+  return tool;
+}
+
 function findSearchTextTool() {
   return findReadOnlyTool("search_text");
 }

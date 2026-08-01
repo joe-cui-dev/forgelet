@@ -28,6 +28,7 @@ export interface ActiveContextSettings {
   observationDigestPreviewBytes: number;
   protectedRecentTurns: number;
   maxOutputTokens?: number;
+  maxObservationBytes?: number;
 }
 
 export type ActiveContextFitResult = {

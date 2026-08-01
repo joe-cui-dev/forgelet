@@ -1795,9 +1795,12 @@ test("a Context Attachment does not grant tool access outside the Session Read S
 test("a coding Session can inspect a truncated git diff without storing the full diff in the trace", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-git-diff-"));
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  const maxConversationBytes = 200_000;
+  // One observation may fill an eighth of the route's conversation budget.
+  const observationLimitBytes = maxConversationBytes / 8;
   await writeFile(
     join(workspaceRoot, ".forgelet", "config.json"),
-    JSON.stringify({ activeContext: { maxConversationBytes: 200_000 } }),
+    JSON.stringify({ activeContext: { maxConversationBytes } }),
     "utf8",
   );
   await execGit(workspaceRoot, ["init"]);
@@ -1825,13 +1828,13 @@ test("a coding Session can inspect a truncated git diff without storing the full
   expect(observation.ok).toBe(true);
   expect(observation.toolName).toBe("git_diff");
   expect(observation.metadata.truncated).toBe(true);
-  expect(observation.metadata.returnedBytes).toBe(20 * 1024);
+  expect(observation.metadata.returnedBytes).toBe(observationLimitBytes);
   expect(observation.content).toMatch(/Git diff stat:/);
   expect(observation.content).toMatch(/review\.txt/);
   expect(observation.content).toMatch(/Git diff:/);
   expect(observation.content).toMatch(/changed/);
   expect(observation.content).toMatch(
-    /\[truncated: showing 20480 of \d+ bytes\]/,
+    new RegExp(`\\[truncated: showing ${observationLimitBytes} of \\d+ bytes\\]`),
   );
   expect(observation.content).not.toMatch(/Hidden diff tail marker/);
 
@@ -3591,9 +3594,12 @@ test("input-token telemetry does not block actionable tool calls", async () => {
 test("large read_file observations are truncated for the model and not stored fully in trace", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-truncate-"));
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  const maxConversationBytes = 200_000;
+  // One observation may fill an eighth of the route's conversation budget.
+  const observationLimitBytes = maxConversationBytes / 8;
   await writeFile(
     join(workspaceRoot, ".forgelet", "config.json"),
-    JSON.stringify({ activeContext: { maxConversationBytes: 200_000 } }),
+    JSON.stringify({ activeContext: { maxConversationBytes } }),
     "utf8",
   );
   const largeContent = `start\n${"x".repeat(25 * 1024)}\nneedle-at-end\n`;
@@ -3620,7 +3626,7 @@ test("large read_file observations are truncated for the model and not stored fu
   expect(observation.metadata.totalBytes).toBe(
     Buffer.byteLength(largeContent, "utf8"),
   );
-  expect(observation.content.length).toBe(20 * 1024);
+  expect(observation.content.length).toBe(observationLimitBytes);
 
   const trace = await readFile(result.tracePath ?? "", "utf8");
   const events = trace

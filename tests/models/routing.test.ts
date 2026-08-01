@@ -1,5 +1,6 @@
 import {
   maxConversationBytesForRoute,
+  maxObservationBytesForRoute,
   maxOutputTokensForRoute,
   modelRunnability,
   providerForModel,
@@ -91,6 +92,32 @@ test("derives the output ceiling from the route conversation budget", () => {
     activeContext: { maxConversationBytes: 65_536, observationDigestPreviewBytes: 2_048, protectedRecentTurns: 3 },
   };
   expect(maxOutputTokensForRoute(config, "coding", "deepseek-v4-flash")).toBe(4_096);
+});
+
+describe("maxObservationBytesForRoute", () => {
+  const configWith = (
+    maxConversationBytes: number,
+  ): Pick<ForgeletConfig, "routing" | "activeContext"> => ({
+    routing: {
+      coding: { default: "deepseek-v4-flash", review: "deepseek-v4-flash", maxConversationBytes },
+      writing: { default: "deepseek-v4-flash", review: "deepseek-v4-flash" },
+      learning: { default: "deepseek-v4-flash", review: "deepseek-v4-flash" },
+      fallback: "gpt-5",
+    },
+    activeContext: {
+      maxConversationBytes: 512 * 1024,
+      observationDigestPreviewBytes: 2_048,
+      protectedRecentTurns: 3,
+    },
+  });
+
+  it("gives one eighth of the route conversation budget to a single observation", () => {
+    expect(maxObservationBytesForRoute(configWith(512 * 1024), "coding")).toBe(65_536);
+  });
+
+  it("never drops below the limit read-only tools carried before the budget widened", () => {
+    expect(maxObservationBytesForRoute(configWith(128 * 1024), "coding")).toBe(20 * 1024);
+  });
 });
 
 describe("modelRunnability", () => {

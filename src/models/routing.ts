@@ -5,6 +5,11 @@ import { modelProfile } from "./profiles.js";
 
 const BYTES_PER_TOKEN = 4;
 const OUTPUT_BUDGET_FRACTION = 0.25;
+const OBSERVATION_BUDGET_FRACTION = 0.125;
+// The limit every read-only tool carried as a constant while the conversation
+// budget was a flat 128KB. It stays the floor so workflows whose budget did not
+// grow keep their current reads.
+const MIN_OBSERVATION_BYTES = 20 * 1024;
 
 export function providerForModel(
   model: string,
@@ -35,6 +40,22 @@ export function maxConversationBytesForRoute(
     config.routing[workflow].maxConversationBytes ??
       config.activeContext.maxConversationBytes,
     config.activeContext.maxConversationBytes,
+  );
+}
+
+/** How many bytes one tool observation may return. Derived from the route's
+ * conversation budget so a single read cannot dominate the active context: at
+ * one eighth, eight full-size reads still fit before folding is in question. */
+export function maxObservationBytesForRoute(
+  config: Pick<ForgeletConfig, "routing" | "activeContext">,
+  workflow: WorkflowKind,
+): number {
+  return Math.max(
+    MIN_OBSERVATION_BYTES,
+    Math.floor(
+      maxConversationBytesForRoute(config, workflow) *
+        OBSERVATION_BUDGET_FRACTION,
+    ),
   );
 }
 
