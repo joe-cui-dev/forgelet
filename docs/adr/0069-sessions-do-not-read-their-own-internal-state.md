@@ -1,0 +1,9 @@
+# Sessions Do Not Read Their Own Internal State
+
+The write side has always classified `.git` and `.forgelet` as `internal` and denied patches against them. The read side never made the same judgement: workspace traversal skipped both directories, but the skip fired only on entries found while walking, so naming one directly as a read target walked straight past it. `read_file .git/logs/HEAD` and `list_files .forgelet/sessions` were ordinary low-risk reads.
+
+Session `sess_msa9tww4` showed what that costs. Asked whether `README.md` needed updating, the Session listed 305 files under `.forgelet/sessions`, searched them, found an earlier Session that had attempted the same task, and built its conclusion — and its report to the user — on that Trace rather than on the code. Five turns and roughly half the Session's context went into reading itself. Sessions are an append-only record of what happened, not evidence about the workspace; a Session that mines them is reasoning from its own output, and the resulting claim arrives with none of the lineage, degradation, or incompleteness signals that a Session Continuation carries.
+
+So the read boundary now matches the write boundary. `.git` and `.forgelet` are `internal` to both, named once in `src/readScope/` and shared by the workspace-traversal skip so the two cannot drift. `read_file`, `list_files`, `search_text`, and `workspace_summary` classify a directly named internal path as `internal` and the Permission Policy denies it, which reaches the model as an observation it can self-correct from. Prior-Session evidence enters through `forge resume` — the Session Continuation is the audited path, and it was already there.
+
+The escape hatch is the Session Read Scope: an `--allow-read` entry naming a path inside an internal directory grants exactly that path. Debugging a Trace with Forgelet stays possible, and stays a decision the user makes at launch rather than one a Session grants itself mid-loop.

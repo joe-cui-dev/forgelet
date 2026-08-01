@@ -123,6 +123,80 @@ test("read_file truncates at the Route's observation limit and states it", async
   expect(atCodingBudget.description).toContain("65536-byte");
 });
 
+test("naming an internal directory directly is forbidden for every read tool", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-read-internal-"));
+  await mkdir(join(workspaceRoot, ".forgelet", "sessions"), { recursive: true });
+  await mkdir(join(workspaceRoot, ".git", "logs"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "sessions", "sess_prior.jsonl"),
+    '{"type":"user_task"}\n',
+    "utf8",
+  );
+  await writeFile(join(workspaceRoot, ".git", "logs", "HEAD"), "ref\n", "utf8");
+
+  const ctx = testContext(workspaceRoot);
+  const denials = await Promise.all([
+    findReadFileTool().classify?.({ path: ".git/logs/HEAD" }, ctx),
+    findReadOnlyTool("list_files").classify?.(
+      { path: ".forgelet/sessions" },
+      ctx,
+    ),
+    findSearchTextTool().classify?.(
+      { query: "V4 Flash", path: ".forgelet/sessions" },
+      ctx,
+    ),
+    findReadOnlyTool("workspace_summary").classify?.({ path: ".forgelet" }, ctx),
+  ]);
+
+  for (const denial of denials) {
+    expect(denial?.riskTier).toBe("forbidden");
+    expect(denial?.targets?.[0]).toMatchObject({ classification: "internal" });
+  }
+});
+
+test("an explicit Session Read Scope entry unlocks the internal path it names", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-read-granted-"));
+  await mkdir(join(workspaceRoot, ".forgelet", "sessions"), { recursive: true });
+  await mkdir(join(workspaceRoot, ".forgelet", "debug"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "sessions", "sess_prior.jsonl"),
+    '{"type":"user_task"}\n',
+    "utf8",
+  );
+
+  const granted = testContext(workspaceRoot, [".forgelet/sessions"]);
+
+  const allowed = await findReadFileTool().classify?.(
+    { path: ".forgelet/sessions/sess_prior.jsonl" },
+    granted,
+  );
+  expect(allowed?.riskTier).toBe("low");
+  expect(allowed?.targets?.[0]).toMatchObject({ classification: "ordinary" });
+
+  // The grant reaches exactly the directory it named, not the rest of .forgelet.
+  const sibling = await findReadOnlyTool("list_files").classify?.(
+    { path: ".forgelet/debug" },
+    granted,
+  );
+  expect(sibling?.riskTier).toBe("forbidden");
+});
+
+test("ordinary workspace reads stay low-risk beside the internal boundary", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-read-ordinary-"));
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await mkdir(join(workspaceRoot, "src"), { recursive: true });
+  await writeFile(join(workspaceRoot, "src", "index.ts"), "export {};\n", "utf8");
+
+  const ctx = testContext(workspaceRoot);
+
+  const read = await findReadFileTool().classify?.({ path: "src/index.ts" }, ctx);
+  expect(read?.riskTier).toBe("low");
+
+  // The default root still lists the workspace; traversal skips .forgelet.
+  const listed = await findReadOnlyTool("list_files").classify?.({}, ctx);
+  expect(listed?.riskTier).toBe("low");
+});
+
 function findReadFileTool(maxObservationBytes?: number) {
   const tools = createReadOnlyTools({ items: [] }, maxObservationBytes);
   const tool = tools.find((candidate) => candidate.name === "read_file");

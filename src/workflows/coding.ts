@@ -103,11 +103,20 @@ export function createCodingWorkflowDefinition(): WorkflowDefinition {
         "Follow up with targeted search_text, read_file, git_status, or git_diff only when specific evidence is needed.",
         "workspace_summary is an on-demand tool result; do not assume it was automatically injected.",
       ];
+      // Search discipline binds both variants. An actionable Session reads the
+      // same workspace the read-only one does, and it is the variant that can
+      // least afford a context spent on speculative reads: what it does not
+      // spend on finding the change it spends on making and verifying it.
+      const codingSearchDisciplineGuidance = [
+        "When you need to locate specific code — a symbol, a function, or where a described behavior is implemented — and the file is not named or obvious, find it with search_text before opening files with read_file; if the user named the file or the path is obvious, read it directly.",
+        "Do not speculatively open multiple files in parallel before their relevance is confirmed; once search or references confirm which files matter, you may read them in parallel.",
+      ];
       if (act)
         return [
           ...kernelCommonPromptLines(),
           "This is an actionable Coding Workflow Session.",
           ...codingWorkspaceSummaryGuidance,
+          ...codingSearchDisciplineGuidance,
           "You may request apply_patch and run_command only when those tools are provided.",
           "Every file edit or command must pass Forgelet permission and approval boundaries before it runs.",
           "Do not claim verification succeeded unless a run_command observation shows the command ran successfully.",
@@ -117,8 +126,7 @@ export function createCodingWorkflowDefinition(): WorkflowDefinition {
         "This is a read-only Coding Workflow Session.",
         "Read-only tools may inspect workspace content; do not claim to write files or run commands.",
         ...codingWorkspaceSummaryGuidance,
-        "When you need to locate specific code — a symbol, a function, or where a described behavior is implemented — and the file is not named or obvious, find it with search_text before opening files with read_file; if the user named the file or the path is obvious, read it directly.",
-        "Do not speculatively open multiple files in parallel before their relevance is confirmed; once search or references confirm which files matter, you may read them in parallel.",
+        ...codingSearchDisciplineGuidance,
       ].join("\n");
     },
   };

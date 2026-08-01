@@ -10,6 +10,8 @@ import type {
 } from "../types.js";
 import {
   doesPathOverlapSessionReadScope,
+  isInternalPathGrantedByReadScope,
+  isInternalWorkspacePath,
   isPathInSessionReadScope,
 } from "../readScope/index.js";
 import { summarizeWorkspace } from "./workspaceSummary.js";
@@ -178,26 +180,18 @@ export const createReadOnlyTools = (
       },
       classify: async (input, ctx) => {
         const path = requiredString(input, "path");
-        const allowed = await isPathInSessionReadScope(
-          ctx.workspaceRoot,
-          path,
-          ctx.readScope,
+        const access = await resolveReadTargetAccess(ctx, path, (candidate) =>
+          isPathInSessionReadScope(ctx.workspaceRoot, candidate, ctx.readScope),
         );
         return {
           workflow: ctx.workflow,
           toolName: "read_file",
           capability: "read_workspace",
-          riskTier: allowed ? "low" : "forbidden",
+          riskTier: access.allowed ? "low" : "forbidden",
           input,
           workspaceRoot: ctx.workspaceRoot,
           targets: [
-            {
-              kind: "path",
-              path,
-              classification: allowed
-                ? "ordinary"
-                : "outside_session_read_scope",
-            },
+            { kind: "path", path, classification: access.classification },
           ],
         };
       },
@@ -395,27 +389,56 @@ const classifyCollectionRead = async (
   input: unknown,
   ctx: ToolContext,
 ) => {
-  const allowed = await doesPathOverlapSessionReadScope(
-    ctx.workspaceRoot,
-    path,
-    ctx.readScope,
+  const access = await resolveReadTargetAccess(ctx, path, (candidate) =>
+    doesPathOverlapSessionReadScope(ctx.workspaceRoot, candidate, ctx.readScope),
   );
   return {
     workflow: ctx.workflow,
     toolName,
     capability: "read_workspace" as const,
-    riskTier: allowed ? ("low" as const) : ("forbidden" as const),
+    riskTier: access.allowed ? ("low" as const) : ("forbidden" as const),
     input,
     workspaceRoot: ctx.workspaceRoot,
     targets: [
       {
         kind: "path" as const,
         path,
-        classification: allowed
-          ? ("ordinary" as const)
-          : ("outside_session_read_scope" as const),
+        classification: access.classification,
       },
     ],
+  };
+};
+
+// Directory traversal already skips `.git` and `.forgelet`, but the skip only
+// fires on entries found while walking: naming one of them directly as a read
+// target walked straight past it, so a Session could list its own Trace
+// directory and treat earlier Sessions as evidence. Reads now meet the same
+// internal boundary the write side has always enforced, and the deny reaches
+// the model as an observation it can self-correct from.
+const resolveReadTargetAccess = async (
+  ctx: ToolContext,
+  path: string,
+  isInScope: (path: string) => Promise<boolean>,
+): Promise<{
+  allowed: boolean;
+  classification:
+    | "ordinary"
+    | "internal"
+    | "outside_session_read_scope";
+}> => {
+  if (
+    isInternalWorkspacePath(path) &&
+    !(await isInternalPathGrantedByReadScope(
+      ctx.workspaceRoot,
+      path,
+      ctx.readScope,
+    ))
+  )
+    return { allowed: false, classification: "internal" };
+  const allowed = await isInScope(path);
+  return {
+    allowed,
+    classification: allowed ? "ordinary" : "outside_session_read_scope",
   };
 };
 

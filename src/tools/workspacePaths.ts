@@ -2,13 +2,16 @@ import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { extname, relative, resolve } from "node:path";
 import {
   doesPathOverlapSessionReadScope,
+  INTERNAL_WORKSPACE_DIRECTORY_NAMES,
   isPathInSessionReadScope,
 } from "../readScope/index.js";
 
-// Skipped wherever they appear, matched on the directory name alone.
+// Skipped wherever they appear, matched on the directory name alone. The
+// internal names come from the read-scope boundary so the two cannot drift; the
+// rest are merely generated noise. Skipping is a traversal rule only — a path
+// named directly as a read target is gated by the tool's classify step.
 export const SKIPPED_WORKSPACE_DIRECTORY_NAMES = new Set([
-  ".git",
-  ".forgelet",
+  ...INTERNAL_WORKSPACE_DIRECTORY_NAMES,
   "node_modules",
   "dist",
   "dist-test",

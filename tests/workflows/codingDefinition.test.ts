@@ -59,3 +59,17 @@ test("coding definition renders the actionable system prompt", () => {
     "Do not claim verification succeeded unless a run_command observation shows the command ran successfully.",
   );
 });
+
+test("coding definition applies the same search discipline in both variants", () => {
+  const definition = createCodingWorkflowDefinition();
+
+  const searchDiscipline = [
+    "When you need to locate specific code — a symbol, a function, or where a described behavior is implemented — and the file is not named or obvious, find it with search_text before opening files with read_file; if the user named the file or the path is obvious, read it directly.",
+    "Do not speculatively open multiple files in parallel before their relevance is confirmed; once search or references confirm which files matter, you may read them in parallel.",
+  ];
+
+  for (const line of searchDiscipline) {
+    expect(definition.systemPrompt({ act: false })).toContain(line);
+    expect(definition.systemPrompt({ act: true })).toContain(line);
+  }
+});

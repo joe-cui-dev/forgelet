@@ -3,9 +3,44 @@ import {
   basename,
   dirname,
   isAbsolute,
+  normalize,
   relative,
   resolve,
+  sep,
 } from "node:path";
+
+// Session-internal state rather than workspace content: `.git` is Git's own
+// object store, and `.forgelet` holds this Session's Trace beside the Trace of
+// every Session before it. The write side has always classified both as
+// `internal`; this is the same boundary named once so the read side can share
+// it.
+export const INTERNAL_WORKSPACE_DIRECTORY_NAMES: ReadonlySet<string> = new Set([
+  ".git",
+  ".forgelet",
+]);
+
+export const isInternalWorkspacePath = (workspacePath: string): boolean => {
+  if (isAbsolute(workspacePath)) return false;
+  const [firstSegment] = normalize(workspacePath).split(sep);
+  return (
+    firstSegment !== undefined &&
+    INTERNAL_WORKSPACE_DIRECTORY_NAMES.has(firstSegment)
+  );
+};
+
+// The one way into an internal directory: a Session Read Scope entry that names
+// a path inside it. `--allow-read .forgelet/sessions` still works, so inspecting
+// a Trace stays possible and stays the user's explicit decision rather than
+// something a Session grants itself mid-loop.
+export const isInternalPathGrantedByReadScope = async (
+  workspaceRoot: string,
+  path: string,
+  readScope: string[] | undefined,
+): Promise<boolean> => {
+  const internalEntries = readScope?.filter(isInternalWorkspacePath);
+  if (!internalEntries || internalEntries.length === 0) return false;
+  return isPathInSessionReadScope(workspaceRoot, path, internalEntries);
+};
 
 export const normalizeSessionReadScope = async (
   workspaceRoot: string,
