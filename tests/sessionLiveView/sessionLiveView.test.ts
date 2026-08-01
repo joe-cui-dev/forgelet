@@ -55,6 +55,39 @@ test("formats concise terminal Session Live View events", () => {
   ).toBe("Session failed: model_execution_error");
 });
 
+test("terminal Session Live View reports thinking progress on its own line", async () => {
+  const writes: string[] = [];
+  const sink = createTerminalSessionLiveEventSink((text) => {
+    writes.push(text);
+  });
+
+  await sink({
+    type: "model_turn_started",
+    turnIndex: 0,
+    model: "deepseek-v4-flash",
+  });
+  await sink({
+    type: "model_reasoning_progress",
+    turnIndex: 0,
+    model: "deepseek-v4-flash",
+    bytesSoFar: 2048,
+  });
+  await sink({
+    type: "model_output_delta",
+    turnIndex: 0,
+    model: "deepseek-v4-flash",
+    text: "Done.",
+  });
+
+  expect(writes.join("")).toBe(
+    [
+      "Model turn 1 started: deepseek-v4-flash\n",
+      "Model turn 1 thinking: 2048 bytes\n",
+      "Done.",
+    ].join(""),
+  );
+});
+
 test("terminal Session Live View streams model output deltas inline", async () => {
   const writes: string[] = [];
   const sink = createTerminalSessionLiveEventSink((text) => {

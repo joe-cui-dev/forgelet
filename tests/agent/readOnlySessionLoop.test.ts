@@ -557,6 +557,73 @@ test("a model-backed coding Session streams model output deltas through Session 
   expect(eventTypes).not.toContain("model_output_delta");
 });
 
+test("a thinking turn reports carryover size to Session Live View without showing any of it", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-live-think-"));
+  const modelClient = new FakeModelClient([
+    {
+      content: "Done.",
+      toolCalls: [],
+      finishReason: "stop",
+      // Under the 1024-byte heartbeat only the third and fifth marks qualify:
+      // 300 and 900 are too close to the last report to be worth a line.
+      reasoningDeltaBytes: [300, 900, 1200, 1800, 2400],
+      outputDeltas: ["Done."],
+    },
+  ]);
+  const liveEvents: SessionLiveEvent[] = [];
+
+  await runCodingSession({
+    task: "think it over",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+    onLiveEvent: (event) => {
+      liveEvents.push(event);
+    },
+  });
+
+  expect(
+    liveEvents.filter((event) => event.type === "model_reasoning_progress"),
+  ).toEqual([
+    {
+      type: "model_reasoning_progress",
+      turnIndex: 0,
+      model: "deepseek-v4-flash",
+      bytesSoFar: 1200,
+    },
+    {
+      type: "model_reasoning_progress",
+      turnIndex: 0,
+      model: "deepseek-v4-flash",
+      bytesSoFar: 2400,
+    },
+  ]);
+});
+
+test("model_turn records the effort and latency the turn actually spent", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-turn-effort-"));
+  const modelClient = new FakeModelClient([
+    { content: "Done.", toolCalls: [], finishReason: "stop" },
+  ]);
+
+  const result = await runCodingSession({
+    task: "answer directly",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const trace = await readFile(result.tracePath ?? "", "utf8");
+  const modelTurn = trace
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line))
+    .find((event) => event.type === "model_turn");
+  expect(modelTurn.payload.effort).toBe("max");
+  expect(typeof modelTurn.payload.latencyMs).toBe("number");
+  expect(modelTurn.payload.latencyMs).toBeGreaterThanOrEqual(0);
+});
+
 test("a model execution failure records the failed model turn before rethrowing", async () => {
   const workspaceRoot = await mkdtemp(
     join(tmpdir(), "forgelet-model-failure-"),

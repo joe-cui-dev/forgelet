@@ -16,6 +16,12 @@ export type SessionLiveEvent =
       text: string;
     }
   | {
+      type: "model_reasoning_progress";
+      turnIndex: number;
+      model: string;
+      bytesSoFar: number;
+    }
+  | {
       type: "model_turn_finished";
       turnIndex: number;
       model: string;
@@ -60,6 +66,10 @@ export const formatSessionLiveEvent = (event: SessionLiveEvent): string => {
       return `Model turn ${event.turnIndex + 1} started: ${event.model}`;
     case "model_output_delta":
       return event.text;
+    // Reports that thinking is progressing without showing any of it: Provider
+    // Carryover is opaque, so only its size reaches a live view.
+    case "model_reasoning_progress":
+      return `Model turn ${event.turnIndex + 1} thinking: ${event.bytesSoFar} bytes`;
     case "model_turn_finished":
       return `Model turn ${event.turnIndex + 1} finished: ${event.model}, ${formatCount(
         event.toolCallCount,

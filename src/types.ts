@@ -138,11 +138,20 @@ export interface ModelTurnInput {
   effort?: ReasoningEffort;
   maxTokens?: number;
   onOutputDelta?: (delta: ModelOutputDelta) => void | Promise<void>;
+  onReasoningDelta?: (delta: ModelReasoningDelta) => void | Promise<void>;
   signal?: AbortSignal;
 }
 
 export interface ModelOutputDelta {
   text: string;
+}
+
+/** Progress of a turn's Provider Carryover while it streams. Only its size
+ * crosses this boundary: the carryover itself is opaque and is never rendered
+ * (ADR 0065), so a live view can report that thinking is happening without
+ * being handed anything it must not show. */
+export interface ModelReasoningDelta {
+  bytesSoFar: number;
 }
 
 export interface ModelMessage {

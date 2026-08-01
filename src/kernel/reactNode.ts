@@ -220,6 +220,9 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 // Bounded retry for transient model-turn errors only; the conversation-fold
 // model call has its own failure tolerance (Degraded Fold, ADR 0022) and is
 // deliberately left untouched here.
+/** How much Provider Carryover accumulates between live-view heartbeats. */
+const REASONING_HEARTBEAT_BYTES = 1024;
+
 const MODEL_TURN_MAX_RETRIES = 2;
 const MODEL_TURN_RETRY_BASE_DELAY_MS = 250;
 
@@ -563,6 +566,11 @@ export const runReactNode = async (
     if (input.signal?.aborted) return stopWith("user_stopped");
 
     let output: ModelTurnOutput;
+    let modelLatencyMs = 0;
+    // A `max` effort turn can think for half a minute before its first content
+    // byte. The live view gets a heartbeat every so many carryover bytes, which
+    // paces itself off real progress and needs no timer.
+    let reportedReasoningBytes = 0;
     for (let attempt = 1; ; attempt += 1) {
       try {
         await emitLiveEvent(input.onLiveEvent, {
@@ -583,12 +591,30 @@ export const runReactNode = async (
             finalOnly: turnPlan.wrapupOnly,
           },
         });
+        const startedAtMs = Date.now();
+        reportedReasoningBytes = 0;
         output = await input.modelClient.createTurn({
           messages,
           tools: turnPlan.wrapupOnly ? [] : tools,
           effort: input.route.effort ?? "high",
           maxTokens: input.activeContext.maxOutputTokens,
           signal: input.signal,
+          onReasoningDelta: input.onLiveEvent
+            ? async (delta) => {
+                if (
+                  delta.bytesSoFar - reportedReasoningBytes <
+                  REASONING_HEARTBEAT_BYTES
+                )
+                  return;
+                reportedReasoningBytes = delta.bytesSoFar;
+                await emitLiveEvent(input.onLiveEvent, {
+                  type: "model_reasoning_progress",
+                  turnIndex,
+                  model: input.route.model,
+                  bytesSoFar: delta.bytesSoFar,
+                });
+              }
+            : undefined,
           onOutputDelta: input.onLiveEvent
             ? async (delta) => {
                 await emitLiveEvent(input.onLiveEvent, {
@@ -600,6 +626,9 @@ export const runReactNode = async (
               }
             : undefined,
         });
+        // Times the attempt that succeeded, not the retries around it: this is
+        // the number that makes one effort level comparable to another.
+        modelLatencyMs = Date.now() - startedAtMs;
         await input.debugTranscript?.append({
           type: "model_response",
           ts: new Date().toISOString(),
@@ -678,6 +707,8 @@ export const runReactNode = async (
     await input.appendTrace("model_turn", {
       turnIndex,
       model: input.route.model,
+      effort: input.route.effort ?? "high",
+      latencyMs: modelLatencyMs,
       contentPreview: output.content?.slice(0, 500),
       toolCalls: output.toolCalls.map((toolCall) => ({
         id: toolCall.id,

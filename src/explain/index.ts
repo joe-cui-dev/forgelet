@@ -18,6 +18,7 @@ export interface SessionExplanation {
     inputCacheMissTokens: number;
     reasoningTokens: number;
     providerCarryoverBytes: number;
+    modelLatencyMs: number;
   };
   toolResults: ToolResultExplanation[];
   permissionDecisions: PermissionExplanation[];
@@ -99,8 +100,9 @@ function explainProviderDiagnostics(events: KnownTraceEvent[]): SessionExplanati
         inputCacheMissTokens: total.inputCacheMissTokens + asNumber(event.payload.usage?.inputCacheMissTokens),
         reasoningTokens: total.reasoningTokens + asNumber(event.payload.usage?.reasoningTokens),
         providerCarryoverBytes: total.providerCarryoverBytes + asNumber(event.payload.providerCarryoverBytes),
+        modelLatencyMs: total.modelLatencyMs + asNumber(event.payload.latencyMs),
       }),
-      { inputCacheHitTokens: 0, inputCacheMissTokens: 0, reasoningTokens: 0, providerCarryoverBytes: 0 },
+      { inputCacheHitTokens: 0, inputCacheMissTokens: 0, reasoningTokens: 0, providerCarryoverBytes: 0, modelLatencyMs: 0 },
     );
 }
 

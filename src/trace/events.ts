@@ -163,6 +163,11 @@ export interface TraceEventPayloads {
   model_turn: {
     turnIndex?: number;
     model?: string;
+    // Effort and latency ride on every turn, not only on the Session's opening
+    // `routing_selected`: comparing what an effort level bought means reading
+    // them off the same row.
+    effort?: "none" | "low" | "high" | "max";
+    latencyMs?: number;
     contentPreview?: string;
     toolCalls?: { id: string; name: string }[];
     usage?: ModelUsage;

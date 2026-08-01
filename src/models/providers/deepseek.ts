@@ -5,6 +5,7 @@ import type {
   ModelClient,
   ModelMessage,
   ModelOutputDelta,
+  ModelReasoningDelta,
   ModelToolCall,
   ModelTurnInput,
   ModelTurnOutput,
@@ -34,6 +35,7 @@ export type PostJson = (
 
 export interface PostJsonOptions {
   onOutputDelta?: (delta: ModelOutputDelta) => void | Promise<void>;
+  onReasoningDelta?: (delta: ModelReasoningDelta) => void | Promise<void>;
   model: string;
   signal?: AbortSignal;
 }
@@ -111,7 +113,12 @@ export class DeepSeekModelClient implements ModelClient {
         "Content-Type": "application/json",
         Authorization: `Bearer ${this.apiKey}`,
       },
-      { onOutputDelta: input.onOutputDelta, model: this.model, signal: input.signal },
+      {
+        onOutputDelta: input.onOutputDelta,
+        onReasoningDelta: input.onReasoningDelta,
+        model: this.model,
+        signal: input.signal,
+      },
     );
     return fromDeepSeekResponse(response, this.model);
   }
@@ -345,6 +352,7 @@ async function postJsonWithHttps(
           requestStartedAtMs,
           stream: body.stream,
           onOutputDelta: options.onOutputDelta,
+          onReasoningDelta: options.onReasoningDelta,
           model: options.model,
         }).then(
           resolveOnce,
@@ -364,6 +372,7 @@ export interface ReadDeepSeekResponseOptions {
   requestStartedAtMs?: number;
   stream?: boolean;
   onOutputDelta?: (delta: ModelOutputDelta) => void | Promise<void>;
+  onReasoningDelta?: (delta: ModelReasoningDelta) => void | Promise<void>;
   model?: string;
 }
 
@@ -486,6 +495,7 @@ interface DeepSeekStreamState {
   usage?: DeepSeekChatResponse["usage"];
   sawDone: boolean;
   onOutputDelta?: (delta: ModelOutputDelta) => void | Promise<void>;
+  onReasoningDelta?: (delta: ModelReasoningDelta) => void | Promise<void>;
   deltaPromises: Promise<void>[];
 }
 
@@ -523,6 +533,7 @@ function createDeepSeekStreamState(
     toolCalls: new Map(),
     sawDone: false,
     onOutputDelta: options.onOutputDelta,
+    onReasoningDelta: options.onReasoningDelta,
     deltaPromises: [],
   };
 }
@@ -560,7 +571,15 @@ function processDeepSeekStreamBlock(
   const choice = chunk.choices?.[0];
   const text = choice?.delta?.content ?? undefined;
   const carryover = choice?.delta?.reasoning_content ?? undefined;
-  if (carryover) state.providerCarryover += carryover;
+  if (carryover) {
+    state.providerCarryover += carryover;
+    if (state.onReasoningDelta) {
+      const bytesSoFar = Buffer.byteLength(state.providerCarryover, "utf8");
+      state.deltaPromises.push(
+        Promise.resolve(state.onReasoningDelta({ bytesSoFar })),
+      );
+    }
+  }
   if (text) {
     state.content += text;
     if (state.onOutputDelta)

@@ -96,6 +96,44 @@ test("DeepSeekModelClient converts Forgelet turns to chat completions with tools
   });
 });
 
+test("readDeepSeekResponse reports carryover size as it streams, never its text", async () => {
+  const response = new PassThrough() as PassThrough & { statusCode?: number };
+  response.statusCode = 200;
+  const reported: number[] = [];
+  const contentDeltas: string[] = [];
+  const result = readDeepSeekResponse(response as unknown as IncomingMessage, {
+    stream: true,
+    onOutputDelta: (delta) => {
+      contentDeltas.push(delta.text);
+    },
+    onReasoningDelta: (delta) => {
+      reported.push(delta.bytesSoFar);
+    },
+  });
+
+  response.write(
+    [
+      'data: {"choices":[{"delta":{"reasoning_content":"abcde"},"finish_reason":null}],"usage":null}',
+      "",
+      'data: {"choices":[{"delta":{"reasoning_content":"fg"},"finish_reason":null}],"usage":null}',
+      "",
+      'data: {"choices":[{"delta":{"content":"Done."},"finish_reason":"stop"}],"usage":null}',
+      "",
+      "data: [DONE]",
+      "",
+    ].join("\n"),
+  );
+  response.end();
+
+  // Cumulative byte counts, so a live view needs no state of its own; the
+  // reasoning text itself only ever reaches the returned response.
+  expect(await result).toMatchObject({
+    choices: [{ message: { reasoning_content: "abcdefg" } }],
+  });
+  expect(reported).toEqual([5, 7]);
+  expect(contentDeltas).toEqual(["Done."]);
+});
+
 test("DeepSeekModelClient omits tool_calls for a carryover-only assistant turn", async () => {
   let requestBody: DeepSeekChatRequest | undefined;
   const client = new DeepSeekModelClient({
