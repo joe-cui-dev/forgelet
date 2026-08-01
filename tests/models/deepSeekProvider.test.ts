@@ -4,6 +4,7 @@ import type { IncomingMessage } from "node:http";
 import {
   DeepSeekModelClient,
   readDeepSeekResponse,
+  type DeepSeekChatRequest,
 } from "../../src/models/providers/deepseek.js";
 
 test("DeepSeekModelClient converts Forgelet turns to chat completions with tools", async () => {
@@ -92,6 +93,41 @@ test("DeepSeekModelClient converts Forgelet turns to chat completions with tools
     inputTokens: 12,
     outputTokens: 5,
     estimatedCostUsd: 0.00000957,
+  });
+});
+
+test("DeepSeekModelClient omits tool_calls for a carryover-only assistant turn", async () => {
+  let requestBody: DeepSeekChatRequest | undefined;
+  const client = new DeepSeekModelClient({
+    apiKey: "test-key",
+    model: "deepseek-v4-flash",
+    postJson: async (_url, body) => {
+      requestBody = body;
+      return { choices: [{ message: { content: "Done." } }] };
+    },
+  });
+
+  await client.createTurn({
+    messages: [
+      { role: "user", content: "Task" },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [],
+        providerCarryover: "opaque reasoning",
+      },
+    ],
+    tools: [],
+    effort: "max",
+  });
+
+  // The wire shape is what the API validates: an empty array is rejected, so
+  // the key has to be absent, which `toEqual` alone would not distinguish.
+  expect(JSON.stringify(requestBody)).not.toContain('"tool_calls"');
+  expect(requestBody?.messages[1]).toEqual({
+    role: "assistant",
+    content: "",
+    reasoning_content: "opaque reasoning",
   });
 });
 

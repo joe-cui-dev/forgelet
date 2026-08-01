@@ -188,7 +188,12 @@ function toDeepSeekMessage(message: ModelMessage): DeepSeekMessage {
     return {
       role: "assistant",
       content: message.content,
-      tool_calls: message.toolCalls?.map(toDeepSeekToolCall),
+      // A turn that produced only Provider Carryover carries an empty tool call
+      // array; `tool_calls` must then be absent rather than `[]`, which the API
+      // rejects.
+      ...(message.toolCalls && message.toolCalls.length > 0
+        ? { tool_calls: message.toolCalls.map(toDeepSeekToolCall) }
+        : {}),
       ...(message.providerCarryover
         ? { reasoning_content: message.providerCarryover }
         : {}),
