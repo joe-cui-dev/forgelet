@@ -2663,6 +2663,74 @@ test("an actionable coding Session can patch, run a configured command, inspect 
   });
 });
 
+test("a denied command is not audited as a failed verification and does not mask the missing one", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-denied-command-audit-"),
+  );
+  await execGit(workspaceRoot, ["init"]);
+  await writeFile(join(workspaceRoot, "example.txt"), "original\n", "utf8");
+  await execGit(workspaceRoot, ["add", "example.txt"]);
+  await execGit(workspaceRoot, ["commit", "-m", "baseline"]);
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  // Nothing is configured safe, so the command below is denied before it can
+  // reach a process.
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "config.json"),
+    JSON.stringify({ safeCommands: [], commandTimeoutMs: 5_000 }),
+    "utf8",
+  );
+  await execGit(workspaceRoot, ["add", ".forgelet/config.json"]);
+  await execGit(workspaceRoot, ["commit", "-m", "configure safe commands"]);
+  const patch = [
+    "diff --git a/example.txt b/example.txt",
+    "--- a/example.txt",
+    "+++ b/example.txt",
+    "@@ -1 +1 @@",
+    "-original",
+    "+changed",
+    "",
+  ].join("\n");
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [{ id: "call_patch", name: "apply_patch", input: { patch } }],
+    },
+    {
+      toolCalls: [
+        { id: "call_command", name: "run_command", input: { command: "npm test" } },
+      ],
+    },
+    { content: "Changed example.txt but could not verify it.", toolCalls: [] },
+  ]);
+
+  const result = await runCodingSession({
+    task: "change example",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+    act: true,
+    approvalHandler: async () => ({
+      status: "approved",
+      reason: "Approved by test.",
+    }),
+  });
+
+  const events = await readTypedTrace(result.tracePath ?? "");
+  const audit = events.find((event) => event.type === "final_summary")?.payload
+    .audit;
+  // A command that never ran is not a verification of anything.
+  expect(audit?.verificationCommands).toEqual([]);
+  // And because it is absent, the risk that actually applies is reported.
+  expect(audit?.kernelObservedRisks).toEqual([
+    {
+      kind: "verification_missing",
+      message: "No verification command was run for the Forgelet changes.",
+    },
+  ]);
+  expect(audit?.changeGroups.forgeletChanged).toEqual(["example.txt"]);
+  expect(result.summary).not.toMatch(/exit null/);
+  expect(result.summary).toMatch(/Verification commands: none/);
+});
+
 test("an actionable Session Continuation audit separates inherited and child changes", async () => {
   const workspaceRoot = await mkdtemp(
     join(tmpdir(), "forgelet-actionable-continuation-audit-"),

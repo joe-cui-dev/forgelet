@@ -249,9 +249,17 @@ const recordAuditObservation = (
     observation.metadata.changedFiles?.forEach((path) =>
       audit.changedFiles.add(path),
     );
-  if (observation.toolName === "run_command")
+  // Only a command that reached a process belongs in the audit; the metadata
+  // is written by the tool that ran it. A denied or unconfigured request has
+  // none, and recording it anyway both invents a failed verification (`exit
+  // null`) and — worse — makes the run look verified enough to suppress the
+  // `verification_missing` risk that actually applies.
+  if (
+    observation.toolName === "run_command" &&
+    observation.metadata.command !== undefined
+  )
     audit.commands.push({
-      command: observation.metadata.command ?? observation.toolName,
+      command: observation.metadata.command,
       exitCode: observation.metadata.exitCode ?? null,
       timedOut: observation.metadata.timedOut === true,
     });

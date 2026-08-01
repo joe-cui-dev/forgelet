@@ -197,7 +197,7 @@ forge debug show <sessionId> --full
 ```bash
 forge config get
 forge config set memoryFile .forgelet/custom-memory.md
-forge config set activeContext.maxObservationBytes 16384
+forge config set activeContext.maxConversationBytes 16384
 forge config set providers.deepseek.apiKeyEnv DEEPSEEK_API_KEY
 ```
 
