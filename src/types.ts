@@ -219,6 +219,15 @@ export interface ToolDefinition {
     input: unknown,
     ctx: ToolContext,
   ): ToolRequest | Promise<ToolRequest>;
+  /** Runs after the permission decision but before the user is asked to
+   * confirm, so a request that cannot succeed never spends their attention.
+   * Return a failing ToolResult to abort the call with that result, or
+   * undefined to proceed to approval. Must not mutate the workspace: it runs
+   * on requests the user has not agreed to yet. */
+  preflight?(
+    input: unknown,
+    ctx: ToolContext,
+  ): ToolResult | undefined | Promise<ToolResult | undefined>;
   execute(input: unknown, ctx: ToolContext): Promise<ToolResult>;
 }
 

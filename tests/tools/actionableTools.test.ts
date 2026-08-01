@@ -4,7 +4,10 @@ import { mkdtemp, readFile, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { createActionableCodingTools } from "../../src/tools/actionable.js";
-import { createToolRegistry } from "../../src/tools/toolRegistry.js";
+import {
+  createToolRegistry,
+  type ApprovalHandler,
+} from "../../src/tools/toolRegistry.js";
 import type { ToolContext } from "../../src/types.js";
 
 const TEST_COMMAND_TIMEOUT_MS = 5_000;
@@ -321,6 +324,259 @@ test("apply_patch denies delete-file patches before approval", async () => {
     "original\n",
   );
 });
+
+test("apply_patch recounts hunk headers whose line counts disagree with the body", async () => {
+  const workspaceRoot = await createPatchWorkspace();
+  // Both headers overcount by one, the shape that made plain `git apply`
+  // report `corrupt patch` and abandon a whole Session to retries.
+  const patch = [
+    "diff --git a/example.txt b/example.txt",
+    "--- a/example.txt",
+    "+++ b/example.txt",
+    "@@ -1,4 +1,5 @@",
+    " line A",
+    " line B",
+    "+line B2",
+    " line C",
+    "@@ -4,3 +5,3 @@",
+    "-old sentence",
+    "+new sentence",
+    " line E",
+    "",
+  ].join("\n");
+
+  const result = await executePatch(workspaceRoot, patch);
+
+  expect(result.observation.ok).toBe(true);
+  await expect(readFile(join(workspaceRoot, "example.txt"), "utf8")).resolves.toBe(
+    "line A\nline B\nline B2\nline C\nnew sentence\nline E\n",
+  );
+});
+
+test("apply_patch applies a zero-context hunk anchored by a removed line", async () => {
+  const workspaceRoot = await createPatchWorkspace();
+  const patch = [
+    "diff --git a/example.txt b/example.txt",
+    "--- a/example.txt",
+    "+++ b/example.txt",
+    "@@ -4,1 +4,1 @@",
+    "-old sentence",
+    "+new sentence",
+    "",
+  ].join("\n");
+
+  const result = await executePatch(workspaceRoot, patch);
+
+  expect(result.observation.ok).toBe(true);
+  await expect(readFile(join(workspaceRoot, "example.txt"), "utf8")).resolves.toBe(
+    "line A\nline B\nline C\nnew sentence\nline E\n",
+  );
+});
+
+test("apply_patch places a zero-context hunk by its removed line, not its header line number", async () => {
+  const workspaceRoot = await createPatchWorkspace();
+  // The header says line 2; the removed text really lives at line 4. The
+  // removed line is what decides, so the edit still lands correctly.
+  const patch = [
+    "diff --git a/example.txt b/example.txt",
+    "--- a/example.txt",
+    "+++ b/example.txt",
+    "@@ -2,1 +2,1 @@",
+    "-old sentence",
+    "+new sentence",
+    "",
+  ].join("\n");
+
+  const result = await executePatch(workspaceRoot, patch);
+
+  expect(result.observation.ok).toBe(true);
+  await expect(readFile(join(workspaceRoot, "example.txt"), "utf8")).resolves.toBe(
+    "line A\nline B\nline C\nnew sentence\nline E\n",
+  );
+});
+
+test("apply_patch rejects an insert-only hunk that has no context to anchor it", async () => {
+  const workspaceRoot = await createPatchWorkspace();
+  // Nothing here can be matched against the file, so the line number in the
+  // header would decide placement unchecked.
+  const patch = [
+    "diff --git a/example.txt b/example.txt",
+    "--- a/example.txt",
+    "+++ b/example.txt",
+    "@@ -1,0 +2,1 @@",
+    "+inserted",
+    "",
+  ].join("\n");
+
+  const result = await executePatch(workspaceRoot, patch);
+
+  expect(result.observation.ok).toBe(false);
+  expect(result.observation.summary).toMatch(/insert-only hunk/i);
+  expect(result.observation.error?.message).toMatch(/context line/i);
+  await expect(readFile(join(workspaceRoot, "example.txt"), "utf8")).resolves.toBe(
+    "line A\nline B\nline C\nold sentence\nline E\n",
+  );
+});
+
+test("apply_patch failure tells the model that miscounted headers are not the cause", async () => {
+  const workspaceRoot = await createPatchWorkspace();
+  const patch = [
+    "diff --git a/example.txt b/example.txt",
+    "--- a/example.txt",
+    "+++ b/example.txt",
+    "@@ -4,1 +4,1 @@",
+    "-a sentence that is not in the file",
+    "+new sentence",
+    "",
+  ].join("\n");
+
+  const result = await executePatch(workspaceRoot, patch);
+
+  expect(result.observation.ok).toBe(false);
+  expect(result.observation.error?.message).toMatch(/recounted automatically/i);
+  expect(result.observation.error?.message).toMatch(/read_file/);
+});
+
+test("apply_patch does not ask for approval for a patch that cannot apply", async () => {
+  const workspaceRoot = await createPatchWorkspace();
+  const patch = [
+    "diff --git a/example.txt b/example.txt",
+    "--- a/example.txt",
+    "+++ b/example.txt",
+    "@@ -4,1 +4,1 @@",
+    "-a sentence that is not in the file",
+    "+new sentence",
+    "",
+  ].join("\n");
+  let approvalRequests = 0;
+
+  const result = await executePatch(workspaceRoot, patch, async () => {
+    approvalRequests += 1;
+    return { status: "approved", reason: "Approved by test." };
+  });
+
+  expect(approvalRequests).toBe(0);
+  expect(result.approvalDecision).toBeUndefined();
+  // Still a confirm-tier request: it was never a permission problem.
+  expect(result.permissionDecision.kind).toBe("confirm");
+  expect(result.observation.ok).toBe(false);
+  expect(result.observation.error?.code).toBe("tool_failed");
+  await expect(readFile(join(workspaceRoot, "example.txt"), "utf8")).resolves.toBe(
+    "line A\nline B\nline C\nold sentence\nline E\n",
+  );
+});
+
+test("apply_patch does not ask for approval for an insert-only hunk", async () => {
+  const workspaceRoot = await createPatchWorkspace();
+  const patch = [
+    "diff --git a/example.txt b/example.txt",
+    "--- a/example.txt",
+    "+++ b/example.txt",
+    "@@ -1,0 +2,1 @@",
+    "+inserted",
+    "",
+  ].join("\n");
+  let approvalRequests = 0;
+
+  const result = await executePatch(workspaceRoot, patch, async () => {
+    approvalRequests += 1;
+    return { status: "approved", reason: "Approved by test." };
+  });
+
+  expect(approvalRequests).toBe(0);
+  expect(result.observation.summary).toMatch(/insert-only hunk/i);
+});
+
+test("apply_patch still asks for approval for a patch that applies", async () => {
+  const workspaceRoot = await createPatchWorkspace();
+  const patch = [
+    "diff --git a/example.txt b/example.txt",
+    "--- a/example.txt",
+    "+++ b/example.txt",
+    "@@ -4,1 +4,1 @@",
+    "-old sentence",
+    "+new sentence",
+    "",
+  ].join("\n");
+  let approvalRequests = 0;
+
+  const result = await executePatch(workspaceRoot, patch, async () => {
+    approvalRequests += 1;
+    return { status: "approved", reason: "Approved by test." };
+  });
+
+  expect(approvalRequests).toBe(1);
+  expect(result.approvalDecision?.status).toBe("approved");
+  expect(result.observation.ok).toBe(true);
+});
+
+test("apply_patch preflight leaves the workspace untouched when approval is rejected", async () => {
+  const workspaceRoot = await createPatchWorkspace();
+  const patch = [
+    "diff --git a/example.txt b/example.txt",
+    "--- a/example.txt",
+    "+++ b/example.txt",
+    "@@ -4,1 +4,1 @@",
+    "-old sentence",
+    "+new sentence",
+    "",
+  ].join("\n");
+
+  const result = await executePatch(workspaceRoot, patch, async () => ({
+    status: "rejected",
+    reason: "Rejected by test.",
+  }));
+
+  expect(result.observation.ok).toBe(false);
+  await expect(readFile(join(workspaceRoot, "example.txt"), "utf8")).resolves.toBe(
+    "line A\nline B\nline C\nold sentence\nline E\n",
+  );
+});
+
+async function createPatchWorkspace(): Promise<string> {
+  const workspaceRoot = await createGitWorkspace();
+  await writeFile(
+    join(workspaceRoot, "example.txt"),
+    "line A\nline B\nline C\nold sentence\nline E\n",
+    "utf8",
+  );
+  await execGit(workspaceRoot, ["add", "example.txt"]);
+  await execGit(workspaceRoot, ["commit", "-m", "baseline"]);
+  return workspaceRoot;
+}
+
+function executePatch(
+  workspaceRoot: string,
+  patch: string,
+  approvalHandler?: ApprovalHandler,
+) {
+  const registry = createToolRegistry(
+    createActionableCodingTools({
+      settings: {
+        safeCommands: [],
+        commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
+        maxPatchBytes: 100_000,
+      },
+      sessionState: {
+        baselineDirtyPaths: new Set(),
+        forgeletTouchedPaths: new Set(),
+      },
+    }),
+    {
+      approvalHandler:
+        approvalHandler ??
+        (async () => ({
+          status: "approved",
+          reason: "Approved by test.",
+          fullPatchShown: false,
+        })),
+    },
+  );
+  return registry.execute(
+    { id: "call_patch", name: "apply_patch", input: { patch } },
+    testContext(workspaceRoot, ["write_workspace"]),
+  );
+}
 
 function testContext(
   workspaceRoot: string,

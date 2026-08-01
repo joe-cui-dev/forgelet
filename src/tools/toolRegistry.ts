@@ -7,6 +7,7 @@ import type {
   ToolContext,
   ToolDefinition,
   ToolRequest,
+  ToolResult,
   ToolSchema,
 } from "../types.js";
 import type { ToolObservation } from "../observation/index.js";
@@ -144,6 +145,30 @@ export const createToolRegistry = (
       }
       let approvalDecision: ApprovalDecision | undefined;
       if (permissionDecision.kind === "confirm") {
+        // Validate before spending the user's attention. An approval prompt for
+        // a request that cannot succeed teaches them to click through prompts,
+        // which is the opposite of what confirmation is for.
+        let preflightFailure: ToolResult | undefined;
+        try {
+          const outcome = await tool.preflight?.(toolCall.input, ctx);
+          if (outcome && !outcome.ok) preflightFailure = outcome;
+        } catch (error) {
+          return {
+            observation: thrownToolObservation(toolCall, error),
+            permissionDecision,
+            capability: tool.capability,
+          };
+        }
+        if (preflightFailure)
+          return {
+            observation: toolResultToObservation(
+              preflightFailure,
+              toolCall.id,
+              toolCall.name,
+            ),
+            permissionDecision,
+            capability: tool.capability,
+          };
         approvalDecision = options.approvalHandler
           ? await options.approvalHandler({
               toolCall,
@@ -181,22 +206,29 @@ export const createToolRegistry = (
           capability: tool.capability,
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
         return {
-          observation: {
-            ok: false,
-            toolCallId: toolCall.id,
-            toolName: toolCall.name,
-            summary: message,
-            error: { code: "invalid_input", message },
-            metadata: {},
-          },
+          observation: thrownToolObservation(toolCall, error),
           permissionDecision,
           approvalDecision,
           capability: tool.capability,
         };
       }
     },
+  };
+};
+
+const thrownToolObservation = (
+  toolCall: ModelToolCall,
+  error: unknown,
+): ToolObservation => {
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    ok: false,
+    toolCallId: toolCall.id,
+    toolName: toolCall.name,
+    summary: message,
+    error: { code: "invalid_input", message },
+    metadata: {},
   };
 };
 

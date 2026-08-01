@@ -29,6 +29,7 @@ export const createActionableCodingTools = (
       additionalProperties: false,
     },
     classify: (input, ctx) => classifyPatch(input, ctx, options),
+    preflight: (input, ctx) => preflightPatch(input, ctx),
     execute: (input, ctx) => applyPatch(input, ctx, options),
   },
   {
@@ -119,23 +120,19 @@ const applyPatch = async (
     await mkdir(dirname(resolve(ctx.workspaceRoot, path)), { recursive: true });
   }
 
-  const check = await gitApply(ctx.workspaceRoot, ["--check", "-"], patch);
-  if (!check.ok)
-    return {
-      ok: false,
-      summary: "Patch failed git apply --check.",
-      error: check.output,
-      data: { content: truncate(check.output, PATCH_PREVIEW_BYTES) },
-    };
+  const planned = planPatchApply(patch);
+  if (!planned.ok) return planned.failure;
 
-  const applied = await gitApply(ctx.workspaceRoot, ["-"], patch);
+  // No `--check` pass first: `git apply` validates the whole patch before it
+  // writes anything, so a workspace that moved since the preflight fails here
+  // with the same message and no partial edit.
+  const applied = await gitApply(
+    ctx.workspaceRoot,
+    [...planned.gitApplyArgs, "-"],
+    patch,
+  );
   if (!applied.ok)
-    return {
-      ok: false,
-      summary: "Patch failed git apply.",
-      error: applied.output,
-      data: { content: truncate(applied.output, PATCH_PREVIEW_BYTES) },
-    };
+    return patchFailure("Patch failed git apply.", applied.output);
 
   changedFiles.forEach((path) => options.sessionState.forgeletTouchedPaths.add(path));
   return {
@@ -219,8 +216,138 @@ const runCommand = async (
   };
 };
 
+/** Everything about a patch that can be decided by reading it, with no process
+ * spawned and nothing touched. Shared by the preflight that runs before the
+ * approval prompt and the execution that runs after it. */
+const planPatchApply = (
+  patch: string,
+): { ok: true; gitApplyArgs: string[] } | { ok: false; failure: ToolResult } => {
+  // A hunk that creates a file is insert-only by nature and has no existing
+  // content to land in the wrong part of, so it needs neither an anchor nor
+  // the relaxed placement rules.
+  const zeroContextHunks = parsePatchHunks(patch).filter(
+    (hunk) => !hunk.hasContext && !hunk.createsFile,
+  );
+  // A zero-context hunk that only adds lines is placed at the line number in
+  // its header with nothing for git to verify against, so a header the model
+  // guessed wrong edits the wrong part of the file and still reports success.
+  // A single removed line is enough to anchor the hunk to real content.
+  if (zeroContextHunks.some((hunk) => !hunk.hasDeletion))
+    return {
+      ok: false,
+      failure: {
+        ok: false,
+        summary: "Patch has an insert-only hunk with no context lines.",
+        error: [
+          "An insert-only hunk carries nothing git can match against, so it",
+          "would be placed at its stated line number unchecked. Include at",
+          "least one surrounding context line in the hunk.",
+        ].join(" "),
+      },
+    };
+
+  return {
+    ok: true,
+    gitApplyArgs: [
+      ...GIT_APPLY_RECOUNT_ARGS,
+      ...(zeroContextHunks.length > 0 ? [GIT_APPLY_UNIDIFF_ZERO_ARG] : []),
+    ],
+  };
+};
+
+const patchFailure = (summary: string, output: string): ToolResult => ({
+  ok: false,
+  summary,
+  error: `${output}\n${PATCH_FAILURE_HINT}`,
+  data: { content: truncate(output, PATCH_PREVIEW_BYTES) },
+});
+
+/** Path, delete and dirty-file guards are already enforced by the permission
+ * decision, so all that is left to establish before the prompt is whether the
+ * patch applies at all. */
+const preflightPatch = async (
+  input: unknown,
+  ctx: ToolContext,
+): Promise<ToolResult | undefined> => {
+  const patch = normalizePatch(requiredString(input, "patch"));
+  const planned = planPatchApply(patch);
+  if (!planned.ok) return planned.failure;
+  const check = await gitApply(
+    ctx.workspaceRoot,
+    [...planned.gitApplyArgs, "--check", "-"],
+    patch,
+  );
+  return check.ok
+    ? undefined
+    : patchFailure("Patch failed git apply --check.", check.output);
+};
+
 const normalizePatch = (patch: string): string =>
   patch.length > 0 && !patch.endsWith("\n") ? `${patch}\n` : patch;
+
+/** Models routinely miscount the `@@ -a,b +c,d @@` line numbers, and plain
+ * `git apply` rejects the whole patch when a count disagrees with its body
+ * (`corrupt patch`, `patch fragment without header`). `--recount` derives the
+ * counts from the body instead, which is what the model meant in the first
+ * place. */
+const GIT_APPLY_RECOUNT_ARGS = ["--recount"];
+
+/** `git apply` also rejects hunks carrying no context line at all, which is the
+ * shape a model reaches for when replacing a single line. `--unidiff-zero`
+ * accepts them, but only pass it when the patch needs it: it relaxes the
+ * placement checks for every hunk in the patch. */
+const GIT_APPLY_UNIDIFF_ZERO_ARG = "--unidiff-zero";
+
+const PATCH_FAILURE_HINT = [
+  "Hunk line counts are recounted automatically, so a wrong count in an `@@`",
+  "header is not the cause. The removed and context lines must match the file",
+  "byte for byte: re-read the target region with read_file and copy the lines",
+  "from it rather than retyping them.",
+].join(" ");
+
+type PatchHunk = {
+  hasContext: boolean;
+  hasDeletion: boolean;
+  createsFile: boolean;
+};
+
+/** Classified from the hunk body rather than its header, because the header
+ * counts are exactly what cannot be trusted here. */
+const parsePatchHunks = (patch: string): PatchHunk[] => {
+  const hunks: PatchHunk[] = [];
+  let current: PatchHunk | undefined;
+  let creatingFile = false;
+  const lines = patch.split("\n");
+  // `normalizePatch` guarantees a trailing newline, so the last element is an
+  // artifact of the split rather than a line of the last hunk.
+  if (lines[lines.length - 1] === "") lines.pop();
+  for (const line of lines) {
+    if (line.startsWith("@@")) {
+      current = { hasContext: false, hasDeletion: false, createsFile: creatingFile };
+      hunks.push(current);
+      continue;
+    }
+    // A file header closes the preceding hunk. `--- a/x` is indistinguishable
+    // from a removed line of content, so match the header shapes the rest of
+    // this module already assumes (`parsePatchTargets`).
+    if (
+      line.startsWith("diff --git ") ||
+      /^(--- |\+\+\+ )(a\/|b\/|\/dev\/null)/.test(line)
+    ) {
+      current = undefined;
+      if (line.startsWith("diff --git ")) creatingFile = false;
+      if (line === "--- /dev/null") creatingFile = true;
+      continue;
+    }
+    if (!current) continue;
+    // A bare empty line is a context line that lost its leading space in
+    // transit. Counting it as context keeps an ambiguous hunk away from
+    // `--unidiff-zero`, which is the safe direction to be wrong in.
+    if (line === "" || line.startsWith(" ")) current.hasContext = true;
+    else if (line.startsWith("-")) current.hasDeletion = true;
+  }
+  return hunks;
+};
 
 const parsePatchTargets = (patch: string): string[] => {
   const targets = new Set<string>();
