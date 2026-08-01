@@ -5,14 +5,27 @@ import {
   isPathInSessionReadScope,
 } from "../readScope/index.js";
 
-export const SKIPPED_WORKSPACE_DIRECTORIES = new Set([
+// Skipped wherever they appear, matched on the directory name alone.
+export const SKIPPED_WORKSPACE_DIRECTORY_NAMES = new Set([
   ".git",
   ".forgelet",
-  ".claude/worktrees",
   "node_modules",
   "dist",
   "dist-test",
 ]);
+
+// Skipped only at their workspace-relative location. A name-only match cannot
+// express these: the entry name is a single segment, so `.claude/worktrees`
+// would never match and the whole worktree tree would be listed as workspace
+// files.
+export const SKIPPED_WORKSPACE_DIRECTORY_PATHS = new Set([".claude/worktrees"]);
+
+const isSkippedWorkspaceDirectory = (
+  name: string,
+  workspacePath: string,
+): boolean =>
+  SKIPPED_WORKSPACE_DIRECTORY_NAMES.has(name) ||
+  SKIPPED_WORKSPACE_DIRECTORY_PATHS.has(workspacePath);
 
 export interface ListedWorkspaceFiles {
   files: string[];
@@ -130,7 +143,7 @@ const collectWorkspaceFiles = async (
     const absolute = resolve(root, entry.name);
     const workspacePath = relative(realWorkspaceRoot, absolute);
     if (entry.isDirectory()) {
-      if (SKIPPED_WORKSPACE_DIRECTORIES.has(entry.name)) {
+      if (isSkippedWorkspaceDirectory(entry.name, workspacePath)) {
         output.skippedDirectories.push(`${workspacePath}/`);
         continue;
       }

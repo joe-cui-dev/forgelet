@@ -64,10 +64,43 @@ test("search_text reports a clear error for a path that does not exist", async (
   ).rejects.toThrow("Path does not exist in workspace: does/not/exist.ts");
 });
 
+test("list_files skips nested worktrees without hiding the rest of .claude", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-list-worktrees-"));
+  await mkdir(join(workspaceRoot, ".claude", "skills"), { recursive: true });
+  await mkdir(join(workspaceRoot, ".claude", "worktrees", "copy", "src"), {
+    recursive: true,
+  });
+  await mkdir(join(workspaceRoot, "src"), { recursive: true });
+  await writeFile(join(workspaceRoot, "src", "index.ts"), "export {};\n", "utf8");
+  await writeFile(
+    join(workspaceRoot, ".claude", "skills", "verify.md"),
+    "# Verify\n",
+    "utf8",
+  );
+  await writeFile(
+    join(workspaceRoot, ".claude", "worktrees", "copy", "src", "index.ts"),
+    "export {};\n",
+    "utf8",
+  );
+
+  const listFiles = findReadOnlyTool("list_files");
+  const result = await listFiles.execute({}, testContext(workspaceRoot));
+
+  expect(result.ok).toBe(true);
+  expect(result.summary).toBe("Listed 2 files.");
+  expect(result.data).toMatchObject({
+    content: [".claude/skills/verify.md", "src/index.ts"].join("\n"),
+  });
+});
+
 function findSearchTextTool() {
+  return findReadOnlyTool("search_text");
+}
+
+function findReadOnlyTool(name: string) {
   const tools = createReadOnlyTools({ items: [] });
-  const tool = tools.find((candidate) => candidate.name === "search_text");
-  if (!tool) throw new Error("search_text tool is not registered.");
+  const tool = tools.find((candidate) => candidate.name === name);
+  if (!tool) throw new Error(`${name} tool is not registered.`);
   return tool;
 }
 
