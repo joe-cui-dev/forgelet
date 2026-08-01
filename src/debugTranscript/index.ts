@@ -116,11 +116,18 @@ function formatDebugTranscriptEvent(
   if (event.type === "model_request") {
     const messages = Array.isArray(payload.messages) ? payload.messages : [];
     const tools = Array.isArray(payload.tools) ? payload.tools : [];
+    // A wrap-up turn still sends the tools so the cached prefix holds; the
+    // choice is what says they may not be called.
+    const toolChoice =
+      payload.toolChoice === "none" || payload.toolChoice === "auto"
+        ? payload.toolChoice
+        : undefined;
     return [
       ...prefix,
       `Model request: ${messages.length} messages, ${tools.length} tools`,
       ...formatMessages(messages, full),
       `Tools: ${tools.map((tool) => recordString(tool, "name")).filter(Boolean).join(", ") || "none"}`,
+      ...(toolChoice ? [`Tool choice: ${toolChoice}`] : []),
       "",
     ];
   }

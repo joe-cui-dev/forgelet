@@ -390,6 +390,7 @@ export const runReactNode = async (
               reason,
               input.limits,
               extras.wrapupContent,
+              extras.blockedToolCalls,
             ),
             finalContent: extras.wrapupContent,
           }
@@ -559,6 +560,16 @@ export const runReactNode = async (
         truncatedOutputNotice,
       },
     );
+    // A wrap-up turn still carries the tool schemas so the cached prompt prefix
+    // survives the Session's most context-heavy request; `tool_choice` is what
+    // forbids the calls.
+    const requestTools = turnPlan.offerTools ? tools : [];
+    const requestToolChoice =
+      requestTools.length === 0
+        ? undefined
+        : turnPlan.wrapupOnly
+          ? ("none" as const)
+          : ("auto" as const);
     // The Turn Status tail is reconstructed for every request. A truncation
     // warning belongs to exactly the next request, while `messages` preserves
     // it through a transient retry of that request.
@@ -587,7 +598,8 @@ export const runReactNode = async (
             model: input.route.model,
             task: input.session.task,
             messages,
-            tools: turnPlan.wrapupOnly ? [] : tools,
+            tools: requestTools,
+            toolChoice: requestToolChoice,
             finalOnly: turnPlan.wrapupOnly,
           },
         });
@@ -595,7 +607,8 @@ export const runReactNode = async (
         reportedReasoningBytes = 0;
         output = await input.modelClient.createTurn({
           messages,
-          tools: turnPlan.wrapupOnly ? [] : tools,
+          tools: requestTools,
+          toolChoice: requestToolChoice,
           effort: input.route.effort ?? "high",
           maxTokens: input.activeContext.maxOutputTokens,
           signal: input.signal,
@@ -760,8 +773,20 @@ export const runReactNode = async (
         skippedCount: output.toolCalls.length,
         toolNames: output.toolCalls.map((toolCall) => toolCall.name),
       });
+      // The calls are refused either way. But a wrap-up turn is sent with
+      // `tool_choice: "none"`, so reaching here means the provider asked for
+      // tools anyway — that must not also cost the Session the closing summary
+      // that arrived alongside them.
+      const blockedToolCalls = { reason, skippedCount: output.toolCalls.length };
+      if (!isUsableFinalContent(output.content ?? ""))
+        return stopWith(reason, { blockedToolCalls });
       return stopWith(reason, {
-        blockedToolCalls: { reason, skippedCount: output.toolCalls.length },
+        blockedToolCalls,
+        wrapupContent:
+          input.definition.normalizeFinalContent?.(output.content ?? "", {
+            contextAttachments: input.contextAttachments,
+            sourceLedger: input.sourceLedger?.view,
+          }) ?? (output.content ?? ""),
       });
     }
 
@@ -1135,9 +1160,10 @@ const formatBudgetWrapupSummary = (
   reason: SessionStopReason,
   limits: BudgetLimits,
   wrapupContent: string,
+  blockedToolCalls?: BudgetBlockedToolCalls,
 ): string => {
   return [
-    formatStoppedSummary(session, route, usage, reason, limits),
+    formatStoppedSummary(session, route, usage, reason, limits, blockedToolCalls),
     "",
     "The model produced a wrap-up answer before the budget stop:",
     wrapupContent,

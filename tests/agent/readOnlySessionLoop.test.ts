@@ -1700,7 +1700,9 @@ test("a Session folds an old turn into a Rolling Summary when digests alone cann
 
   expect(result.summary).toMatch(/Both files were inspected/);
   expect(result.summary).toMatch(/Model turns: 3/);
+  // Index 2 is the Rolling Summary fold's own call, which never offers tools.
   expect(modelClient.turnInputs[2]?.tools).toEqual([]);
+  expect(modelClient.turnInputs[2]?.toolChoice).toBeUndefined();
 
   const finalTurnMessages = modelClient.turnInputs[3]?.messages ?? [];
   const rollingSummary = finalTurnMessages.find((message) =>
@@ -3361,7 +3363,7 @@ test("a one-turn Session reserves its only model turn for a final answer", async
   expect(finished.payload.status).toBe("completed");
 });
 
-test("a Session warns on its final tool turn and then removes tools for the final answer", async () => {
+test("a Session warns on its final tool turn and then forbids tool calls for the final answer", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-final-turn-"));
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
   await writeFile(
@@ -3384,10 +3386,16 @@ test("a Session warns on its final tool turn and then removes tools for the fina
   });
 
   expect(modelClient.turnInputs[0]?.tools.length).toBeGreaterThan(0);
+  expect(modelClient.turnInputs[0]?.toolChoice).toBe("auto");
   expect(modelClient.turnInputs[0]?.messages.at(-1)?.content).toMatch(
     /final tool-capable turn/,
   );
-  expect(modelClient.turnInputs[1]?.tools).toEqual([]);
+  // Schemas stay in the request to keep the cached prefix intact between the
+  // two turns; `tool_choice` is what closes tool use off.
+  expect(modelClient.turnInputs[1]?.tools).toEqual(
+    modelClient.turnInputs[0]?.tools,
+  );
+  expect(modelClient.turnInputs[1]?.toolChoice).toBe("none");
   expect(
     modelClient.turnInputs[1]?.messages.some(
       (message) =>

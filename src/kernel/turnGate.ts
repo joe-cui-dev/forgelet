@@ -11,6 +11,12 @@ export type TurnPlan =
       kind: "turn";
       finalOnly: boolean;
       finalToolTurn: boolean;
+      /** Whether to put the tool schemas in the request at all. A wrap-up turn
+       * keeps them (paired with `tool_choice: "none"`) so it does not
+       * invalidate the cached prompt prefix the Session has built up. A
+       * Session whose first turn is also its last has no such prefix, and
+       * sending schemas it may not use would be pure waste. */
+      offerTools: boolean;
       wrapupOnly: boolean;
       wrapupReason?: SessionStopReason;
       toolCallBlockReason: SessionStopReason;
@@ -42,11 +48,14 @@ export const turnGate = (args: {
         args.limits,
         args.elapsedWallClockMs,
       ));
+  const wrapupOnly = finalOnly || wrapupReason !== undefined;
   return {
     kind: "turn",
     finalOnly,
     finalToolTurn: !isAnswerOnce && remainingModelTurns === 2,
-    wrapupOnly: finalOnly || wrapupReason !== undefined,
+    offerTools:
+      !isAnswerOnce && (!wrapupOnly || args.usage.modelTurns > 0),
+    wrapupOnly,
     wrapupReason,
     toolCallBlockReason:
       wrapupReason ??

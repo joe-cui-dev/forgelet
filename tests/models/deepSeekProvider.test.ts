@@ -96,6 +96,52 @@ test("DeepSeekModelClient converts Forgelet turns to chat completions with tools
   });
 });
 
+test("DeepSeekModelClient sends tool_choice none with the tools still attached", async () => {
+  // A wrap-up turn must keep the schemas in the body: they are part of the
+  // cached prompt prefix, and dropping them re-bills the whole prefix.
+  const bodies: DeepSeekChatRequest[] = [];
+  const client = new DeepSeekModelClient({
+    apiKey: "test-key",
+    model: "deepseek-v4-flash",
+    postJson: async (_url, body) => {
+      bodies.push(body as DeepSeekChatRequest);
+      return {
+        choices: [{ finish_reason: "stop", message: { content: "Done." } }],
+      };
+    },
+  });
+  const tools = [
+    {
+      name: "read_file",
+      description: "Read a file",
+      inputSchema: { type: "object", properties: {} },
+    },
+  ];
+
+  await client.createTurn({
+    messages: [{ role: "user", content: "wrap up" }],
+    tools,
+    toolChoice: "none",
+  });
+  await client.createTurn({
+    messages: [{ role: "user", content: "work" }],
+    tools,
+    toolChoice: "auto",
+  });
+  // No tools means no choice to express, and the API rejects one without them.
+  await client.createTurn({
+    messages: [{ role: "user", content: "summarize" }],
+    tools: [],
+    toolChoice: "none",
+  });
+
+  expect(bodies[0]?.tool_choice).toBe("none");
+  expect(bodies[0]?.tools).toHaveLength(1);
+  expect(bodies[1]?.tool_choice).toBe("auto");
+  expect(bodies[2]?.tools).toBeUndefined();
+  expect(bodies[2]).not.toHaveProperty("tool_choice");
+});
+
 test("readDeepSeekResponse reports carryover size as it streams, never its text", async () => {
   const response = new PassThrough() as PassThrough & { statusCode?: number };
   response.statusCode = 200;

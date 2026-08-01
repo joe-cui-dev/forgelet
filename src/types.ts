@@ -135,6 +135,11 @@ export interface LoadedContextAttachment {
 export interface ModelTurnInput {
   messages: ModelMessage[];
   tools: ToolSchema[];
+  /** `"none"` offers the tools but forbids calling them. A wrap-up turn needs
+   * that rather than an empty tool list: tool definitions sit in the cached
+   * prompt prefix, so dropping them invalidates the prefix for the one turn
+   * that carries the whole Session's context. */
+  toolChoice?: "auto" | "none";
   effort?: ReasoningEffort;
   maxTokens?: number;
   onOutputDelta?: (delta: ModelOutputDelta) => void | Promise<void>;

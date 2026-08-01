@@ -141,6 +141,51 @@ test.each([
     .toMatchObject({ unpricedTurns: 1, estimatedCostUsd: 0 });
 });
 
+test("keeps the wrap-up answer when a provider ignores tool_choice none", async () => {
+  // The wrap-up turn is sent with the tools attached and `tool_choice: "none"`.
+  // A provider that asks for tools anyway must still have its calls refused,
+  // but that must not also cost the Session the closing answer it wrote.
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-wrapup-ignored-"));
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "config.json"),
+    JSON.stringify({ budgets: { maxModelTurns: 2 } }),
+    "utf8",
+  );
+
+  const turns = [
+    { toolCalls: [{ id: "call_list", name: "list_files", input: {} }] },
+    {
+      content: "The final answer, written despite the stray tool call.",
+      toolCalls: [{ id: "call_more", name: "list_files", input: {} }],
+    },
+  ];
+  let call = 0;
+  const modelClient = {
+    async createTurn() {
+      return turns[call++];
+    },
+  };
+
+  const result = await runCodingSession({
+    task: "inspect files",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  expect(result.summary).toMatch(/The final answer, written despite/);
+  expect(result.summary).toMatch(/Skipped 1 tool call because max_model_turns/);
+  const events = (await readFile(result.tracePath ?? "", "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  // The calls are still refused, not executed.
+  expect(
+    events.find((event) => event.type === "budget_blocked_tool_calls")?.payload,
+  ).toMatchObject({ skippedCount: 1, reason: "max_model_turns" });
+});
+
 test("rejects an unknown DeepSeek model before a Session can spend", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-unpriced-model-"));
   const modelClient = { async createTurn() { return { content: "Done.", toolCalls: [] }; } };

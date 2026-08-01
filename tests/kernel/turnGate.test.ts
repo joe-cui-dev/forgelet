@@ -39,6 +39,7 @@ test("reserves a wrap-up-only turn when estimated cost crosses 90 percent", () =
     kind: "turn",
     finalOnly: false,
     finalToolTurn: false,
+    offerTools: false,
     wrapupOnly: true,
     wrapupReason: "estimated_cost_budget_exceeded",
     toolCallBlockReason: "estimated_cost_budget_exceeded",
@@ -53,6 +54,7 @@ test("reserves a final-only turn with one model turn remaining", () => {
     kind: "turn",
     finalOnly: true,
     finalToolTurn: false,
+    offerTools: true,
     wrapupOnly: true,
     wrapupReason: undefined,
     toolCallBlockReason: "max_model_turns",
@@ -83,11 +85,30 @@ test("answer-once is final-only and blocks tool calls with its dedicated reason"
     kind: "turn",
     finalOnly: true,
     finalToolTurn: false,
+    offerTools: false,
     wrapupOnly: true,
     wrapupReason: undefined,
     toolCallBlockReason: "answer_once_tool_calls_blocked",
     emptyContentStopReason: "max_model_turns",
   });
+});
+
+test("a wrap-up turn keeps offering tools once the Session has a prompt prefix to protect", () => {
+  // Tool schemas are part of the cached prefix, so a closing turn that drops
+  // them re-sends the entire Session context as a cache miss.
+  expect(
+    turnGate({ usage: usage({ modelTurns: 9 }), limits, elapsedWallClockMs: 0 }),
+  ).toMatchObject({ wrapupOnly: true, offerTools: true });
+
+  // A Session whose first turn is also its last has no prefix to protect, so
+  // schemas it may not call would be paid for and wasted.
+  expect(
+    turnGate({
+      usage: usage(),
+      limits: { ...limits, maxModelTurns: 1 },
+      elapsedWallClockMs: 0,
+    }),
+  ).toMatchObject({ wrapupOnly: true, offerTools: false });
 });
 
 test("forced stop takes priority over the reserve threshold and precomputed reasons", () => {
@@ -102,6 +123,7 @@ test("forced stop takes priority over the reserve threshold and precomputed reas
     kind: "turn",
     finalOnly: false,
     finalToolTurn: false,
+    offerTools: false,
     wrapupOnly: true,
     wrapupReason: "user_stopped",
     toolCallBlockReason: "user_stopped",

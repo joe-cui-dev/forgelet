@@ -101,6 +101,10 @@ export class DeepSeekModelClient implements ModelClient {
       messages: input.messages.map(toDeepSeekMessage),
       tools:
         input.tools.length > 0 ? input.tools.map(toDeepSeekTool) : undefined,
+      // Only meaningful alongside tools, and rejected without them.
+      ...(input.tools.length > 0 && input.toolChoice !== undefined
+        ? { tool_choice: input.toolChoice }
+        : {}),
       stream,
       stream_options: stream ? { include_usage: true } : undefined,
       ...toDeepSeekThinking(input.effort),
@@ -128,6 +132,7 @@ export interface DeepSeekChatRequest {
   model: string;
   messages: DeepSeekMessage[];
   tools?: DeepSeekTool[];
+  tool_choice?: "auto" | "none";
   stream: boolean;
   stream_options?: { include_usage: true };
   thinking?: { type: "enabled" | "disabled" };
