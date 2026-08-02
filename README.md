@@ -34,7 +34,7 @@ forge code --act --budget 0.15 "fix the small failing test"
 
 `forge code` starts a model-backed Coding Session. It can read workspace files, inspect Git status/diff, update the Session plan, and write Trace evidence. Add `--act` only when you want the Coding Workflow to request confirmed file edits and configured commands.
 
-Routes select both a model and reasoning effort. Sessions default to `deepseek-v4-flash`; `--model deepseek-v4-pro` overrides the model for one run, and `--effort none|low|high|max` overrides the reasoning effort. Defaults are `max` for Coding and `high` for Learning and Writing. Forgelet validates the selected pair against its Model Profile before a provider call.
+Routes select both a model and reasoning effort. Sessions default to `deepseek-v4-flash`; `--model deepseek-v4-pro` overrides the model for one run, and `--effort none|low|high|max` overrides the reasoning effort. Defaults are `high` for Coding, Learning, and Writing. Forgelet validates the selected pair against its Model Profile before a provider call.
 
 ```bash
 forge code --write-scope src --write-scope docs "add a changelog entry"
