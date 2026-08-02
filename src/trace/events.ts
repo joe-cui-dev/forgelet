@@ -144,9 +144,15 @@ export interface TraceEventPayloads {
     turnIndex?: number;
     noProgressTurns?: number;
     limit?: number;
-    /** Reasoning spent across the barren streak: the cost the gate exists to
-     * stop, in the unit that makes it visible. */
-    reasoningTokensSinceProgress?: number;
+    /** Reasoning spent since the Session last acted on the world: the cost the
+     * gate exists to stop, in the unit that makes it visible. Cleared by an
+     * effect rather than by a new observation, so it keeps climbing through a
+     * loop that learns something useless every turn. */
+    reasoningTokensSinceEffect?: number;
+    reasoningTokenLimit?: number;
+    /** Which of the two roads reached the wrap-up: the barren-turn streak, or
+     * the reasoning spent without acting. */
+    reasoningLimitReached?: boolean;
     wrapupTriggered?: boolean;
   };
   conversation_compacted: ConversationCompactionPayload;

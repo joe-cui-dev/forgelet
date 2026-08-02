@@ -60,8 +60,11 @@ test("reserves the wrap-up turn once repeated reads stop teaching the Session an
   expect(barren.at(-1)?.payload).toMatchObject({
     limit: NO_PROGRESS_TURN_LIMIT,
     wrapupTriggered: true,
-    // Three barren turns at 4000 reasoning tokens each: the cost the gate stops.
-    reasoningTokensSinceProgress: 12_000,
+    // All four turns at 4000 reasoning tokens each: the counter is cleared by
+    // an effect, and this Session only ever read, so the opening turn's spend
+    // counts too. Still under the ceiling — the streak is what fires here.
+    reasoningTokensSinceEffect: 16_000,
+    reasoningLimitReached: false,
   });
 
   // The closing turn is told why it was reserved, so its answer can say so.

@@ -44,6 +44,7 @@ import {
 } from "./turnGate.js";
 import {
   createProgressState,
+  NO_PROGRESS_REASONING_TOKEN_LIMIT,
   NO_PROGRESS_TURN_LIMIT,
   planSignature,
   recordTurnProgress,
@@ -399,13 +400,20 @@ export const runReactNode = async (
       planSignature: planSignature(input.plan.items),
       reasoningTokens,
     });
-    if (progress.advanced) return;
-    const wrapupTriggered = progress.noProgressTurns >= NO_PROGRESS_TURN_LIMIT;
+    // The reasoning ceiling is read even on a turn that advanced: the loop it
+    // exists to catch advances on every turn, by learning one more fact it will
+    // never use.
+    if (progress.advanced && !progress.reasoningLimitReached) return;
+    const wrapupTriggered =
+      progress.noProgressTurns >= NO_PROGRESS_TURN_LIMIT ||
+      progress.reasoningLimitReached;
     await input.appendTrace("session_no_progress", {
       turnIndex,
       noProgressTurns: progress.noProgressTurns,
       limit: NO_PROGRESS_TURN_LIMIT,
-      reasoningTokensSinceProgress: progress.reasoningTokensSinceProgress,
+      reasoningTokensSinceEffect: progress.reasoningTokensSinceEffect,
+      reasoningTokenLimit: NO_PROGRESS_REASONING_TOKEN_LIMIT,
+      reasoningLimitReached: progress.reasoningLimitReached,
       wrapupTriggered,
     });
     // The reserved wrap-up turn of ADR 0029, reached by a different road: the
