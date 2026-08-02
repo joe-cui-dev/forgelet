@@ -181,6 +181,93 @@ test("an explicit Session Read Scope entry unlocks the internal path it names", 
   expect(sibling?.riskTier).toBe("forbidden");
 });
 
+test("naming a credential file directly is forbidden for every read tool", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-read-secret-"));
+  await mkdir(join(workspaceRoot, "deploy"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".env"),
+    "DEEPSEEK_API_KEY=sk-live-secret\n",
+    "utf8",
+  );
+  await writeFile(join(workspaceRoot, "deploy", "server.pem"), "key\n", "utf8");
+
+  const ctx = testContext(workspaceRoot);
+  const denials = await Promise.all([
+    findReadFileTool().classify?.({ path: ".env" }, ctx),
+    findReadFileTool().classify?.({ path: "deploy/server.pem" }, ctx),
+    findSearchTextTool().classify?.({ query: "KEY", path: ".env" }, ctx),
+    findReadOnlyTool("workspace_summary").classify?.({ path: ".env" }, ctx),
+  ]);
+
+  for (const denial of denials) {
+    expect(denial?.riskTier).toBe("forbidden");
+    expect(denial?.targets?.[0]).toMatchObject({ classification: "sensitive" });
+  }
+});
+
+test("a workspace-wide search never walks into a credential file", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-search-secret-"));
+  await writeFile(
+    join(workspaceRoot, ".env"),
+    "DEEPSEEK_API_KEY=sk-live-secret\nDEEPSEEK_MODEL=deepseek-v4-flash\n",
+    "utf8",
+  );
+  await writeFile(
+    join(workspaceRoot, ".env.example"),
+    "DEEPSEEK_API_KEY=replace_me\n",
+    "utf8",
+  );
+  await writeFile(
+    join(workspaceRoot, "README.md"),
+    "Set DEEPSEEK_API_KEY before running.\n",
+    "utf8",
+  );
+
+  // Nobody names `.env` as a read target; a search walks past it. That is how
+  // a live key reached a Session's conversation and its Trace.
+  const result = await findSearchTextTool().execute(
+    { query: "DEEPSEEK_API_KEY" },
+    testContext(workspaceRoot),
+  );
+
+  expect(result.ok).toBe(true);
+  const content = String((result.data as { content: string }).content);
+  expect(content).not.toContain("sk-live-secret");
+  expect(content).not.toContain(".env:");
+  // The template still answers "which variables does this workspace need".
+  expect(content).toContain(".env.example:1: DEEPSEEK_API_KEY=replace_me");
+  expect(content).toContain("README.md:1:");
+});
+
+test("an explicit Session Read Scope entry unlocks the credential file it names", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-secret-granted-"));
+  await writeFile(
+    join(workspaceRoot, ".env"),
+    "DEEPSEEK_API_KEY=sk-live-secret\n",
+    "utf8",
+  );
+  await writeFile(join(workspaceRoot, "server.pem"), "key\n", "utf8");
+
+  const granted = testContext(workspaceRoot, [".env"]);
+  const allowed = await findReadFileTool().classify?.({ path: ".env" }, granted);
+  expect(allowed?.riskTier).toBe("low");
+  expect(allowed?.targets?.[0]).toMatchObject({ classification: "ordinary" });
+
+  // The grant reaches exactly the file it named, not credentials in general.
+  const sibling = await findReadFileTool().classify?.(
+    { path: "server.pem" },
+    granted,
+  );
+  expect(sibling?.riskTier).toBe("forbidden");
+
+  // And a scope that merely contains the workspace does not grant it.
+  const wide = await findReadFileTool().classify?.(
+    { path: ".env" },
+    testContext(workspaceRoot, ["."]),
+  );
+  expect(wide?.riskTier).toBe("forbidden");
+});
+
 test("ordinary workspace reads stay low-risk beside the internal boundary", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-read-ordinary-"));
   await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });

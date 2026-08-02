@@ -34,6 +34,8 @@ forge code --act --budget 0.15 "fix the small failing test"
 
 `forge code` starts a model-backed Coding Session. It can read workspace files, inspect Git status/diff, update the Session plan, and write Trace evidence. Add `--act` only when you want the Coding Workflow to request confirmed file edits and configured commands.
 
+Session reads stop at two boundaries. `.git` and `.forgelet` are internal Session state rather than workspace content, and credential files — `.env` and its variants, `*.pem`, `*.key`, `id_rsa`, `.npmrc`, and similar — are never read, searched, or summarized, so their contents cannot reach a model conversation or a Trace. Repeating `--allow-read` narrows a Session to the paths it names, and an entry naming one of these paths directly (`--allow-read .env`) is the only way past either boundary. Templates such as `.env.example` are ordinary readable files.
+
 Routes select both a model and reasoning effort. Sessions default to `deepseek-v4-flash`; `--model deepseek-v4-pro` overrides the model for one run, and `--effort none|low|high|max` overrides the reasoning effort. Defaults are `high` for Coding, Learning, and Writing. Forgelet validates the selected pair against its Model Profile before a provider call.
 
 ```bash

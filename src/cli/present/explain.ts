@@ -1,5 +1,6 @@
 import type { SessionExplanation } from "../../explain/index.js";
 import type { SessionAudit } from "../../types.js";
+import { formatAuditVerificationCommand } from "../../audit/format.js";
 import { formatList } from "./shared.js";
 
 export function formatSessionExplanation(explanation: SessionExplanation): string {
@@ -97,8 +98,7 @@ export function formatExplanationAudit(audit: SessionAudit | undefined): string[
       ? "Verification commands:"
       : "Verification commands: none",
     ...audit.verificationCommands.map(
-      (command) =>
-        `- ${command.command} (${command.timedOut ? "timed out" : `exit ${command.exitCode}`})`,
+      (command) => `- ${formatAuditVerificationCommand(command)}`,
     ),
     audit.kernelObservedRisks.length > 0
       ? "Kernel-observed risks:"

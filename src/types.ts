@@ -92,6 +92,10 @@ export interface AuditVerificationCommand {
   command: string;
   exitCode: number | null;
   timedOut: boolean;
+  /** The command ran before the Session's last file change, so its exit code is
+   * evidence about the workspace as it was, not about what the Session left
+   * behind. Absent on commands that did verify the final state. */
+  ranBeforeFinalChange?: true;
 }
 
 export type AuditRiskKind =

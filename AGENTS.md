@@ -27,10 +27,11 @@ Do not default to reading deleted or historical planning docs from git history. 
 - Workflow definitions and typed entries: `src/workflows/`
 - Tool registry and tools: `src/tools/`
 - Tool Observation intake, model projection, digest projection, and range handling: `src/observation/`
-- Permissions and read scope: `src/permissions/`, `src/readScope/`
+- Permissions and read scope: `src/permissions/`, `src/readScope/`, `src/secretPaths/` (the credential-file boundary both the read and write sides consult)
 - Model adapters, provider-for-model mapping and runnability (`routing.ts`), and test clients: `src/models/`
 - Workflow-to-model routing (`routeModel`) and user config: `src/config/`
 - Trace, Sessions, and explain: `src/trace/`, `src/sessions/`, `src/explain/`
+- Shared Session Audit rendering used by both the kernel summary and the CLI: `src/audit/`
 - Debug transcripts (separate from traces): `src/debugTranscript/`
 - Browser context bridge: `src/browser/`, `src/native-host/`
 - Browser Workbench application Module: `src/browserWorkbench/`

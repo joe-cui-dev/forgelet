@@ -125,8 +125,16 @@ async function deriveSuggestion(
   if (!explanation.audit)
     throw new Error(`Session does not contain actionable audit evidence: ${sessionId}`);
 
+  // Corroboration has to be evidence about what the Session left behind. A
+  // command that ran before the Session's last change passed against a
+  // workspace that no longer exists, so it cannot support a durable claim.
   const successfulCommands = explanation.audit.verificationCommands
-    .filter((command) => command.exitCode === 0 && !command.timedOut)
+    .filter(
+      (command) =>
+        command.exitCode === 0 &&
+        !command.timedOut &&
+        !command.ranBeforeFinalChange,
+    )
     .map((command) => command.command);
   const changedFiles = explanation.audit.changeGroups.forgeletChanged;
   if (changedFiles.length === 0 && successfulCommands.length === 0)

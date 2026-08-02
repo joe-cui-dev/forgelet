@@ -325,6 +325,54 @@ test("apply_patch denies delete-file patches before approval", async () => {
   );
 });
 
+test("apply_patch denies credential files the name heuristic never matched", async () => {
+  const workspaceRoot = await createGitWorkspace();
+  await writeFile(join(workspaceRoot, "server.pem"), "old\n", "utf8");
+  await execGit(workspaceRoot, ["add", "server.pem"]);
+  await execGit(workspaceRoot, ["commit", "-m", "baseline"]);
+  // `server.pem` contains none of `secret`, `token`, `credential`, or `key`,
+  // so before the read and write sides shared one list it was an ordinary
+  // patch target.
+  const patch = [
+    "diff --git a/server.pem b/server.pem",
+    "--- a/server.pem",
+    "+++ b/server.pem",
+    "@@ -1 +1 @@",
+    "-old",
+    "+new",
+    "",
+  ].join("\n");
+  const registry = createToolRegistry(
+    createActionableCodingTools({
+      settings: {
+        safeCommands: [],
+        commandTimeoutMs: TEST_COMMAND_TIMEOUT_MS,
+        maxPatchBytes: 100_000,
+      },
+      sessionState: {
+        baselineDirtyPaths: new Set(),
+        forgeletTouchedPaths: new Set(),
+      },
+    }),
+    {
+      approvalHandler: async () => {
+        throw new Error("Credential patches should not request approval.");
+      },
+    },
+  );
+
+  const result = await registry.execute(
+    { id: "call_patch", name: "apply_patch", input: { patch } },
+    testContext(workspaceRoot, ["write_workspace"]),
+  );
+
+  expect(result.permissionDecision.kind).toBe("deny");
+  expect(result.observation.summary).toMatch(/server\.pem is sensitive/);
+  await expect(readFile(join(workspaceRoot, "server.pem"), "utf8")).resolves.toBe(
+    "old\n",
+  );
+});
+
 test("apply_patch recounts hunk headers whose line counts disagree with the body", async () => {
   const workspaceRoot = await createPatchWorkspace();
   // Both headers overcount by one, the shape that made plain `git apply`

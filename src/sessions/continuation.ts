@@ -26,6 +26,7 @@ export interface ContinuationContext {
     command: string;
     exitCode: number | null;
     timedOut: boolean;
+    ranBeforeFinalChange?: true;
   }[];
   priorRisks: { sessionId: string; message: string }[];
   contextAttachments: ContextAttachment[];
@@ -174,6 +175,10 @@ export function formatContinuationContextForPrompt(
       lines.push(
         `- ${command.sessionId} verification: ${command.command} ${
           command.timedOut ? "timed out" : `exit ${command.exitCode}`
+        }${
+          command.ranBeforeFinalChange
+            ? " (ran before that Session's final change)"
+            : ""
         }`,
       );
     }
@@ -289,7 +294,12 @@ function finalAuditChangedFiles(events: { type: string; payload: Record<string, 
 
 function finalAuditVerificationCommands(
   events: { type: string; payload: Record<string, unknown> }[],
-): { command: string; exitCode: number | null; timedOut: boolean }[] {
+): {
+  command: string;
+  exitCode: number | null;
+  timedOut: boolean;
+  ranBeforeFinalChange?: true;
+}[] {
   const audit = finalAudit(events);
   const commands = Array.isArray(audit?.verificationCommands)
     ? audit.verificationCommands
@@ -305,6 +315,9 @@ function finalAuditVerificationCommands(
         command: item.command,
         exitCode,
         timedOut: item.timedOut === true,
+        ...(item.ranBeforeFinalChange === true
+          ? { ranBeforeFinalChange: true as const }
+          : {}),
       },
     ];
   });

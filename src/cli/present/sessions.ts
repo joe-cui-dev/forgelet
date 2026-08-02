@@ -1,5 +1,6 @@
 import type { listSessions, showSession } from "../../sessions/index.js";
 import type { SessionAudit } from "../../types.js";
+import { formatAuditVerificationCommand } from "../../audit/format.js";
 import { formatList } from "./shared.js";
 
 export function formatSessionList(sessions: Awaited<ReturnType<typeof listSessions>>): string {
@@ -44,8 +45,7 @@ export function formatSessionAuditHighlights(audit: SessionAudit | undefined): s
       ? "Verification commands:"
       : "Verification commands: none",
     ...audit.verificationCommands.map(
-      (command) =>
-        `- ${command.command} (${command.timedOut ? "timed out" : `exit ${command.exitCode}`})`,
+      (command) => `- ${formatAuditVerificationCommand(command)}`,
     ),
     audit.kernelObservedRisks.length > 0
       ? "Kernel-observed risks:"

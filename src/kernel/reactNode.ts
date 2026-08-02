@@ -15,6 +15,7 @@ import type {
   SessionStopReason,
   WorkflowKind,
 } from "../types.js";
+import { formatAuditVerificationCommand } from "../audit/format.js";
 import {
   observationForModel,
   type ToolObservation,
@@ -139,7 +140,13 @@ interface BudgetBlockedToolCalls {
 
 interface RunAuditState {
   changedFiles: Set<string>;
-  commands: { command: string; exitCode: number | null; timedOut: boolean }[];
+  changeCount: number;
+  commands: {
+    command: string;
+    exitCode: number | null;
+    timedOut: boolean;
+    changeCountWhenRun: number;
+  }[];
 }
 
 export const modelErrorTracePayload = (
@@ -369,9 +376,10 @@ export const runReactNode = async (
   const audit: RunAuditState = input.resume
     ? {
         changedFiles: new Set(input.resume.working.audit.changedFiles),
+        changeCount: input.resume.working.audit.changeCount,
         commands: [...input.resume.working.audit.commands],
       }
-    : { changedFiles: new Set(), commands: [] };
+    : { changedFiles: new Set(), changeCount: 0, commands: [] };
   let finalContent = "";
   let truncatedOutputNotice = input.resume?.working.pendingTruncationNotice ?? false;
   let activeContextState: ActiveContextCompactorState =
@@ -460,6 +468,7 @@ export const runReactNode = async (
     turnIndex,
     audit: {
       changedFiles: [...audit.changedFiles],
+      changeCount: audit.changeCount,
       commands: audit.commands,
     },
     sessionState: actionableSessionState,
@@ -1025,11 +1034,22 @@ const buildSessionAudit = async (
         !audit.changedFiles.has(path) && !input.baselineDirtyPaths.has(path),
     )
     .sort();
+  // A command only verifies the changes that already existed when it ran. The
+  // audit used to list every command it saw, so a Session that ran `npm test`
+  // to survey the workspace and then edited a file reported a green
+  // verification for work the command never touched — and the passing exit code
+  // suppressed the `verification_missing` risk that was the true finding.
   const verificationCommands = audit.commands.map((command) => ({
     command: command.command,
     exitCode: command.exitCode,
     timedOut: command.timedOut,
+    ...(command.changeCountWhenRun < audit.changeCount
+      ? { ranBeforeFinalChange: true as const }
+      : {}),
   }));
+  const commandsVerifyingFinalChanges = verificationCommands.filter(
+    (command) => command.ranBeforeFinalChange !== true,
+  );
 
   return {
     changeGroups: {
@@ -1042,7 +1062,10 @@ const buildSessionAudit = async (
     },
     verificationCommands,
     kernelObservedRisks: [
-      ...verificationCommands
+      // Failures are read against the final state too: a red `npm test` before
+      // the fix and a green one after is the ordinary shape of repair work, not
+      // a risk. The pre-change run stays visible in the listing above, marked.
+      ...commandsVerifyingFinalChanges
         .filter((command) => command.timedOut || command.exitCode !== 0)
         .map((command) => ({
           kind: "verification_failed" as const,
@@ -1053,12 +1076,15 @@ const buildSessionAudit = async (
           exitCode: command.exitCode,
           timedOut: command.timedOut,
         })),
-      ...(forgeletChanged.length > 0 && verificationCommands.length === 0
+      ...(forgeletChanged.length > 0 &&
+      commandsVerifyingFinalChanges.length === 0
         ? [
             {
               kind: "verification_missing" as const,
               message:
-                "No verification command was run for the Forgelet changes.",
+                verificationCommands.length > 0
+                  ? "No verification command was run after the Forgelet changes; every command ran before the last file change."
+                  : "No verification command was run for the Forgelet changes.",
             },
           ]
         : []),
@@ -1159,8 +1185,7 @@ const formatAuditFooter = (audit: SessionAudit): string => {
       ? "Verification commands:"
       : "Verification commands: none",
     ...audit.verificationCommands.map(
-      (command) =>
-        `- Command: ${command.command} (${command.timedOut ? "timed out" : `exit ${command.exitCode}`})`,
+      (command) => `- Command: ${formatAuditVerificationCommand(command)}`,
     ),
     audit.kernelObservedRisks.length > 0
       ? "Remaining risks:"

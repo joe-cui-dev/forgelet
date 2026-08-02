@@ -13,7 +13,9 @@ import {
   isInternalPathGrantedByReadScope,
   isInternalWorkspacePath,
   isPathInSessionReadScope,
+  isSecretPathGrantedByReadScope,
 } from "../readScope/index.js";
+import { isSecretBearingPath } from "../secretPaths/index.js";
 import { summarizeWorkspace } from "./workspaceSummary.js";
 import {
   listWorkspaceFiles,
@@ -415,6 +417,13 @@ const classifyCollectionRead = async (
 // directory and treat earlier Sessions as evidence. Reads now meet the same
 // internal boundary the write side has always enforced, and the deny reaches
 // the model as an observation it can self-correct from.
+//
+// Credential files meet the same treatment for a sharper reason. ADR 0011 has
+// secret-touching actions denied or strongly confirmed, and ADR 0026 keeps them
+// denied inside an Effect Envelope, but only the write side ever classified
+// them: `.env` was an ordinary low-risk read, so a Session could put live API
+// keys into its own conversation and persist them to its Trace without a single
+// confirmation.
 const resolveReadTargetAccess = async (
   ctx: ToolContext,
   path: string,
@@ -424,6 +433,7 @@ const resolveReadTargetAccess = async (
   classification:
     | "ordinary"
     | "internal"
+    | "sensitive"
     | "outside_session_read_scope";
 }> => {
   if (
@@ -435,6 +445,15 @@ const resolveReadTargetAccess = async (
     ))
   )
     return { allowed: false, classification: "internal" };
+  if (
+    isSecretBearingPath(path) &&
+    !(await isSecretPathGrantedByReadScope(
+      ctx.workspaceRoot,
+      path,
+      ctx.readScope,
+    ))
+  )
+    return { allowed: false, classification: "sensitive" };
   const allowed = await isInScope(path);
   return {
     allowed,

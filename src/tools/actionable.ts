@@ -10,6 +10,7 @@ import type {
   ToolResult,
   ToolTarget,
 } from "../types.js";
+import { isSecretBearingPath } from "../secretPaths/index.js";
 
 const PATCH_PREVIEW_BYTES = 2 * 1024;
 
@@ -420,7 +421,15 @@ const classifyPath = (
     normalized.startsWith("dist-test/")
   )
     return "generated";
-  if (/(\.env|secret|token|credential|key)/i.test(normalized))
+  // Two rules, deliberately. The shared list is what the read side also denies,
+  // so neither direction can grow a hole the other lacks — it is what catches
+  // `id_rsa` and `deploy.pem`, which the substring heuristic below never did.
+  // The heuristic then stays as the write side's wider net: refusing to patch
+  // `src/auth/token.ts` costs a pause, so the write side can afford to guess.
+  if (
+    isSecretBearingPath(normalized) ||
+    /(\.env|secret|token|credential|key)/i.test(normalized)
+  )
     return "sensitive";
   return "ordinary";
 };

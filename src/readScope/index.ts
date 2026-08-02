@@ -8,6 +8,7 @@ import {
   resolve,
   sep,
 } from "node:path";
+import { isSecretBearingPath } from "../secretPaths/index.js";
 
 // Session-internal state rather than workspace content: `.git` is Git's own
 // object store, and `.forgelet` holds this Session's Trace beside the Trace of
@@ -36,10 +37,42 @@ export const isInternalPathGrantedByReadScope = async (
   workspaceRoot: string,
   path: string,
   readScope: string[] | undefined,
+): Promise<boolean> =>
+  isPathGrantedByMatchingReadScopeEntries(
+    workspaceRoot,
+    path,
+    readScope,
+    isInternalWorkspacePath,
+  );
+
+// The same hatch for credential files. A Session never reaches `.env` because
+// the workspace happens to contain one — only because the user named it
+// (`--allow-read .env`) when starting the Session. A scope of `.` or `src` does
+// not grant it, so widening the read scope for ordinary work cannot widen it
+// onto secrets.
+export const isSecretPathGrantedByReadScope = async (
+  workspaceRoot: string,
+  path: string,
+  readScope: string[] | undefined,
+): Promise<boolean> =>
+  isPathGrantedByMatchingReadScopeEntries(
+    workspaceRoot,
+    path,
+    readScope,
+    isSecretBearingPath,
+  );
+
+// A denied class of path is reopened only by read-scope entries that are
+// themselves of that class, never by an entry that merely contains one.
+const isPathGrantedByMatchingReadScopeEntries = async (
+  workspaceRoot: string,
+  path: string,
+  readScope: string[] | undefined,
+  isGrantingEntry: (entry: string) => boolean,
 ): Promise<boolean> => {
-  const internalEntries = readScope?.filter(isInternalWorkspacePath);
-  if (!internalEntries || internalEntries.length === 0) return false;
-  return isPathInSessionReadScope(workspaceRoot, path, internalEntries);
+  const grantingEntries = readScope?.filter((entry) => isGrantingEntry(entry));
+  if (!grantingEntries || grantingEntries.length === 0) return false;
+  return isPathInSessionReadScope(workspaceRoot, path, grantingEntries);
 };
 
 export const normalizeSessionReadScope = async (

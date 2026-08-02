@@ -232,7 +232,13 @@ function testSnapshot(overrides: Partial<PauseSnapshot> = {}): PauseSnapshot {
       },
       activeWallClockMs: 1234,
       turnIndex: 2,
-      audit: { changedFiles: ["src/app.ts"], commands: [{ command: "npm test", exitCode: 0, timedOut: false }] },
+      audit: {
+        changedFiles: ["src/app.ts"],
+        changeCount: 1,
+        commands: [
+          { command: "npm test", exitCode: 0, timedOut: false, changeCountWhenRun: 1 },
+        ],
+      },
       sessionState: {
         baselineDirtyPaths: new Set(),
         forgeletTouchedPaths: new Set(["src/app.ts"]),

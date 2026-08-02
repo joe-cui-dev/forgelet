@@ -4,7 +4,9 @@ import {
   doesPathOverlapSessionReadScope,
   INTERNAL_WORKSPACE_DIRECTORY_NAMES,
   isPathInSessionReadScope,
+  isSecretPathGrantedByReadScope,
 } from "../readScope/index.js";
+import { isSecretBearingPath } from "../secretPaths/index.js";
 
 // Skipped wherever they appear, matched on the directory name alone. The
 // internal names come from the read-scope boundary so the two cannot drift; the
@@ -28,7 +30,8 @@ const isSkippedWorkspaceDirectory = (
   workspacePath: string,
 ): boolean =>
   SKIPPED_WORKSPACE_DIRECTORY_NAMES.has(name) ||
-  SKIPPED_WORKSPACE_DIRECTORY_PATHS.has(workspacePath);
+  SKIPPED_WORKSPACE_DIRECTORY_PATHS.has(workspacePath) ||
+  isSecretBearingPath(workspacePath);
 
 export interface ListedWorkspaceFiles {
   files: string[];
@@ -134,6 +137,23 @@ export const readTextIfSmall = async (
   }
 };
 
+// The traversal-level counterpart to the read tools' `sensitive` deny. Without
+// it the boundary leaks the way it was found leaking in practice: nobody names
+// `.env` as a read target, but a `search_text` over the workspace walks past it
+// and prints the matching line — key and all — into the conversation and the
+// Trace. Naming the file directly is still gated by the tool's classify step,
+// and the same explicit `--allow-read` grant reopens it here.
+const isListableWorkspaceFile = async (
+  workspaceRoot: string,
+  workspacePath: string,
+  readScope: string[] | undefined,
+): Promise<boolean> => {
+  if (!(await isPathInSessionReadScope(workspaceRoot, workspacePath, readScope)))
+    return false;
+  if (!isSecretBearingPath(workspacePath)) return true;
+  return isSecretPathGrantedByReadScope(workspaceRoot, workspacePath, readScope);
+};
+
 const collectWorkspaceFiles = async (
   root: string,
   workspaceRoot: string,
@@ -168,7 +188,7 @@ const collectWorkspaceFiles = async (
       }
     } else if (
       entry.isFile() &&
-      (await isPathInSessionReadScope(workspaceRoot, workspacePath, readScope))
+      (await isListableWorkspaceFile(workspaceRoot, workspacePath, readScope))
     ) {
       output.files.push(workspacePath);
     }

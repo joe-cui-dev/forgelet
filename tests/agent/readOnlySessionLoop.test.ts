@@ -2753,6 +2753,160 @@ test("a denied command is not audited as a failed verification and does not mask
   expect(result.summary).toMatch(/Verification commands: none/);
 });
 
+test("a command that ran before the last change is not audited as verifying it", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-stale-verification-audit-"),
+  );
+  await execGit(workspaceRoot, ["init"]);
+  await writeFile(join(workspaceRoot, "example.txt"), "original\n", "utf8");
+  await execGit(workspaceRoot, ["add", "example.txt"]);
+  await execGit(workspaceRoot, ["commit", "-m", "baseline"]);
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  const command = `${process.execPath} -e "console.log('surveyed')"`;
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "config.json"),
+    JSON.stringify({ safeCommands: [command], commandTimeoutMs: 5_000 }),
+    "utf8",
+  );
+  await execGit(workspaceRoot, ["add", ".forgelet/config.json"]);
+  await execGit(workspaceRoot, ["commit", "-m", "configure safe commands"]);
+  const patch = [
+    "diff --git a/example.txt b/example.txt",
+    "--- a/example.txt",
+    "+++ b/example.txt",
+    "@@ -1 +1 @@",
+    "-original",
+    "+changed",
+    "",
+  ].join("\n");
+  // The order that produced this bug in a real Session: survey the workspace
+  // first, edit afterwards, never re-run.
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        { id: "call_command", name: "run_command", input: { command } },
+      ],
+    },
+    {
+      toolCalls: [{ id: "call_patch", name: "apply_patch", input: { patch } }],
+    },
+    { content: "Changed example.txt.", toolCalls: [] },
+  ]);
+
+  const result = await runCodingSession({
+    task: "change example",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+    act: true,
+    approvalHandler: async () => ({
+      status: "approved",
+      reason: "Approved by test.",
+    }),
+  });
+
+  const events = await readTypedTrace(result.tracePath ?? "");
+  const audit = events.find((event) => event.type === "final_summary")?.payload
+    .audit;
+  // The command is still reported — it ran — but marked for what it is.
+  expect(audit?.verificationCommands).toEqual([
+    { command, exitCode: 0, timedOut: false, ranBeforeFinalChange: true },
+  ]);
+  // A passing exit code from before the edit must not stand in for verifying it.
+  expect(audit?.kernelObservedRisks).toEqual([
+    {
+      kind: "verification_missing",
+      message:
+        "No verification command was run after the Forgelet changes; every command ran before the last file change.",
+    },
+  ]);
+  expect(result.summary).toMatch(/ran before the final change/);
+});
+
+test("a command run after the last change verifies it", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-fresh-verification-audit-"),
+  );
+  await execGit(workspaceRoot, ["init"]);
+  await writeFile(join(workspaceRoot, "example.txt"), "original\n", "utf8");
+  await execGit(workspaceRoot, ["add", "example.txt"]);
+  await execGit(workspaceRoot, ["commit", "-m", "baseline"]);
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  const failing = `${process.execPath} -e "process.exit(1)"`;
+  const passing = `${process.execPath} -e "console.log('verified')"`;
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "config.json"),
+    JSON.stringify({
+      safeCommands: [failing, passing],
+      commandTimeoutMs: 5_000,
+    }),
+    "utf8",
+  );
+  await execGit(workspaceRoot, ["add", ".forgelet/config.json"]);
+  await execGit(workspaceRoot, ["commit", "-m", "configure safe commands"]);
+  const patch = [
+    "diff --git a/example.txt b/example.txt",
+    "--- a/example.txt",
+    "+++ b/example.txt",
+    "@@ -1 +1 @@",
+    "-original",
+    "+changed",
+    "",
+  ].join("\n");
+  // Red, fix, green: the failing run describes a workspace the Session then
+  // repaired, so it is not a risk the user has to carry.
+  const modelClient = new FakeModelClient([
+    {
+      toolCalls: [
+        {
+          id: "call_failing",
+          name: "run_command",
+          input: { command: failing },
+        },
+      ],
+    },
+    {
+      toolCalls: [{ id: "call_patch", name: "apply_patch", input: { patch } }],
+    },
+    {
+      toolCalls: [
+        {
+          id: "call_passing",
+          name: "run_command",
+          input: { command: passing },
+        },
+      ],
+    },
+    { content: "Fixed example.txt and verified it.", toolCalls: [] },
+  ]);
+
+  const result = await runCodingSession({
+    task: "change example",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+    act: true,
+    approvalHandler: async () => ({
+      status: "approved",
+      reason: "Approved by test.",
+    }),
+  });
+
+  const events = await readTypedTrace(result.tracePath ?? "");
+  const audit = events.find((event) => event.type === "final_summary")?.payload
+    .audit;
+  expect(audit?.verificationCommands).toEqual([
+    {
+      command: failing,
+      exitCode: 1,
+      timedOut: false,
+      ranBeforeFinalChange: true,
+    },
+    { command: passing, exitCode: 0, timedOut: false },
+  ]);
+  expect(audit?.kernelObservedRisks).toEqual([]);
+});
+
 test("an actionable Session Continuation audit separates inherited and child changes", async () => {
   const workspaceRoot = await mkdtemp(
     join(tmpdir(), "forgelet-actionable-continuation-audit-"),

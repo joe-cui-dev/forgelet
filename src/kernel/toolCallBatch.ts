@@ -64,7 +64,13 @@ type ToolCallBatchOutcome =
 
 interface RunAuditState {
   changedFiles: Set<string>;
-  commands: { command: string; exitCode: number | null; timedOut: boolean }[];
+  changeCount: number;
+  commands: {
+    command: string;
+    exitCode: number | null;
+    timedOut: boolean;
+    changeCountWhenRun: number;
+  }[];
 }
 
 /** Executes one model turn's tool calls, respecting the same serial/parallel
@@ -245,10 +251,13 @@ const recordAuditObservation = (
   audit: RunAuditState,
   observation: ToolObservation,
 ): void => {
-  if (observation.toolName === "apply_patch" && observation.ok)
-    observation.metadata.changedFiles?.forEach((path) =>
-      audit.changedFiles.add(path),
-    );
+  if (observation.toolName === "apply_patch" && observation.ok) {
+    const changedFiles = observation.metadata.changedFiles ?? [];
+    changedFiles.forEach((path) => audit.changedFiles.add(path));
+    // Counted per patch rather than per file: what a command needs to know is
+    // whether the workspace moved under it, not how far.
+    if (changedFiles.length > 0) audit.changeCount += 1;
+  }
   // Only a command that reached a process belongs in the audit; the metadata
   // is written by the tool that ran it. A denied or unconfigured request has
   // none, and recording it anyway both invents a failed verification (`exit
@@ -262,6 +271,7 @@ const recordAuditObservation = (
       command: observation.metadata.command,
       exitCode: observation.metadata.exitCode ?? null,
       timedOut: observation.metadata.timedOut === true,
+      changeCountWhenRun: audit.changeCount,
     });
 };
 
