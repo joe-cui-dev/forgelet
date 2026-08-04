@@ -64,7 +64,8 @@ export type SessionStopReason =
   | "user_stopped"
   | "wall_clock_limit_exceeded"
   | "answer_once_tool_calls_blocked"
-  | "no_progress";
+  | "no_progress"
+  | "reasoning_ceiling";
 
 export interface SessionAudit {
   changeGroups: AuditChangeGroups;

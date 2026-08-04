@@ -8,6 +8,7 @@ import type {
   RiskTier,
   SessionAudit,
   SessionFinishStatus,
+  SessionStopReason,
   WorkflowKind,
 } from "../types.js";
 import type { ObservationMetadata, ToolObservation } from "../observation/index.js";
@@ -154,6 +155,10 @@ export interface TraceEventPayloads {
      * the reasoning spent without acting. */
     reasoningLimitReached?: boolean;
     wrapupTriggered?: boolean;
+    /** The stop reason the wrap-up carries, so a Trace does not have to infer
+     * which road fired from the two counters. Absent when no wrap-up was
+     * reserved. */
+    stopReason?: SessionStopReason;
   };
   conversation_compacted: ConversationCompactionPayload;
   conversation_compaction_attempted: ConversationCompactionPayload;

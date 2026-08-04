@@ -3640,12 +3640,18 @@ test("a Session warns on its final tool turn and then forbids tool calls for the
     modelClient.turnInputs[0]?.tools,
   );
   expect(modelClient.turnInputs[1]?.toolChoice).toBe("none");
+  // The conversation stays verbatim for the same reason the schemas do. The
+  // assistant/tool protocol was once flattened here to stop the model reading
+  // its own history as licence to keep calling tools, but that rewrote every
+  // message from the first observation onward and cost the whole cached prefix
+  // the schemas were kept to preserve. `tool_choice: "none"` closes tool use
+  // off at the API level without touching a byte of the prefix.
   expect(
     modelClient.turnInputs[1]?.messages.some(
       (message) =>
         message.role === "tool" || (message.toolCalls?.length ?? 0) > 0,
     ),
-  ).toBe(false);
+  ).toBe(true);
   expect(
     modelClient.turnInputs[1]?.messages.some((message) =>
       message.content.includes("Listed"),

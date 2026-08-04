@@ -45,6 +45,7 @@ const runSession = async (
   return {
     result,
     modelTurns: modelClient.turnInputs.length,
+    wrapupPrompt: modelClient.turnInputs.at(-1)?.messages.at(-1)?.content ?? "",
     noProgress: events.filter((event) => event.type === "session_no_progress"),
   };
 };
@@ -52,7 +53,7 @@ const runSession = async (
 test("a re-worded barren search is the repeat it is, not new evidence", async () => {
   // Distinct queries, all missing. Before the gate folded barren observations
   // onto one digest per tool, each of these reset the streak.
-  const { noProgress, modelTurns, result } = await runSession([
+  const { noProgress, modelTurns, result, wrapupPrompt } = await runSession([
     ...["chat", "token", "peak", "1M-token", "window", "384"].map(
       (query, index) => searchTurn(`call_${index}`, query, 0),
     ),
@@ -62,19 +63,20 @@ test("a re-worded barren search is the repeat it is, not new evidence", async ()
   expect(noProgress.map((event) => event.payload)).toMatchObject([
     { noProgressTurns: 1, wrapupTriggered: false },
     { noProgressTurns: 2, wrapupTriggered: false },
-    { noProgressTurns: 3, wrapupTriggered: true },
+    { noProgressTurns: 3, wrapupTriggered: true, stopReason: "no_progress" },
   ]);
   // The reserved wrap-up turn, not a mid-loop cut: three barren turns, then
   // the Session answers. The remaining scripted searches are never reached.
   expect(modelTurns).toBe(5);
   expect(result.summary).toMatch(/Reason: no_progress/);
+  expect(wrapupPrompt).toMatch(/added no new evidence and changed nothing/);
 });
 
 test("reasoning spent without acting reaches the wrap-up on its own", async () => {
   // Every query hits, so every turn learns something new and the streak stays
   // at zero — the shape the turn count cannot see. Only the climbing reasoning
   // spend catches it.
-  const { noProgress, modelTurns, result } = await runSession([
+  const { noProgress, modelTurns, result, wrapupPrompt } = await runSession([
     ...["export", "const", "answer", "needle", "=", ";"].map((query, index) =>
       searchTurn(`call_${index}`, query, 6_000),
     ),
@@ -89,6 +91,7 @@ test("reasoning spent without acting reaches the wrap-up on its own", async () =
     reasoningLimitReached: true,
     noProgressTurns: 0,
     reasoningTokenLimit: 32_000,
+    stopReason: "reasoning_ceiling",
   });
   expect(tripped[0]?.payload.reasoningTokensSinceEffect).toBeGreaterThanOrEqual(
     32_000,
@@ -96,7 +99,15 @@ test("reasoning spent without acting reaches the wrap-up on its own", async () =
   // Six turns to cross the ceiling, then the reserved wrap-up — not the 32
   // turns the ceiling in `budgets.maxModelTurns` would have allowed.
   expect(modelTurns).toBe(7);
-  expect(result.summary).toMatch(/Reason: no_progress/);
+  // Not `no_progress`: the streak is zero above, and every turn here learned
+  // something. Reporting this road as a stall told the operator the Session had
+  // stopped gathering evidence when it had never stopped.
+  expect(result.summary).toMatch(/Reason: reasoning_ceiling/);
+  expect(result.summary).not.toMatch(/Reason: no_progress/);
+  // The closing turn is told what actually ran out. The streak's sentence would
+  // be a false premise here, and this is the one turn that has to be right.
+  expect(wrapupPrompt).toMatch(/without acting on the workspace/);
+  expect(wrapupPrompt).not.toMatch(/added no new evidence and changed nothing/);
 });
 
 test("a Session that keeps acting is not cut by either road", async () => {

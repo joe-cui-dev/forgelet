@@ -404,9 +404,17 @@ export const runReactNode = async (
     // exists to catch advances on every turn, by learning one more fact it will
     // never use.
     if (progress.advanced && !progress.reasoningLimitReached) return;
-    const wrapupTriggered =
-      progress.noProgressTurns >= NO_PROGRESS_TURN_LIMIT ||
-      progress.reasoningLimitReached;
+    const streakReached = progress.noProgressTurns >= NO_PROGRESS_TURN_LIMIT;
+    const wrapupTriggered = streakReached || progress.reasoningLimitReached;
+    // The two roads stop for different reasons and must say so. The streak
+    // means the Session learned nothing; the ceiling means it kept learning and
+    // never acted. Reporting both as `no_progress` told a Session that had
+    // gathered new evidence every turn that it had gathered none — and left the
+    // Trace claiming a streak of zero was the cause. The streak wins when both
+    // trip, because its message is the narrower true one.
+    const reason: SessionStopReason = streakReached
+      ? "no_progress"
+      : "reasoning_ceiling";
     await input.appendTrace("session_no_progress", {
       turnIndex,
       noProgressTurns: progress.noProgressTurns,
@@ -415,10 +423,11 @@ export const runReactNode = async (
       reasoningTokenLimit: NO_PROGRESS_REASONING_TOKEN_LIMIT,
       reasoningLimitReached: progress.reasoningLimitReached,
       wrapupTriggered,
+      ...(wrapupTriggered ? { stopReason: reason } : {}),
     });
     // The reserved wrap-up turn of ADR 0029, reached by a different road: the
     // Session answers from what it has instead of being cut mid-loop.
-    if (wrapupTriggered) forcedStopReason = "no_progress";
+    if (wrapupTriggered) forcedStopReason = reason;
   };
   const stopWith = (
     reason: SessionStopReason,
@@ -594,6 +603,18 @@ export const runReactNode = async (
       if (foldBudgetStopReason) return stopWith(foldBudgetStopReason);
     }
 
+    // A wrap-up turn still carries the tool schemas so the cached prompt prefix
+    // survives the Session's most context-heavy request; `tool_choice` is what
+    // forbids the calls. Decided before the messages are built because it also
+    // decides whether the conversation can stay verbatim.
+    const requestTools = turnPlan.offerTools ? tools : [];
+    const requestToolChoice =
+      requestTools.length === 0
+        ? undefined
+        : turnPlan.wrapupOnly
+          ? ("none" as const)
+          : ("auto" as const);
+
     const messages = buildMessages(
       taskContext,
       conversation,
@@ -606,21 +627,12 @@ export const runReactNode = async (
         compactionStatus: activeContext.compactionStatusLine,
         wrapupOnly: turnPlan.wrapupOnly,
         ...(turnPlan.wrapupReason ? { wrapupReason: turnPlan.wrapupReason } : {}),
+        toolsOffered: requestTools.length > 0,
         finalToolTurn: turnPlan.finalToolTurn,
         carryoverBytes: providerCarryoverBytes(conversation),
         truncatedOutputNotice,
       },
     );
-    // A wrap-up turn still carries the tool schemas so the cached prompt prefix
-    // survives the Session's most context-heavy request; `tool_choice` is what
-    // forbids the calls.
-    const requestTools = turnPlan.offerTools ? tools : [];
-    const requestToolChoice =
-      requestTools.length === 0
-        ? undefined
-        : turnPlan.wrapupOnly
-          ? ("none" as const)
-          : ("auto" as const);
     // The Turn Status tail is reconstructed for every request. A truncation
     // warning belongs to exactly the next request, while `messages` preserves
     // it through a transient retry of that request.

@@ -48,6 +48,10 @@ export interface TurnStatus {
   compactionStatus?: string;
   wrapupOnly: boolean;
   wrapupReason?: SessionStopReason;
+  /** Whether the request carries the tool schemas. A wrap-up turn that keeps
+   * them is forbidden from calling by `tool_choice: "none"`, which is what
+   * lets its conversation stay verbatim — see `conversationForFinalAnswer`. */
+  toolsOffered: boolean;
   finalToolTurn: boolean;
   carryoverBytes?: number;
   truncatedOutputNotice?: boolean;
@@ -119,7 +123,9 @@ export const buildMessages = (
 
   if (rollingSummary) messages.push(rollingSummary);
   messages.push(
-    ...(turnStatus.wrapupOnly ? conversationForFinalAnswer(conversation) : conversation),
+    ...(turnStatus.wrapupOnly && !turnStatus.toolsOffered
+      ? conversationForFinalAnswer(conversation)
+      : conversation),
   );
   messages.push({
     role: "user",
@@ -151,11 +157,11 @@ export const buildMessages = (
             "Return a non-empty final answer from existing evidence. Do not request tools or emit tool-call syntax.",
             // Naming the cause keeps the closing answer honest: this Session is
             // ending because it stopped converging, not because it finished.
-            ...(turnStatus.wrapupReason === "no_progress"
-              ? [
-                  "This turn was reserved because the last turns added no new evidence and changed nothing. Answer from what you already hold, and state plainly what remains unresolved.",
-                ]
-              : []),
+            // The two roads get different sentences because only one of them is
+            // true of any given Session — telling a Session that gathered new
+            // evidence every turn that it gathered none is a false premise
+            // handed to the one turn that has to be right.
+            ...wrapupCauseLines(turnStatus.wrapupReason),
           ]
         : []),
     ].join("\n"),
@@ -186,6 +192,31 @@ const formatBudgetStatus = (
   return `Budget: ${usage.modelTurns}/${limits.maxModelTurns} model turns, ${cost}, ${Math.floor(elapsedWallClockMs / 60_000)}/${Math.floor(limits.maxWallClockMs / 60_000)} min elapsed.`;
 };
 
+const wrapupCauseLines = (
+  wrapupReason: SessionStopReason | undefined,
+): string[] => {
+  if (wrapupReason === "no_progress")
+    return [
+      "This turn was reserved because the last turns added no new evidence and changed nothing. Answer from what you already hold, and state plainly what remains unresolved.",
+    ];
+  if (wrapupReason === "reasoning_ceiling")
+    return [
+      "This turn was reserved because the Session has spent a long stretch of reasoning gathering evidence without acting on the workspace. The evidence you have collected stands; what ran out is the budget for collecting more. Answer from it, and state plainly what remains unresolved.",
+    ];
+  return [];
+};
+
+// Flattens the assistant/tool protocol into plain narration so a wrap-up turn
+// sent without tool schemas does not read its own history as an invitation to
+// keep calling tools. It rewrites every message from the first observation
+// onward, so the cached prompt prefix dies with it — which is why it is now
+// reserved for the case that has no prefix to lose. A wrap-up that carries the
+// schemas is held back by `tool_choice: "none"` at the API level instead, and
+// keeps its conversation verbatim; `turnGate` already preserves the schemas for
+// exactly this reason, and rewriting the messages underneath them threw away
+// what that bought. Sessions that reach here have no conversation worth caching:
+// an `answer_once` policy never ran a tool turn, and a Session whose first turn
+// is also its last has nothing behind it.
 const conversationForFinalAnswer = (
   conversation: ModelMessage[],
 ): ModelMessage[] => {
