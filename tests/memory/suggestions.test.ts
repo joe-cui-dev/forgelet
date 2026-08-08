@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { suggestMemoryFromSession } from "../../src/memory/index.js";
 import { acceptMemorySuggestion, rejectMemorySuggestion } from "../../src/memoryReview/decide.js";
 import { listMemoryReview, showMemoryReview } from "../../src/memoryReview/index.js";
+import { FakeModelClient } from "../../src/models/testing/index.js";
 
 async function makeWorkspace(prefix: string): Promise<string> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), prefix));
@@ -12,46 +13,37 @@ async function makeWorkspace(prefix: string): Promise<string> {
   return workspaceRoot;
 }
 
-async function writeActionableTrace(
+/** A finished Session whose Trace carries a Friction Signal (a failed Tool
+ * Observation), so the Retrospective gate admits it. */
+async function writeFrictionTrace(
   workspaceRoot: string,
   sessionId: string,
-  input: { changedFiles?: string[]; commands?: string[] } = {},
+  input: { workflow?: string } = {},
 ): Promise<void> {
   const trace = [
     {
       type: "session_started",
       ts: "2026-07-11T10:00:00.000Z",
       sessionId,
-      payload: { workflow: "coding", startedAt: "2026-07-11T10:00:00.000Z" },
+      payload: { workflow: input.workflow ?? "coding", startedAt: "2026-07-11T10:00:00.000Z" },
     },
     {
-      type: "final_summary",
-      ts: "2026-07-11T10:01:00.000Z",
+      type: "tool_result",
+      ts: "2026-07-11T10:00:30.000Z",
       sessionId,
       payload: {
-        audit: {
-          changeGroups: {
-            forgeletChanged: input.changedFiles ?? ["src/greeting.ts"],
-            preExistingAtSessionStart: [],
-            otherCurrentWorkspaceChanges: [],
-          },
-          verificationCommands: (input.commands ?? ["npm test"]).map((command) => ({
-            command,
-            exitCode: 0,
-            timedOut: false,
-          })),
-          kernelObservedRisks: [],
-          modelTurns: 1,
-          estimatedCostUsd: 0.01,
-          tracePath: `.forgelet/sessions/${sessionId}.jsonl`,
-        },
+        ok: false,
+        toolCallId: "call_1",
+        toolName: "search_text",
+        summary: "ENOTDIR: not a directory",
+        error: { code: "invalid_input", message: "ENOTDIR: not a directory" },
       },
     },
     {
       type: "session_finished",
       ts: "2026-07-11T10:02:00.000Z",
       sessionId,
-      payload: { status: "completed" },
+      payload: { status: "completed", finishedAt: "2026-07-11T10:02:00.000Z" },
     },
   ];
   await writeFile(
@@ -61,82 +53,105 @@ async function writeActionableTrace(
   );
 }
 
-test("suggest appends a versioned immutable proposal with bounded provenance", async () => {
-  const workspaceRoot = await makeWorkspace("forgelet-suggest-new-");
-  const changedFiles = Array.from({ length: 21 }, (_, index) =>
-    index === 0 ? `src/${"x".repeat(210)}.ts` : `src/file-${index}.ts`,
+/** A finished Session with no failed observation and no denied decision. */
+async function writeQuietTrace(workspaceRoot: string, sessionId: string): Promise<void> {
+  const trace = [
+    {
+      type: "session_started",
+      ts: "2026-07-11T10:00:00.000Z",
+      sessionId,
+      payload: { workflow: "coding", startedAt: "2026-07-11T10:00:00.000Z" },
+    },
+    {
+      type: "session_finished",
+      ts: "2026-07-11T10:02:00.000Z",
+      sessionId,
+      payload: { status: "completed", finishedAt: "2026-07-11T10:02:00.000Z" },
+    },
+  ];
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "sessions", `${sessionId}.jsonl`),
+    trace.map((event) => JSON.stringify(event)).join("\n") + "\n",
+    "utf8",
   );
-  const commands = Array.from({ length: 11 }, (_, index) =>
-    index === 0 ? `npm run ${"v".repeat(210)}` : `npm run verify-${index}`,
-  );
-  await writeActionableTrace(workspaceRoot, "sess_new", { changedFiles, commands });
+}
 
-  const result = await suggestMemoryFromSession(workspaceRoot, "sess_new", {
+function modelWith(...contents: string[]): FakeModelClient {
+  return new FakeModelClient(contents.map((content) => ({ content, toolCalls: [] })));
+}
+
+test("suggest derives proposals from a friction Session via a Retrospective Session", async () => {
+  const workspaceRoot = await makeWorkspace("forgelet-suggest-friction-");
+  await writeFrictionTrace(workspaceRoot, "sess_friction");
+  const model = modelWith(
+    "- In this workspace, search_text expects a directory, not a file path.\n- In this workspace, prefer read_file for single files.",
+  );
+
+  const result = await suggestMemoryFromSession(workspaceRoot, "sess_friction", {
+    modelClient: model,
     now: () => new Date("2026-07-11T10:03:00.000Z"),
   });
 
-  expect(result.outcome).toBe("created");
-  expect(result.state).toBe("proposed");
-  expect(result.suggestion).toMatchObject({
-    schemaVersion: 1,
-    id: "mem_3b994be9a82f",
-    sourceSessionId: "sess_new",
-    createdAt: "2026-07-11T10:03:00.000Z",
-    provenance: {
-      derivation: {
-        changedFiles: { total: 21 },
-        successfulVerificationCommands: { total: 11 },
-      },
-      session: {
-        workflow: "coding",
-        status: "completed",
-        startedAt: "2026-07-11T10:00:00.000Z",
-        finishedAt: "2026-07-11T10:02:00.000Z",
-      },
-    },
-  });
-  expect(result.suggestion).not.toHaveProperty("status");
-  const provenance = result.suggestion.provenance;
-  if (!provenance) throw new Error("new versioned suggestion must include provenance");
-  expect(provenance.derivation.changedFiles.items).toHaveLength(20);
-  expect(provenance.derivation.successfulVerificationCommands.items).toHaveLength(10);
-  expect(provenance.derivation.changedFiles.items[0]).toBe(`src/${"x".repeat(193)}...`);
-  expect(provenance.derivation.successfulVerificationCommands.items[0]).toBe(`npm run ${"v".repeat(189)}...`);
+  expect(result.admitted).toBe(true);
+  expect(result.derivationSessionId).toMatch(/^sess_/);
+  expect(result.suggestions).toHaveLength(2);
+  expect(result.suggestions.map((entry) => entry.outcome)).toEqual(["created", "created"]);
+  expect(result.suggestions.map((entry) => entry.state)).toEqual(["proposed", "proposed"]);
 
+  const first = result.suggestions[0]?.suggestion;
+  if (!first) throw new Error("expected a first suggestion");
+  expect(first.schemaVersion).toBe(1);
+  expect(first.text).toBe("In this workspace, search_text expects a directory, not a file path.");
+  expect(first.id).toBe(
+    `mem_${createHash("sha256").update(`sess_friction\n${first.text}`).digest("hex").slice(0, 12)}`,
+  );
+  const provenance = first.provenance;
+  if (!provenance) throw new Error("expected provenance");
+  expect(provenance.derivation.frictionSignals).toEqual({
+    items: [
+      { kind: "tool_failure", toolName: "search_text", errorCode: "invalid_input", error: "ENOTDIR: not a directory" },
+    ],
+    total: 1,
+  });
+  expect(provenance.derivationSessionId).toBe(result.derivationSessionId);
   const trace = await readFile(
-    join(workspaceRoot, ".forgelet", "sessions", "sess_new.jsonl"),
+    join(workspaceRoot, ".forgelet", "sessions", "sess_friction.jsonl"),
     "utf8",
   );
   expect(provenance.trace).toEqual({
-    path: ".forgelet/sessions/sess_new.jsonl",
+    path: ".forgelet/sessions/sess_friction.jsonl",
     sha256: createHash("sha256").update(trace).digest("hex"),
     bytes: Buffer.byteLength(trace),
   });
+  expect(provenance.session).toMatchObject({ workflow: "coding", status: "completed" });
 });
 
-test("suggest deduplicates a legacy proposal and preserves its canonical id", async () => {
-  const workspaceRoot = await makeWorkspace("forgelet-suggest-legacy-");
-  await writeActionableTrace(workspaceRoot, "sess_legacy");
-  const text = "In this workspace, after changing src/greeting.ts, use npm test as verification.";
-  await writeFile(
-    join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"),
-    `${JSON.stringify({
-      id: "mem_timestamp",
-      sourceSessionId: "sess_legacy",
-      text,
-      reason: "Derived deterministically from actionable Session audit evidence.",
-      status: "accepted",
-    })}\n`,
-    "utf8",
-  );
+test("a Session with no Friction Signal yields nothing without calling the model", async () => {
+  const workspaceRoot = await makeWorkspace("forgelet-suggest-quiet-");
+  await writeQuietTrace(workspaceRoot, "sess_quiet");
+  const model = modelWith(); // no scripted turns: it must never be called
 
-  const result = await suggestMemoryFromSession(workspaceRoot, "sess_legacy");
+  const result = await suggestMemoryFromSession(workspaceRoot, "sess_quiet", { modelClient: model });
 
-  expect(result).toMatchObject({
-    outcome: "existing",
-    state: "accepted-unwritten",
-    suggestion: { id: "mem_timestamp" },
-  });
+  expect(result).toEqual({ sourceSessionId: "sess_quiet", admitted: false, suggestions: [] });
+  expect(model.turnInputs).toHaveLength(0);
+  await expect(
+    readFile(join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"), "utf8"),
+  ).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+test("suggest deduplicates a proposal on repeat and preserves its id", async () => {
+  const workspaceRoot = await makeWorkspace("forgelet-suggest-dedupe-");
+  await writeFrictionTrace(workspaceRoot, "sess_dupe");
+  const text = "- In this workspace, glob the sessions directory rather than descending into it.";
+  const model = modelWith(text, text);
+
+  const first = await suggestMemoryFromSession(workspaceRoot, "sess_dupe", { modelClient: model });
+  const second = await suggestMemoryFromSession(workspaceRoot, "sess_dupe", { modelClient: model });
+
+  expect(first.suggestions[0]?.outcome).toBe("created");
+  expect(second.suggestions[0]?.outcome).toBe("existing");
+  expect(second.suggestions[0]?.suggestion.id).toBe(first.suggestions[0]?.suggestion.id);
   const suggestions = await readFile(
     join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"),
     "utf8",
@@ -144,71 +159,64 @@ test("suggest deduplicates a legacy proposal and preserves its canonical id", as
   expect(suggestions.trim().split("\n")).toHaveLength(1);
 });
 
-test("suggest deduplicates versioned proposals in every derived decision state", async () => {
+test("suggest deduplicates identical bullets within one Retrospective output", async () => {
+  const workspaceRoot = await makeWorkspace("forgelet-suggest-inner-dedupe-");
+  await writeFrictionTrace(workspaceRoot, "sess_inner");
+  const model = modelWith(
+    "- In this workspace, run only configured safe commands.\n- In this workspace, run only configured safe commands.",
+  );
+
+  const result = await suggestMemoryFromSession(workspaceRoot, "sess_inner", { modelClient: model });
+
+  expect(result.suggestions).toHaveLength(1);
+  const suggestions = await readFile(
+    join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"),
+    "utf8",
+  );
+  expect(suggestions.trim().split("\n")).toHaveLength(1);
+});
+
+test("suggest reflects the derived decision state on repeat", async () => {
   const workspaceRoot = await makeWorkspace("forgelet-suggest-states-");
-  await writeActionableTrace(workspaceRoot, "sess_states");
+  await writeFrictionTrace(workspaceRoot, "sess_states");
+  const text = "- In this workspace, the trace omits the full conversation.";
+  const model = modelWith(text, text);
 
-  const proposed = await suggestMemoryFromSession(workspaceRoot, "sess_states");
-  await expect(suggestMemoryFromSession(workspaceRoot, "sess_states")).resolves.toMatchObject({
-    outcome: "existing",
-    state: "proposed",
-    suggestion: { id: proposed.suggestion.id },
-  });
+  const proposed = await suggestMemoryFromSession(workspaceRoot, "sess_states", { modelClient: model });
+  const id = proposed.suggestions[0]?.suggestion.id ?? "";
+  await acceptMemorySuggestion(workspaceRoot, id);
 
-  await acceptMemorySuggestion(workspaceRoot, proposed.suggestion.id);
-  await expect(suggestMemoryFromSession(workspaceRoot, "sess_states")).resolves.toMatchObject({
-    outcome: "existing",
-    state: "accepted",
-    suggestion: { id: proposed.suggestion.id },
-  });
-
-  await writeActionableTrace(workspaceRoot, "sess_rejected", {
-    changedFiles: ["src/rejected.ts"],
-  });
-  const rejected = await suggestMemoryFromSession(workspaceRoot, "sess_rejected");
-  await rejectMemorySuggestion(workspaceRoot, rejected.suggestion.id);
-  await expect(suggestMemoryFromSession(workspaceRoot, "sess_rejected")).resolves.toMatchObject({
-    outcome: "existing",
-    state: "rejected",
-    suggestion: { id: rejected.suggestion.id },
-  });
+  const afterAccept = await suggestMemoryFromSession(workspaceRoot, "sess_states", { modelClient: model });
+  expect(afterAccept.suggestions[0]).toMatchObject({ outcome: "existing", state: "accepted" });
 });
 
 test("suggest validates decision evidence before appending a proposal", async () => {
   const workspaceRoot = await makeWorkspace("forgelet-suggest-corrupt-");
-  await writeActionableTrace(workspaceRoot, "sess_corrupt");
+  await writeFrictionTrace(workspaceRoot, "sess_corrupt");
   await writeFile(
     join(workspaceRoot, ".forgelet", "memory-decisions.jsonl"),
     `${JSON.stringify({ type: "decision", suggestionId: "mem_broken" })}\n`,
     "utf8",
   );
+  const model = modelWith("- In this workspace, something was learned.");
 
-  await expect(suggestMemoryFromSession(workspaceRoot, "sess_corrupt")).rejects.toThrow(
-    /\.forgelet\/memory-decisions\.jsonl at line 1/,
-  );
+  await expect(
+    suggestMemoryFromSession(workspaceRoot, "sess_corrupt", { modelClient: model }),
+  ).rejects.toThrow(/\.forgelet\/memory-decisions\.jsonl at line 1/);
 });
 
 test("a newly suggested proposal is immediately reviewable and decidable", async () => {
   const workspaceRoot = await makeWorkspace("forgelet-suggest-review-");
-  await writeActionableTrace(workspaceRoot, "sess_review");
+  await writeFrictionTrace(workspaceRoot, "sess_review");
+  const model = modelWith("- In this workspace, prefer globbing to descending.");
 
-  const created = await suggestMemoryFromSession(workspaceRoot, "sess_review");
+  const created = await suggestMemoryFromSession(workspaceRoot, "sess_review", { modelClient: model });
+  const id = created.suggestions[0]?.suggestion.id ?? "";
   const listed = await listMemoryReview(workspaceRoot, { all: false });
-  const shown = await showMemoryReview(workspaceRoot, created.suggestion.id);
-  const accepted = await acceptMemorySuggestion(workspaceRoot, created.suggestion.id);
+  const shown = await showMemoryReview(workspaceRoot, id);
+  const accepted = await acceptMemorySuggestion(workspaceRoot, id);
 
-  expect(listed.items).toEqual([
-    expect.objectContaining({ id: created.suggestion.id, state: "proposed" }),
-  ]);
+  expect(listed.items).toEqual([expect.objectContaining({ id, state: "proposed" })]);
   expect(shown).toMatchObject({ kind: "suggestion", state: "proposed" });
   expect(accepted).toMatchObject({ action: "accepted", outcome: "decided" });
-
-  await writeActionableTrace(workspaceRoot, "sess_reject", {
-    changedFiles: ["src/other.ts"],
-  });
-  const rejectedSuggestion = await suggestMemoryFromSession(workspaceRoot, "sess_reject");
-  await expect(rejectMemorySuggestion(workspaceRoot, rejectedSuggestion.suggestion.id)).resolves.toMatchObject({
-    action: "rejected",
-    outcome: "decided",
-  });
 });

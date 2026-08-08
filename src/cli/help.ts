@@ -64,6 +64,7 @@ Usage:
   forge memory list [--all]
   forge memory show <suggestionId>
   forge memory suggest <sessionId>
+  forge memory suggest --all [--since <N>]
   forge memory accept <suggestionId>
   forge memory reject <suggestionId>
 

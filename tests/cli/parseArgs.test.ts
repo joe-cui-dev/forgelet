@@ -801,6 +801,16 @@ test("parses memory commands", () => {
     kind: "memory-suggest",
     sessionId: "sess_123"
   });
+  expect(parseArgs(["memory", "suggest", "--all"])).toEqual({
+    kind: "memory-suggest-all",
+  });
+  expect(parseArgs(["memory", "suggest", "--since", "10"])).toEqual({
+    kind: "memory-suggest-all",
+    since: 10,
+  });
+  expect(() => parseArgs(["memory", "suggest", "--since", "0"])).toThrow(
+    /positive integer/,
+  );
   expect(parseArgs(["memory", "accept", "mem_123"])).toEqual({
     kind: "memory-accept",
     suggestionId: "mem_123"

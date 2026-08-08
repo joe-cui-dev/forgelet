@@ -225,6 +225,15 @@ Project Memory Review is guided, deterministic, and model-free: no command in th
 
 `forge memory accept <suggestionId>` and `forge memory reject <suggestionId>` record the user's explicit decision as the commit point in the Memory Decision Log, then return a concise receipt naming the outcome (`decided`, `repeated`, or `repaired`) and, for an acceptance, the Durable Memory path, byte count, and hash actually written. Accepting an already-accepted suggestion whose write is missing (a Memory Write Gap) repairs it idempotently instead of duplicating the block; deciding an already-decided suggestion the same way reports `repeated` with no new evidence appended; deciding it the other way is a conflict error.
 
+## Deriving Memory Suggestions
+
+```bash
+forge memory suggest <sessionId>
+forge memory suggest --all [--since <N>]
+```
+
+`forge memory suggest` is the proposal side of Durable Memory and the one model-backed step in it. It runs a **Retrospective Session** (ADR 0075): a single-turn, tool-less Session that examines one finished Session's Trace, attached as source material alongside the Anchor Files (`AGENTS.md`, `CONTEXT.md`, `README.md`, `package.json`) and the current Durable Memory, and proposes 0..N discovered conventions that those documents do not already state. Only Sessions carrying a **Friction Signal** — a Tool Observation that failed, or a permission decision that denied the call or required confirmation — are examined; a Session without one yields nothing and never reaches a model, so no provider key is required for it. `--all` loops over every recorded Session newest-first (`--since <N>` limits it to the N most recent), gating each on Friction and printing a line for each admitted or failed Session plus a final tally; one Session's failure never aborts the batch. Proposals land in the append-only `.forgelet/memory-suggestions.jsonl`; they become Durable Memory only through the deterministic Project Memory Review above.
+
 ## Validation
 
 ```bash
@@ -240,7 +249,7 @@ npm run smoke:memory-review
 npm run smoke:browser-workbench
 ```
 
-Use `npm run smoke:deepseek` as the cheapest real-provider check. The workflow smoke scripts validate public CLI behavior, Trace evidence, and saved artifacts without scoring model prose quality. `npm run smoke:memory-review` is the exception: it drives `forge memory list/show/accept/reject` in a scratch workspace against a versioned suggestion and representative legacy evidence, and proves the path stays model-free by never providing a provider API key.
+Use `npm run smoke:deepseek` as the cheapest real-provider check. The workflow smoke scripts validate public CLI behavior, Trace evidence, and saved artifacts without scoring model prose quality. `npm run smoke:memory-review` is the exception: it drives the four review commands `forge memory list/show/accept/reject` in a scratch workspace against a directly seeded versioned suggestion and representative legacy evidence, and proves those four commands stay model-free by never providing a provider API key. It does not exercise `forge memory suggest`, which is model-backed (ADR 0075); the seed is written directly rather than derived.
 
 `npm run smoke:browser-workbench` drives the built Native Host protocol in a scratch workspace with a deterministic fake model. It validates approved-profile launch, Session-ready ordering, normalized Page Brief completion, Trace page-body privacy, and the persisted capture audit file; it is not a substitute for manual unpacked-extension dogfood.
 

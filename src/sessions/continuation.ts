@@ -349,7 +349,8 @@ function asSourceStatus(value: string): SessionFinishStatus | "incomplete" {
 }
 
 function asWorkflow(value: unknown): WorkflowKind {
-  if (value === "writing" || value === "learning") return value;
+  if (value === "writing" || value === "learning" || value === "retrospective")
+    return value;
   return "coding";
 }
 

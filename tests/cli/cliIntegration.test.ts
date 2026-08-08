@@ -422,70 +422,67 @@ test("CLI explains an incomplete session without inventing missing evidence", as
   expect(result.stdout).toMatch(/only uses recorded Session evidence/);
 });
 
-test("CLI creates a pending Memory Suggestion from actionable Session audit evidence", async () => {
-  const workspaceRoot = await mkdtemp(
-    join(tmpdir(), "forgelet-cli-memory-suggest-"),
-  );
+async function writeFrictionSession(workspaceRoot: string, sessionId: string): Promise<void> {
   const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
   await mkdir(sessionDir, { recursive: true });
   await writeFile(
-    join(sessionDir, "sess_memory.jsonl"),
+    join(sessionDir, `${sessionId}.jsonl`),
     [
       JSON.stringify({
         type: "session_started",
         ts: "2026-06-20T00:00:00.000Z",
-        sessionId: "sess_memory",
-        payload: {
-          workflow: "coding",
-          startedAt: "2026-06-20T00:00:00.000Z",
-        },
+        sessionId,
+        payload: { workflow: "coding", startedAt: "2026-06-20T00:00:00.000Z" },
       }),
       JSON.stringify({
         type: "user_task",
         ts: "2026-06-20T00:00:00.000Z",
-        sessionId: "sess_memory",
+        sessionId,
         payload: { task: "change the greeting" },
       }),
       JSON.stringify({
-        type: "final_summary",
+        type: "tool_result",
         ts: "2026-06-20T00:00:01.000Z",
-        sessionId: "sess_memory",
+        sessionId,
         payload: {
-          summary: "Changed src/greeting.ts.",
-          audit: {
-            changeGroups: {
-              forgeletChanged: ["src/greeting.ts"],
-              preExistingAtSessionStart: [],
-              otherCurrentWorkspaceChanges: [],
-            },
-            verificationCommands: [
-              { command: "npm test", exitCode: 0, timedOut: false },
-            ],
-            kernelObservedRisks: [],
-            modelTurns: 1,
-            estimatedCostUsd: 0.01,
-            tracePath: ".forgelet/sessions/sess_memory.jsonl",
-          },
+          ok: false,
+          toolName: "search_text",
+          summary: "ENOTDIR: not a directory",
+          error: { code: "invalid_input", message: "ENOTDIR: not a directory" },
         },
       }),
       JSON.stringify({
         type: "session_finished",
         ts: "2026-06-20T00:00:02.000Z",
-        sessionId: "sess_memory",
-        payload: { status: "completed" },
+        sessionId,
+        payload: { status: "completed", finishedAt: "2026-06-20T00:00:02.000Z" },
       }),
     ].join("\n"),
     "utf8",
   );
+}
+
+test("CLI derives a Memory Suggestion from a Session carrying a Friction Signal", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-memory-suggest-"),
+  );
+  await writeFrictionSession(workspaceRoot, "sess_memory");
+  const modelClient = new FakeModelClient([
+    {
+      content: "- In this workspace, search_text expects a directory, not a single file path.",
+      toolCalls: [],
+    },
+  ]);
 
   const result = await runCli(["memory", "suggest", "sess_memory"], {
     workspaceRoot,
+    createLiveModelClient: async () => modelClient,
   });
 
   expect(result.exitCode).toBe(0);
-  expect(result.stdout).toMatch(/Memory suggestion: mem_/);
-  expect(result.stdout).toMatch(/Source Session: sess_memory/);
-  expect(result.stdout).toMatch(/npm test/);
+  expect(result.stdout).toMatch(/examined sess_memory/);
+  expect(result.stdout).toMatch(/mem_[0-9a-f]+ \(new proposal/);
+  expect(result.stdout).toMatch(/search_text expects a directory/);
 
   const store = await readFile(
     join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"),
@@ -496,21 +493,59 @@ test("CLI creates a pending Memory Suggestion from actionable Session audit evid
     schemaVersion: 1,
     sourceSessionId: "sess_memory",
     provenance: {
+      derivation: { frictionSignals: { total: 1 } },
       trace: expect.objectContaining({ path: ".forgelet/sessions/sess_memory.jsonl" }),
     },
   });
   expect(suggestion).not.toHaveProperty("status");
-  expect(suggestion.text).toMatch(/npm test/);
+  expect(suggestion.provenance.derivationSessionId).toMatch(/^sess_/);
 
+  // A second derivation deduplicates to the existing proposal.
+  const repeatModel = new FakeModelClient([
+    {
+      content: "- In this workspace, search_text expects a directory, not a single file path.",
+      toolCalls: [],
+    },
+  ]);
   const repeated = await runCli(["memory", "suggest", "sess_memory"], {
     workspaceRoot,
+    createLiveModelClient: async () => repeatModel,
   });
   expect(repeated.exitCode).toBe(0);
-  expect(repeated.stdout).toContain(`Memory suggestion: ${suggestion.id}`);
-  expect(repeated.stdout).toContain("State: proposed");
-  expect(repeated.stdout).toContain("Recorded: existing proposal.");
+  expect(repeated.stdout).toContain(`${suggestion.id} (existing proposal`);
   expect(await readFile(join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"), "utf8"))
     .toBe(store);
+});
+
+test("CLI proposes nothing for a Session with no Friction Signal", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-memory-quiet-"),
+  );
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(sessionDir, "sess_quiet.jsonl"),
+    [
+      JSON.stringify({
+        type: "session_started",
+        ts: "2026-06-20T00:00:00.000Z",
+        sessionId: "sess_quiet",
+        payload: { workflow: "coding", startedAt: "2026-06-20T00:00:00.000Z" },
+      }),
+      JSON.stringify({
+        type: "session_finished",
+        ts: "2026-06-20T00:00:02.000Z",
+        sessionId: "sess_quiet",
+        payload: { status: "completed", finishedAt: "2026-06-20T00:00:02.000Z" },
+      }),
+    ].join("\n"),
+    "utf8",
+  );
+
+  const result = await runCli(["memory", "suggest", "sess_quiet"], { workspaceRoot });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toContain("No Friction Signal in Session sess_quiet");
 });
 
 test("CLI accepts a pending Memory Suggestion into Durable Memory", async () => {

@@ -62,6 +62,7 @@ export type ForgeCommand =
   | { kind: "writing-artifacts-search"; query: string; limit: number }
   | { kind: "writing-projects-create"; slug: string }
   | { kind: "memory-suggest"; sessionId: string }
+  | { kind: "memory-suggest-all"; since?: number }
   | { kind: "memory-accept"; suggestionId: string }
   | { kind: "memory-reject"; suggestionId: string }
   | { kind: "memory-list"; all: boolean }
@@ -384,8 +385,19 @@ function parseMemory(args: string[]): ForgeCommand {
   if (args[0] === "show" && args.length === 2) {
     return { kind: "memory-show", suggestionId: args[1] ?? "" };
   }
-  if (args[0] === "suggest" && args.length === 2) {
-    return { kind: "memory-suggest", sessionId: args[1] ?? "" };
+  if (args[0] === "suggest") {
+    if (args.length === 2 && args[1] === "--all") {
+      return { kind: "memory-suggest-all" };
+    }
+    if (args.length === 3 && args[1] === "--since") {
+      const since = Number(args[2]);
+      if (!Number.isInteger(since) || since <= 0)
+        throw new Error("forge memory suggest --since <N> requires a positive integer.");
+      return { kind: "memory-suggest-all", since };
+    }
+    if (args.length === 2 && !args[1]?.startsWith("--")) {
+      return { kind: "memory-suggest", sessionId: args[1] ?? "" };
+    }
   }
   if (args[0] === "accept" && args.length === 2) {
     return { kind: "memory-accept", suggestionId: args[1] ?? "" };
@@ -394,7 +406,7 @@ function parseMemory(args: string[]): ForgeCommand {
     return { kind: "memory-reject", suggestionId: args[1] ?? "" };
   }
   throw new Error(
-    "Usage: forge memory list [--all] | forge memory show <suggestionId> | forge memory suggest <sessionId> | forge memory accept <suggestionId> | forge memory reject <suggestionId>",
+    "Usage: forge memory list [--all] | forge memory show <suggestionId> | forge memory suggest <sessionId> | forge memory suggest --all [--since <N>] | forge memory accept <suggestionId> | forge memory reject <suggestionId>",
   );
 }
 

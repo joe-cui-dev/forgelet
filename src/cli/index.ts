@@ -6,7 +6,7 @@ import { helpText } from "./help.js";
 import { loadConfig, setGlobalConfigValue } from "../config/index.js";
 import { explainSession } from "../explain/index.js";
 import { formatDebugTranscriptShow } from "../debugTranscript/index.js";
-import { suggestMemoryFromSession } from "../memory/index.js";
+import { runMemorySuggestCommand, runMemorySuggestBatchCommand } from "./commands/memory.js";
 import { loadCurrentBrowserSnapshot } from "../browser/index.js";
 import { installChromeNativeMessagingHost } from "../browser/nativeHostInstall.js";
 import {
@@ -45,7 +45,7 @@ import { formatSessionList, formatSessionDetail } from "./present/sessions.js";
 import { formatQueue } from "./present/queue.js";
 import { formatSessionExplanation } from "./present/explain.js";
 import { formatCreatedKnowledgeNote, formatKnowledgeNoteSearch } from "./present/knowledge.js";
-import { formatMemorySuggestion, formatMemoryDecisionReceipt, formatMemoryReviewList, formatMemoryReviewShow } from "./present/memory.js";
+import { formatMemoryDecisionReceipt, formatMemoryReviewList, formatMemoryReviewShow } from "./present/memory.js";
 import { listMemoryReview, showMemoryReview } from "../memoryReview/index.js";
 import { acceptMemorySuggestion, rejectMemorySuggestion } from "../memoryReview/decide.js";
 import {
@@ -192,7 +192,9 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
           ),
         );
       case "memory-suggest":
-        return ok(formatMemorySuggestion(await suggestMemoryFromSession(workspaceRoot, command.sessionId)));
+        return ok(await runMemorySuggestCommand(command, { workspaceRoot, options }));
+      case "memory-suggest-all":
+        return ok(await runMemorySuggestBatchCommand(command, { workspaceRoot, options }));
       case "memory-accept":
         return ok(formatMemoryDecisionReceipt(await acceptMemorySuggestion(workspaceRoot, command.suggestionId)));
       case "memory-reject":

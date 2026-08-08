@@ -1,4 +1,5 @@
 import type { SuggestMemoryResult } from "../../memory/index.js";
+import type { MemorySuggestBatchReport } from "../commands/memory.js";
 import type {
   MemoryReviewItem,
   MemoryReviewList,
@@ -58,14 +59,49 @@ function decidedHint(count: number): string {
 }
 
 export function formatMemorySuggestion(result: SuggestMemoryResult): string {
-  const { suggestion } = result;
-  return [
-    `Memory suggestion: ${suggestion.id}`,
-    `Source Session: ${suggestion.sourceSessionId}`,
-    `State: ${stateLabel(result.state)}`,
-    result.outcome === "created" ? "Recorded: new proposal." : "Recorded: existing proposal.",
-    suggestion.text,
-  ].join("\n");
+  if (!result.admitted)
+    return `No Friction Signal in Session ${result.sourceSessionId}; no Memory Suggestion proposed.`;
+
+  const header = result.derivationSessionId
+    ? `Retrospective Session ${result.derivationSessionId} examined ${result.sourceSessionId}.`
+    : `Examined Session ${result.sourceSessionId}.`;
+  if (result.suggestions.length === 0)
+    return [header, "No Memory Suggestion met the bar."].join("\n");
+
+  const lines = [
+    header,
+    `${result.suggestions.length} Memory Suggestion${result.suggestions.length === 1 ? "" : "s"}:`,
+  ];
+  for (const { suggestion, state, outcome } of result.suggestions) {
+    lines.push(
+      `- ${suggestion.id} (${outcome === "created" ? "new" : "existing"} proposal, ${stateLabel(state)})`,
+      `  ${suggestion.text}`,
+    );
+  }
+  return lines.join("\n");
+}
+
+export function formatMemorySuggestBatch(report: MemorySuggestBatchReport): string {
+  const lines: string[] = [];
+  for (const entry of report.entries) {
+    if (entry.error) {
+      lines.push(`${entry.sessionId}: derivation failed — ${entry.error}`);
+      continue;
+    }
+    const result = entry.result;
+    if (!result) continue;
+    const created = result.suggestions.filter((item) => item.outcome === "created").length;
+    const existing = result.suggestions.length - created;
+    lines.push(
+      `${entry.sessionId}: ${result.suggestions.length} suggestion${result.suggestions.length === 1 ? "" : "s"} (${created} new, ${existing} existing)`,
+    );
+    for (const item of result.suggestions)
+      lines.push(`  - ${item.suggestion.id}: ${item.suggestion.text}`);
+  }
+  lines.push(
+    `Examined ${report.examined} Session${report.examined === 1 ? "" : "s"}: ${report.admitted} admitted, ${report.created} new, ${report.existing} existing, ${report.failed} failed.`,
+  );
+  return lines.join("\n");
 }
 
 /** Concise, evidence-aware receipt for `forge memory accept|reject`: leads

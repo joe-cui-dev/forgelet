@@ -208,13 +208,26 @@ function parseProvenance(
 ): MemorySuggestionProvenance {
   if (!isRecord(value) || !isRecord(value.derivation) || !isRecord(value.trace) || !isRecord(value.session))
     return fail("missing complete Provenance Snapshot");
-  const changedFiles = parseBoundedEvidence(value.derivation.changedFiles, 20, "changedFiles", fail);
-  const successfulVerificationCommands = parseBoundedEvidence(
-    value.derivation.successfulVerificationCommands,
-    10,
-    "successfulVerificationCommands",
-    fail,
-  );
+  // The derivation shape is additive: a Retrospective-derived record carries
+  // Friction Signals, a legacy actionable-audit record carries changed files
+  // and commands. Each field is parsed only when present.
+  const frictionSignals =
+    "frictionSignals" in value.derivation
+      ? parseBoundedFrictionSignals(value.derivation.frictionSignals, fail)
+      : undefined;
+  const changedFiles =
+    "changedFiles" in value.derivation
+      ? parseBoundedEvidence(value.derivation.changedFiles, 20, "changedFiles", fail)
+      : undefined;
+  const successfulVerificationCommands =
+    "successfulVerificationCommands" in value.derivation
+      ? parseBoundedEvidence(
+          value.derivation.successfulVerificationCommands,
+          10,
+          "successfulVerificationCommands",
+          fail,
+        )
+      : undefined;
   if (
     typeof value.trace.path !== "string" ||
     value.trace.path.length === 0 ||
@@ -232,8 +245,14 @@ function parseProvenance(
   ) {
     return fail("invalid session provenance");
   }
+  if ("derivationSessionId" in value && typeof value.derivationSessionId !== "string")
+    return fail("derivationSessionId must be a string");
   return {
-    derivation: { changedFiles, successfulVerificationCommands },
+    derivation: {
+      ...(frictionSignals ? { frictionSignals } : {}),
+      ...(changedFiles ? { changedFiles } : {}),
+      ...(successfulVerificationCommands ? { successfulVerificationCommands } : {}),
+    },
     trace: {
       path: value.trace.path,
       sha256: value.trace.sha256,
@@ -245,7 +264,34 @@ function parseProvenance(
       startedAt: value.session.startedAt,
       finishedAt: value.session.finishedAt,
     },
+    ...(typeof value.derivationSessionId === "string"
+      ? { derivationSessionId: value.derivationSessionId }
+      : {}),
   };
+}
+
+const FRICTION_SIGNAL_LIMIT = 20;
+
+/** Validates the bounded Friction Signals a Retrospective Session was pointed
+ * at. Item shape is checked loosely — each is a tagged object — so the reader
+ * survives additive changes to the signal vocabulary. */
+function parseBoundedFrictionSignals(
+  value: unknown,
+  fail: (problem: string) => never,
+): MemorySuggestionProvenance["derivation"]["frictionSignals"] {
+  if (!isRecord(value) || !Array.isArray(value.items) || !isNonNegativeInteger(value.total))
+    return fail("invalid frictionSignals provenance");
+  if (value.items.length > FRICTION_SIGNAL_LIMIT || value.total < value.items.length)
+    return fail("frictionSignals provenance exceeds its declared bound");
+  if (
+    value.items.some(
+      (item) =>
+        !isRecord(item) ||
+        (item.kind !== "tool_failure" && item.kind !== "permission_friction"),
+    )
+  )
+    return fail("frictionSignals provenance contains an invalid item");
+  return value as unknown as MemorySuggestionProvenance["derivation"]["frictionSignals"];
 }
 
 function parseBoundedEvidence(

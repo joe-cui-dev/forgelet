@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
@@ -10,13 +11,17 @@ import {
   MEMORY_SUGGESTIONS_RELATIVE_PATH,
   type LegacySuggestionStatus,
 } from "../memoryReview/records.js";
+import type { VersionedMemorySuggestion } from "../memory/types.js";
 
 const execFileAsync = promisify(execFile);
 
 /** Provider API key env vars a model client would need, read from the same
  * config every provider is routed through. Deliberately absent from every
- * command this smoke runs, so a command that somehow needed one fails loudly
- * instead of silently reaching a provider. */
+ * command this smoke runs — the four review commands (list/show/accept/reject)
+ * it exercises are model-free by construction, so a command that somehow
+ * reached a provider fails loudly instead of silently succeeding. The
+ * model-backed `memory suggest` is out of this smoke's scope; its versioned
+ * seed is written directly rather than derived. */
 const MODEL_PROVIDER_ENV_VARS = Object.values(defaultConfig.providers).map(
   (provider) => provider.apiKeyEnv,
 );
@@ -31,7 +36,6 @@ export interface MemoryReviewSmokeRun {
   versionedId: string;
   legacyProposedId: string;
   legacyGapId: string;
-  suggestStdout: string;
   listStdout: string;
   showStdout: string;
   acceptStdout: string;
@@ -55,12 +59,11 @@ export async function runMemoryReviewSmoke(
 
   await mkdir(join(workspaceRoot, ".forgelet", "sessions"), { recursive: true });
   const sessionId = "sess_smoke_memory";
-  await writeActionableTrace(workspaceRoot, sessionId);
-
-  const suggestStdout = await runForgeCli(options.cliPath, workspaceRoot, ["memory", "suggest", sessionId], env);
-  const versionedId = parseSuggestionId(suggestStdout);
-  const suggestRepeat = await runForgeCli(options.cliPath, workspaceRoot, ["memory", "suggest", sessionId], env);
-  assertContains(suggestRepeat, "Recorded: existing proposal.", "repeated suggest");
+  // The versioned suggestion is seeded directly, not derived: `memory suggest`
+  // is now model-backed (ADR 0075), and this smoke covers only the four
+  // deterministic, model-free review commands. The seed writes the same
+  // append-only record a Retrospective Session would have written.
+  const versionedId = await seedVersionedSuggestion(workspaceRoot, sessionId);
 
   const legacyProposedId = "mem_smoke_legacy_proposed";
   const legacyGapId = "mem_smoke_legacy_gap";
@@ -129,7 +132,6 @@ export async function runMemoryReviewSmoke(
     versionedId,
     legacyProposedId,
     legacyGapId,
-    suggestStdout,
     listStdout,
     showStdout,
     acceptStdout,
@@ -261,51 +263,87 @@ async function appendLegacySuggestions(
   });
 }
 
-async function writeActionableTrace(workspaceRoot: string, sessionId: string): Promise<void> {
+/** Writes a finished Session Trace carrying a Friction Signal and the versioned
+ * Memory Suggestion a Retrospective Session would have derived from it, then
+ * returns the suggestion's canonical id. The record is the immutable schema-v1
+ * shape the review commands read; nothing here calls a model. */
+async function seedVersionedSuggestion(
+  workspaceRoot: string,
+  sessionId: string,
+): Promise<string> {
+  const startedAt = "2026-07-11T10:00:00.000Z";
+  const finishedAt = "2026-07-11T10:02:00.000Z";
   const trace = [
     {
       type: "session_started",
-      ts: "2026-07-11T10:00:00.000Z",
+      ts: startedAt,
       sessionId,
-      payload: { workflow: "coding", startedAt: "2026-07-11T10:00:00.000Z" },
+      payload: { workflow: "coding", startedAt },
     },
     {
-      type: "final_summary",
-      ts: "2026-07-11T10:01:00.000Z",
+      type: "tool_result",
+      ts: "2026-07-11T10:00:30.000Z",
       sessionId,
       payload: {
-        audit: {
-          changeGroups: {
-            forgeletChanged: ["src/greeting.ts"],
-            preExistingAtSessionStart: [],
-            otherCurrentWorkspaceChanges: [],
-          },
-          verificationCommands: [{ command: "npm test", exitCode: 0, timedOut: false }],
-          kernelObservedRisks: [],
-          modelTurns: 1,
-          estimatedCostUsd: 0.01,
-          tracePath: `.forgelet/sessions/${sessionId}.jsonl`,
-        },
+        ok: false,
+        toolCallId: "call_smoke_1",
+        toolName: "search_text",
+        summary: "ENOTDIR: not a directory",
+        error: { code: "invalid_input", message: "ENOTDIR: not a directory" },
       },
     },
     {
       type: "session_finished",
-      ts: "2026-07-11T10:02:00.000Z",
+      ts: finishedAt,
       sessionId,
-      payload: { status: "completed" },
+      payload: { status: "completed", finishedAt },
     },
   ];
+  const traceContent = trace.map((event) => JSON.stringify(event)).join("\n") + "\n";
   await writeFile(
     join(workspaceRoot, ".forgelet", "sessions", `${sessionId}.jsonl`),
-    trace.map((event) => JSON.stringify(event)).join("\n") + "\n",
+    traceContent,
     "utf8",
   );
-}
 
-function parseSuggestionId(stdout: string): string {
-  const match = stdout.match(/^Memory suggestion: (mem_[0-9a-f]+)$/m);
-  if (!match?.[1]) throw new Error("Memory Review smoke could not parse the suggestion id from forge memory suggest output.");
-  return match[1];
+  const text =
+    "In this workspace, search_text expects a directory; point it at a folder, not a single file.";
+  const id = `mem_${createHash("sha256").update(`${sessionId}\n${text}`).digest("hex").slice(0, 12)}`;
+  const suggestion: VersionedMemorySuggestion = {
+    schemaVersion: 1,
+    id,
+    sourceSessionId: sessionId,
+    text,
+    createdAt: "2026-07-11T10:03:00.000Z",
+    provenance: {
+      derivation: {
+        frictionSignals: {
+          items: [
+            {
+              kind: "tool_failure",
+              toolName: "search_text",
+              errorCode: "invalid_input",
+              error: "ENOTDIR: not a directory",
+            },
+          ],
+          total: 1,
+        },
+      },
+      trace: {
+        path: `.forgelet/sessions/${sessionId}.jsonl`,
+        sha256: createHash("sha256").update(traceContent).digest("hex"),
+        bytes: Buffer.byteLength(traceContent, "utf8"),
+      },
+      session: { workflow: "coding", status: "completed", startedAt, finishedAt },
+      derivationSessionId: "sess_smoke_retrospective",
+    },
+  };
+  await writeFile(
+    join(workspaceRoot, MEMORY_SUGGESTIONS_RELATIVE_PATH),
+    `${JSON.stringify(suggestion)}\n`,
+    { encoding: "utf8", flag: "a" },
+  );
+  return id;
 }
 
 function modelFreeEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
