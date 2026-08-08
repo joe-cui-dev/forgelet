@@ -68,6 +68,27 @@ test("the batch gates each Session on Friction and tallies the outcomes", async 
   expect(suggestions).toHaveLength(2);
 });
 
+test("the batch reports live per-Session progress as it goes", async () => {
+  const workspaceRoot = await makeWorkspace();
+  await writeTrace(workspaceRoot, "sess_x", "2026-08-01T10:00:00.000Z", true);
+  await writeTrace(workspaceRoot, "sess_y", "2026-08-01T11:00:00.000Z", false);
+  const model = new FakeModelClient([{ content: "- One thing.", toolCalls: [] }]);
+  const progress: string[] = [];
+
+  await suggestMemoryBatch(workspaceRoot, model, {
+    onProgress: (event) => progress.push(`${event.sessionId}:${event.phase}:${event.status ?? ""}`),
+  });
+
+  // Newest first: sess_y (quiet) then sess_x (friction). Each Session emits an
+  // examining line before its outcome line.
+  expect(progress).toEqual([
+    "sess_y:examining:",
+    "sess_y:done:skipped",
+    "sess_x:examining:",
+    "sess_x:done:admitted",
+  ]);
+});
+
 test("--since limits the batch to the most recent Sessions", async () => {
   const workspaceRoot = await makeWorkspace();
   await writeTrace(workspaceRoot, "sess_old", "2026-08-01T10:00:00.000Z", true);

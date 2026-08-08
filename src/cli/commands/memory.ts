@@ -1,6 +1,10 @@
 import { suggestMemoryFromSession, type SuggestMemoryResult } from "../../memory/index.js";
 import { listSessions } from "../../sessions/index.js";
-import { formatMemorySuggestion, formatMemorySuggestBatch } from "../present/memory.js";
+import {
+  formatMemorySuggestion,
+  formatMemorySuggestBatch,
+  formatMemorySuggestBatchProgress,
+} from "../present/memory.js";
 import {
   createDeepSeekLiveModelClient,
   createDeferredLiveModelClient,
@@ -31,6 +35,20 @@ export interface MemorySuggestBatchReport {
   existing: number;
   failed: number;
   entries: MemorySuggestBatchEntry[];
+}
+
+/** Live progress for one Session in a batch, so a long run driving real model
+ * calls shows which Session it is on instead of a blank screen. `examining`
+ * fires before the (possibly slow) derivation; `done` fires after it. */
+export interface MemorySuggestBatchProgress {
+  /** 1-based position in the scoped Session list. */
+  index: number;
+  total: number;
+  sessionId: string;
+  phase: "examining" | "done";
+  status?: "admitted" | "skipped" | "failed";
+  result?: SuggestMemoryResult;
+  error?: string;
 }
 
 /** The Retrospective Session's model client, built deferred so a Session that
@@ -77,9 +95,13 @@ export async function runMemorySuggestBatchCommand(
 ): Promise<string> {
   const { workspaceRoot, options } = ctx;
   const modelClient = retrospectiveModelClient(ctx);
+  // Progress goes to stderr as each Session is examined; the final aggregated
+  // report is the command's stdout, printed once the batch resolves.
   const report = await suggestMemoryBatch(workspaceRoot, modelClient, {
     ...(command.since !== undefined ? { since: command.since } : {}),
     ...(options.homeDir ? { homeDir: options.homeDir } : {}),
+    onProgress: (progress) =>
+      process.stderr.write(`${formatMemorySuggestBatchProgress(progress)}\n`),
   });
   return formatMemorySuggestBatch(report);
 }
@@ -89,38 +111,49 @@ export async function runMemorySuggestBatchCommand(
 export async function suggestMemoryBatch(
   workspaceRoot: string,
   modelClient: ModelClient,
-  options: { since?: number; homeDir?: string } = {},
+  options: {
+    since?: number;
+    homeDir?: string;
+    onProgress?: (progress: MemorySuggestBatchProgress) => void;
+  } = {},
 ): Promise<MemorySuggestBatchReport> {
   // The Session list is snapshotted before the loop, so the Retrospective
   // Sessions this batch creates are not themselves examined by it.
   const sessions = await listSessions(workspaceRoot);
   const scoped = options.since !== undefined ? sessions.slice(0, options.since) : sessions;
+  const total = scoped.length;
 
   const report: MemorySuggestBatchReport = {
-    examined: scoped.length,
+    examined: total,
     admitted: 0,
     created: 0,
     existing: 0,
     failed: 0,
     entries: [],
   };
+  let index = 0;
   for (const session of scoped) {
+    index += 1;
+    options.onProgress?.({ index, total, sessionId: session.id, phase: "examining" });
     try {
       const result = await suggestMemoryFromSession(workspaceRoot, session.id, {
         modelClient,
         ...(options.homeDir ? { homeDir: options.homeDir } : {}),
       });
-      if (!result.admitted) continue;
+      if (!result.admitted) {
+        options.onProgress?.({ index, total, sessionId: session.id, phase: "done", status: "skipped" });
+        continue;
+      }
       report.admitted += 1;
       report.created += result.suggestions.filter((entry) => entry.outcome === "created").length;
       report.existing += result.suggestions.filter((entry) => entry.outcome === "existing").length;
       report.entries.push({ sessionId: session.id, result });
+      options.onProgress?.({ index, total, sessionId: session.id, phase: "done", status: "admitted", result });
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       report.failed += 1;
-      report.entries.push({
-        sessionId: session.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      report.entries.push({ sessionId: session.id, error: message });
+      options.onProgress?.({ index, total, sessionId: session.id, phase: "done", status: "failed", error: message });
     }
   }
   return report;

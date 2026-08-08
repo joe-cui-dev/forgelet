@@ -1,5 +1,8 @@
 import type { SuggestMemoryResult } from "../../memory/index.js";
-import type { MemorySuggestBatchReport } from "../commands/memory.js";
+import type {
+  MemorySuggestBatchProgress,
+  MemorySuggestBatchReport,
+} from "../commands/memory.js";
 import type {
   MemoryReviewItem,
   MemoryReviewList,
@@ -79,6 +82,23 @@ export function formatMemorySuggestion(result: SuggestMemoryResult): string {
     );
   }
   return lines.join("\n");
+}
+
+/** One live progress line for `forge memory suggest --all`, written to stderr.
+ * `examining` marks the Session a possibly-slow model call is about to run on;
+ * `done` reports its outcome. */
+export function formatMemorySuggestBatchProgress(
+  progress: MemorySuggestBatchProgress,
+): string {
+  const counter = `[${progress.index}/${progress.total}]`;
+  if (progress.phase === "examining")
+    return `${counter} examining ${progress.sessionId} …`;
+  if (progress.status === "skipped")
+    return `${counter} ${progress.sessionId} — no Friction Signal`;
+  if (progress.status === "failed")
+    return `${counter} ${progress.sessionId} — failed: ${progress.error ?? "unknown error"}`;
+  const count = progress.result?.suggestions.length ?? 0;
+  return `${counter} ${progress.sessionId} — ${count} suggestion${count === 1 ? "" : "s"}`;
 }
 
 export function formatMemorySuggestBatch(report: MemorySuggestBatchReport): string {
