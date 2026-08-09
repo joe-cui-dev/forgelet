@@ -236,13 +236,12 @@ test("show derives live Trace Corroboration and exact preview bytes for a propos
     traceCorroboration: "verified",
     destination: ".forgelet/memory.md",
   });
+  const expectedBlock = `- Keep this guidance. <!-- forgelet-memory ${memoryId("mem_show")} source:sess_mem_show -->\n`;
   expect(shown.kind === "suggestion" && shown.renderedBlock).toEqual({
-    bytes: `## ${memoryId("mem_show")}\n\nKeep this guidance.\n\nSource Session: sess_mem_show\n`,
+    bytes: expectedBlock,
     finalNewline: true,
-    byteCount: Buffer.byteLength(`## ${memoryId("mem_show")}\n\nKeep this guidance.\n\nSource Session: sess_mem_show\n`),
-    sha256: createHash("sha256")
-      .update(`## ${memoryId("mem_show")}\n\nKeep this guidance.\n\nSource Session: sess_mem_show\n`)
-      .digest("hex"),
+    byteCount: Buffer.byteLength(expectedBlock),
+    sha256: createHash("sha256").update(expectedBlock).digest("hex"),
   });
 });
 

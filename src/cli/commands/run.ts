@@ -21,6 +21,15 @@ import {
   createDeferredLiveModelClient,
   createTerminalApprovalHandler,
 } from "../wiring.js";
+import {
+  captureMemorySuggestions,
+  readSessionFriction,
+} from "../../memory/index.js";
+import {
+  formatMemoryCapture,
+  formatNonInteractiveCaptureHint,
+  formatSessionFriction,
+} from "../present/memory.js";
 import type { RunCliOptions } from "../index.js";
 
 export function formatEffectEnvelopeBanner(envelope: EffectEnvelope): string {
@@ -148,6 +157,7 @@ export async function runRunCommand(
                 : undefined,
             onLiveEvent: options.onLiveEvent,
           });
+  const captureTail = await runSessionMemoryCapture(result.session.id, ctx);
   return [
     ...(envelope ? [formatEffectEnvelopeBanner(envelope), ""] : []),
     ...formatPreviewBrowserContext(browserSnapshot),
@@ -155,5 +165,42 @@ export async function runRunCommand(
     ...projectRun.warnings,
     ...(projectRun.warnings.length > 0 ? [""] : []),
     result.summary,
+    ...(captureTail ? ["", captureTail] : []),
   ].join("\n");
+}
+
+/** The Session-end Durable Memory capture step (ADR 0076). Fires only after the
+ * Session's Trace is flushed and closed, and only when it carried a Friction
+ * Signal. At an interactive terminal it prompts for a Memory line and records
+ * what the user writes; without one it prints the friction so the user can
+ * backfill later with `forge memory add`. Returns the tail to append to the
+ * Session output, or undefined when there is nothing to say. */
+async function runSessionMemoryCapture(
+  sessionId: string,
+  ctx: { workspaceRoot: string; options: RunCliOptions },
+): Promise<string | undefined> {
+  const { workspaceRoot, options } = ctx;
+  const config = await loadConfig({ homeDir: options.homeDir, workspaceRoot });
+  if (!config.memoryCapturePrompt) return undefined;
+
+  let signals;
+  try {
+    ({ signals } = await readSessionFriction(workspaceRoot, sessionId));
+  } catch {
+    // A Session whose Trace cannot be read or folded has no friction to capture.
+    return undefined;
+  }
+  if (signals.length === 0) return undefined;
+
+  if (!options.capturePrompt) {
+    return formatNonInteractiveCaptureHint(sessionId, signals);
+  }
+
+  const lines = await options.capturePrompt({
+    sessionId,
+    frictionLines: formatSessionFriction(signals),
+  });
+  const captured = await captureMemorySuggestions(workspaceRoot, sessionId, lines);
+  if (captured.length === 0) return undefined;
+  return formatMemoryCapture(sessionId, captured);
 }

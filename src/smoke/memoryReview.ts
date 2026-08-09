@@ -19,9 +19,10 @@ const execFileAsync = promisify(execFile);
  * config every provider is routed through. Deliberately absent from every
  * command this smoke runs — the four review commands (list/show/accept/reject)
  * it exercises are model-free by construction, so a command that somehow
- * reached a provider fails loudly instead of silently succeeding. The
- * model-backed `memory suggest` is out of this smoke's scope; its versioned
- * seed is written directly rather than derived. */
+ * reached a provider fails loudly instead of silently succeeding. Memory
+ * Suggestions are supplied by in-session capture (ADR 0076), which is model-free
+ * too; this smoke seeds its versioned record directly to isolate the review
+ * surface. */
 const MODEL_PROVIDER_ENV_VARS = Object.values(defaultConfig.providers).map(
   (provider) => provider.apiKeyEnv,
 );
@@ -59,10 +60,10 @@ export async function runMemoryReviewSmoke(
 
   await mkdir(join(workspaceRoot, ".forgelet", "sessions"), { recursive: true });
   const sessionId = "sess_smoke_memory";
-  // The versioned suggestion is seeded directly, not derived: `memory suggest`
-  // is now model-backed (ADR 0075), and this smoke covers only the four
-  // deterministic, model-free review commands. The seed writes the same
-  // append-only record a Retrospective Session would have written.
+  // The versioned suggestion is seeded directly rather than captured, so this
+  // smoke covers only the four deterministic, model-free review commands. The
+  // seed writes the same append-only record in-session capture (ADR 0076)
+  // would have written.
   const versionedId = await seedVersionedSuggestion(workspaceRoot, sessionId);
 
   const legacyProposedId = "mem_smoke_legacy_proposed";
@@ -184,11 +185,11 @@ async function validateEvidence(input: ValidateEvidenceInput): Promise<void> {
   assertHasRecord(log, (r) => r.type === "write-record" && r.suggestionId === input.legacyGapId, "repaired Memory Write Record for the Memory Write Gap suggestion");
 
   const memory = await readFile(join(input.workspaceRoot, defaultConfig.memoryFile), "utf8");
-  if (!memory.includes(`## ${input.versionedId}`))
+  if (!memory.includes(`<!-- forgelet-memory ${input.versionedId} `))
     throw new Error("Memory Review smoke expected the accepted versioned suggestion's block in Durable Memory.");
-  if (!memory.includes(`## ${input.legacyGapId}`))
+  if (!memory.includes(`<!-- forgelet-memory ${input.legacyGapId} `))
     throw new Error("Memory Review smoke expected the repaired legacy suggestion's block in Durable Memory.");
-  if (memory.includes(`## ${input.legacyProposedId}`))
+  if (memory.includes(`<!-- forgelet-memory ${input.legacyProposedId} `))
     throw new Error("Memory Review smoke expected the rejected legacy suggestion to never be written to Durable Memory.");
 }
 
@@ -264,7 +265,7 @@ async function appendLegacySuggestions(
 }
 
 /** Writes a finished Session Trace carrying a Friction Signal and the versioned
- * Memory Suggestion a Retrospective Session would have derived from it, then
+ * Memory Suggestion in-session capture would have recorded from it, then
  * returns the suggestion's canonical id. The record is the immutable schema-v1
  * shape the review commands read; nothing here calls a model. */
 async function seedVersionedSuggestion(
@@ -335,7 +336,6 @@ async function seedVersionedSuggestion(
         bytes: Buffer.byteLength(traceContent, "utf8"),
       },
       session: { workflow: "coding", status: "completed", startedAt, finishedAt },
-      derivationSessionId: "sess_smoke_retrospective",
     },
   };
   await writeFile(

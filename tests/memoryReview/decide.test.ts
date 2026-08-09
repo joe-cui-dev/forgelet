@@ -59,7 +59,6 @@ test("accept appends a decision then a write record with the renderer's exact by
     id: "mem_a",
     text: "Remember this.",
     sourceSessionId: "sess_mem_a",
-    reason: "Derived deterministically.",
   });
   expect(result.write).toEqual({
     path: ".forgelet/memory.md",
@@ -175,7 +174,7 @@ test("re-accept repairs a Memory Write Gap without duplicating the decision", as
   expect(result.write).toBeDefined();
 
   const memory = await readFile(join(workspaceRoot, ".forgelet", "memory.md"), "utf8");
-  expect(memory).toContain("## mem_gap");
+  expect(memory).toContain("<!-- forgelet-memory mem_gap source:sess_mem_gap -->");
 
   const log = await readLog(workspaceRoot);
   expect(log).toHaveLength(2);
@@ -201,7 +200,6 @@ test("repair finds an existing block and records found-existing evidence instead
     id: "mem_found",
     text,
     sourceSessionId: "sess_mem_found",
-    reason: "Derived deterministically.",
   });
   await writeFile(join(workspaceRoot, ".forgelet", "memory.md"), rendered.bytes, "utf8");
 
@@ -288,7 +286,7 @@ test("concurrent accept attempts on the same suggestion produce exactly one deci
   expect(log.filter((entry) => entry.type === "write-record")).toHaveLength(1);
 
   const memory = await readFile(join(workspaceRoot, ".forgelet", "memory.md"), "utf8");
-  expect(memory.match(/## mem_race/g)).toHaveLength(1);
+  expect(memory.match(/forgelet-memory mem_race/g)).toHaveLength(1);
 });
 
 test("repeating a decision for an orphaned suggestion (no matching suggestion record) is idempotent", async () => {

@@ -46,6 +46,10 @@ export interface ForgeletConfig {
   commandTimeoutMs: number;
   maxPatchBytes: number;
   memoryFile: string;
+  /** Whether an interactive Session that hit a Friction Signal prompts for a
+   * Durable Memory entry at the end (ADR 0076). On by default; disable to run
+   * without the prompt while keeping `forge memory add` available. */
+  memoryCapturePrompt: boolean;
 }
 
 type WritableConfig = Partial<
@@ -118,6 +122,7 @@ export const defaultConfig: ForgeletConfig = {
   commandTimeoutMs: 120_000,
   maxPatchBytes: 100 * 1024,
   memoryFile: ".forgelet/memory.md",
+  memoryCapturePrompt: true,
 };
 
 export interface LoadConfigInput {
@@ -203,6 +208,11 @@ function applySupportedConfigValue(
   value: string,
 ): WritableConfig {
   if (key === "memoryFile") return { ...config, memoryFile: value };
+  if (key === "memoryCapturePrompt") {
+    if (value !== "true" && value !== "false")
+      throw new Error("memoryCapturePrompt must be true or false.");
+    return { ...config, memoryCapturePrompt: value === "true" };
+  }
   if (key === "activeContext.maxObservationBytes")
     throw new Error(
       "activeContext.maxObservationBytes was renamed to activeContext.maxConversationBytes.",
@@ -274,7 +284,7 @@ function applySupportedConfigValue(
   throw new Error(
     [
       `Unsupported config key for V1: ${key}`,
-      "Supported keys: memoryFile, activeContext.maxConversationBytes, activeContext.observationDigestPreviewBytes, activeContext.protectedRecentTurns, providers.deepseek.apiKeyEnv, providers.openai.apiKeyEnv, providers.anthropic.apiKeyEnv, publicWeb.provider, publicWeb.apiKeyEnv",
+      "Supported keys: memoryFile, memoryCapturePrompt, activeContext.maxConversationBytes, activeContext.observationDigestPreviewBytes, activeContext.protectedRecentTurns, providers.deepseek.apiKeyEnv, providers.openai.apiKeyEnv, providers.anthropic.apiKeyEnv, publicWeb.provider, publicWeb.apiKeyEnv",
     ].join("\n"),
   );
 }
@@ -313,6 +323,7 @@ function mergeConfig(
     commandTimeoutMs: override.commandTimeoutMs ?? base.commandTimeoutMs,
     maxPatchBytes: override.maxPatchBytes ?? base.maxPatchBytes,
     memoryFile: override.memoryFile ?? base.memoryFile,
+    memoryCapturePrompt: override.memoryCapturePrompt ?? base.memoryCapturePrompt,
   };
 }
 

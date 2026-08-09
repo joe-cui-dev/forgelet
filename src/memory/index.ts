@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { access, appendFile, mkdir, readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
 import { loadConfig } from "../config/index.js";
-import { foldSessionTrace } from "../sessions/index.js";
+import { foldSessionTrace, type SessionTraceFold } from "../sessions/index.js";
 import { runCompatibilityImportLocked } from "../memoryReview/compatibilityImport.js";
 import { deriveMemoryReviewState, type MemoryReviewState } from "../memoryReview/index.js";
 import { withMemoryDecisionLock } from "../memoryReview/lock.js";
@@ -13,11 +13,6 @@ import {
   type SuggestionRecord,
 } from "../memoryReview/records.js";
 import { findSessionTracePath, isTraceEvent, readTraceFile } from "../trace/index.js";
-import type { ModelClient } from "../types.js";
-import {
-  RETROSPECTIVE_ANCHOR_FILES,
-  runRetrospectiveSession,
-} from "../workflows/retrospective.js";
 import { detectFrictionSignals, type FrictionSignal } from "./frictionSignal.js";
 import type {
   BoundedFrictionSignals,
@@ -38,33 +33,6 @@ export interface LoadedDurableMemory {
   preview: string;
   truncated: boolean;
   content: string;
-}
-
-export interface SuggestMemoryOptions {
-  now?: () => Date;
-  /** The model client that runs the Retrospective Session. Required only when
-   * the Session carries a Friction Signal; a gate miss never touches it. */
-  modelClient?: ModelClient;
-  homeDir?: string;
-  debug?: boolean;
-  budgetUsd?: number;
-  signal?: AbortSignal;
-}
-
-export interface SuggestedMemory {
-  suggestion: SuggestionRecord;
-  state: MemoryReviewState;
-  outcome: "created" | "existing";
-}
-
-export interface SuggestMemoryResult {
-  sourceSessionId: string;
-  /** Whether the source Session passed the Friction Signal gate (ADR 0075). A
-   * Session that did not is never examined and yields no suggestions. */
-  admitted: boolean;
-  /** The Retrospective Session that examined the source Session, when one ran. */
-  derivationSessionId?: string;
-  suggestions: SuggestedMemory[];
 }
 
 export async function loadDurableMemory(
@@ -94,36 +62,72 @@ export async function loadDurableMemory(
   }
 }
 
-/** Derives 0..N immutable schema-v1 proposals for one finished Session by
- * running a Retrospective Session gated on Friction (ADR 0075), then appends
- * the new ones. A Session carrying no Friction Signal is never examined and
- * yields nothing instead of throwing. All appends happen under the shared
- * memory lock so Compatibility Import and decision evidence cannot race
- * proposal deduplication. */
-export async function suggestMemoryFromSession(
+/** The Friction Signals a finished Session carried, alongside its folded
+ * lifecycle. Read once from the Trace, it gates the Session-end capture prompt
+ * (ADR 0076) and gives it the lines to show; the same read backs the provenance
+ * a captured entry records. */
+export interface SessionFriction {
+  signals: FrictionSignal[];
+  lifecycle: SessionTraceFold;
+}
+
+/** Reads a finished Session's Trace and returns its Friction Signals and folded
+ * lifecycle. Throws when the Trace has no `session_started` — there is nothing
+ * to attribute a Memory Suggestion to. */
+export async function readSessionFriction(
   workspaceRoot: string,
   sessionId: string,
-  options: SuggestMemoryOptions = {},
-): Promise<SuggestMemoryResult> {
+): Promise<SessionFriction> {
+  const { lifecycle, signals } = await loadCaptureContext(workspaceRoot, sessionId);
+  return { signals, lifecycle };
+}
+
+export interface CaptureMemoryOptions {
+  now?: () => Date;
+}
+
+export interface CapturedMemory {
+  suggestion: SuggestionRecord;
+  state: MemoryReviewState;
+  outcome: "created" | "existing";
+}
+
+/** Records one or more human-authored lines as immutable schema-v1 Memory
+ * Suggestions for a finished Session (ADR 0076). Provenance is drawn from the
+ * Session's closed Trace — its bytes, hash, lifecycle, and Friction Signals —
+ * so a captured entry is as traceable as a derived one was. Appends happen
+ * under the shared memory lock, and a line already present for this Session is
+ * returned as `existing` rather than appended twice. */
+export async function captureMemorySuggestions(
+  workspaceRoot: string,
+  sessionId: string,
+  texts: string[],
+  options: CaptureMemoryOptions = {},
+): Promise<CapturedMemory[]> {
+  const cleaned = dedupeText(texts.map((text) => text.trim()).filter((text) => text.length > 0));
+  if (cleaned.length === 0) return [];
+
   const now = options.now ?? (() => new Date());
-  const derived = await deriveSuggestions(workspaceRoot, sessionId, now, options);
-  if (!derived.admitted)
-    return { sourceSessionId: sessionId, admitted: false, suggestions: [] };
+  const context = await loadCaptureContext(workspaceRoot, sessionId);
+  const provenance = buildProvenance(workspaceRoot, context);
+  const createdAt = now().toISOString();
+  const records: VersionedMemorySuggestion[] = cleaned.map((text) => ({
+    schemaVersion: 1 as const,
+    id: `mem_${createHash("sha256").update(`${sessionId}\n${text}`).digest("hex").slice(0, 12)}`,
+    sourceSessionId: sessionId,
+    text,
+    createdAt,
+    provenance,
+  }));
 
-  // Deduplicate the model's own output first: two identical bullets share one
-  // canonical id, so they must not append twice.
-  const uniqueDerived = dedupeByText(derived.records);
-
-  const suggestions = await withMemoryDecisionLock(workspaceRoot, async () => {
-    await readSuggestionRecords(workspaceRoot);
-    await readDecisionLogRecords(workspaceRoot);
+  return withMemoryDecisionLock(workspaceRoot, async () => {
     await runCompatibilityImportLocked(workspaceRoot, { now });
     const persisted = await readSuggestionRecords(workspaceRoot);
     const decisionLog = foldDecisionLog(await readDecisionLogRecords(workspaceRoot));
 
-    const results: SuggestedMemory[] = [];
+    const results: CapturedMemory[] = [];
     let appendedLine = persisted.length;
-    for (const record of uniqueDerived) {
+    for (const record of records) {
       const existing = persisted.find(
         (candidate) =>
           candidate.sourceSessionId === record.sourceSessionId &&
@@ -151,69 +155,37 @@ export async function suggestMemoryFromSession(
     }
     return results;
   });
-
-  return {
-    sourceSessionId: sessionId,
-    admitted: true,
-    ...(derived.derivationSessionId ? { derivationSessionId: derived.derivationSessionId } : {}),
-    suggestions,
-  };
 }
 
-interface DerivedSuggestions {
-  admitted: boolean;
-  derivationSessionId?: string;
-  records: VersionedMemorySuggestion[];
+interface CaptureContext {
+  tracePath: string;
+  traceBytes: Buffer;
+  lifecycle: SessionTraceFold;
+  signals: FrictionSignal[];
 }
 
-async function deriveSuggestions(
+async function loadCaptureContext(
   workspaceRoot: string,
   sessionId: string,
-  now: () => Date,
-  options: SuggestMemoryOptions,
-): Promise<DerivedSuggestions> {
+): Promise<CaptureContext> {
   const tracePath = await findSessionTracePath(workspaceRoot, sessionId);
   const traceBytes = await readFile(tracePath);
   const events = (await readTraceFile(tracePath)).filter(isTraceEvent);
   const lifecycle = foldSessionTrace(events);
   if (!lifecycle)
     throw new Error(`Session trace does not contain session_started: ${sessionId}`);
+  const signals = detectFrictionSignals(events).signals;
+  return { tracePath, traceBytes, lifecycle, signals };
+}
 
-  const gate = detectFrictionSignals(events);
-  if (!gate.admitted) return { admitted: false, records: [] };
-
-  if (!options.modelClient)
-    throw new Error(
-      `A model client is required to derive Memory Suggestions from a Session carrying a Friction Signal: ${sessionId}`,
-    );
-
+function buildProvenance(
+  workspaceRoot: string,
+  { tracePath, traceBytes, lifecycle, signals }: CaptureContext,
+): MemorySuggestionProvenance {
   const startedAt = lifecycle.startedAt;
-  // A Session that hit Friction but never recorded `session_finished` is still
-  // examined (the gate is friction, not completion); its provenance ends at the
-  // last recorded Trace event rather than a finish it never reached.
-  const finishedAt = lifecycle.finishedAt ?? events.at(-1)?.ts ?? startedAt;
-  if (!startedAt || !finishedAt)
-    throw new Error(
-      `Session does not contain start-time evidence for Memory Suggestion provenance: ${sessionId}`,
-    );
-
-  const retrospective = await runRetrospectiveSession({
-    workspaceRoot,
-    modelClient: options.modelClient,
-    sourceSessionId: sessionId,
-    sourceTraceContent: traceBytes.toString("utf8"),
-    frictionSignals: gate.signals,
-    anchorFiles: await existingAnchorFiles(workspaceRoot),
-    ...(options.homeDir ? { homeDir: options.homeDir } : {}),
-    ...(options.debug ? { debug: options.debug } : {}),
-    ...(options.budgetUsd !== undefined ? { budgetUsd: options.budgetUsd } : {}),
-    ...(options.signal ? { signal: options.signal } : {}),
-  });
-  const derivationSessionId = retrospective.session.id;
-  const suggestions = retrospective.completion?.suggestions ?? [];
-
-  const provenance: MemorySuggestionProvenance = {
-    derivation: { frictionSignals: boundFrictionSignals(gate.signals) },
+  const finishedAt = lifecycle.finishedAt ?? startedAt;
+  return {
+    derivation: signals.length > 0 ? { frictionSignals: boundFrictionSignals(signals) } : {},
     trace: {
       path: relative(workspaceRoot, tracePath).replaceAll("\\", "/"),
       sha256: createHash("sha256").update(traceBytes).digest("hex"),
@@ -225,50 +197,16 @@ async function deriveSuggestions(
       startedAt,
       finishedAt,
     },
-    derivationSessionId,
   };
-
-  const createdAt = now().toISOString();
-  const records = suggestions.map((text) => ({
-    schemaVersion: 1 as const,
-    id: `mem_${createHash("sha256")
-      .update(`${sessionId}\n${text}`)
-      .digest("hex")
-      .slice(0, 12)}`,
-    sourceSessionId: sessionId,
-    text,
-    createdAt,
-    provenance,
-  }));
-
-  return { admitted: true, derivationSessionId, records };
 }
 
-function dedupeByText(
-  records: VersionedMemorySuggestion[],
-): VersionedMemorySuggestion[] {
+function dedupeText(texts: string[]): string[] {
   const seen = new Set<string>();
-  return records.filter((record) => {
-    if (seen.has(record.text)) return false;
-    seen.add(record.text);
+  return texts.filter((text) => {
+    if (seen.has(text)) return false;
+    seen.add(text);
     return true;
   });
-}
-
-/** The Anchor Files a Retrospective Session should compare against, filtered to
- * the ones this workspace actually has so a missing file never fails a
- * derivation launch. */
-async function existingAnchorFiles(workspaceRoot: string): Promise<string[]> {
-  const present: string[] = [];
-  for (const file of RETROSPECTIVE_ANCHOR_FILES) {
-    try {
-      await access(join(workspaceRoot, file));
-      present.push(file);
-    } catch {
-      // A workspace without this Anchor File simply omits it from the comparison.
-    }
-  }
-  return present;
 }
 
 function boundFrictionSignals(signals: FrictionSignal[]): BoundedFrictionSignals {

@@ -19,14 +19,3 @@ export {
   type WritingSessionInput,
   type WritingSessionResult,
 } from "./writing.js";
-export {
-  createRetrospectiveWorkflowDefinition,
-  runRetrospectiveSession,
-  parseSuggestionLines,
-  RETROSPECTIVE_ANCHOR_FILES,
-  RETROSPECTIVE_NONE_SENTINEL,
-  type RetrospectiveSessionInput,
-  type RetrospectiveSessionResult,
-  type RetrospectiveSuggestions,
-  type RetrospectiveWorkflowInput,
-} from "./retrospective.js";

@@ -52,12 +52,8 @@ _Avoid_: Chat answer, summary blob, raw model output, notes file
 The lean structured outcome a Browser Workbench page-summarization Session delivers from the explicitly captured current page: a summary and key concepts in a fixed two-section shape, for fast page understanding rather than study. Its claims must be supported by the captured page content. A Page Brief is not a reduced Learning Pack: it never carries source links, open questions, or review prompts, and Learning Pack invariants do not apply to it. Like the pack, the brief is the normalized final outcome; streamed text is live presentation, not the brief.
 _Avoid_: Learning Pack, trimmed pack, chat answer, highlight list
 
-**Retrospective Workflow**:
-The Forgelet workflow that examines one finished Session's Trace as attached source material and proposes Memory Suggestions from what that Session discovered. It is the proposal side of Durable Memory and the only model-backed step in it; Project Memory Review stays deterministic and model-free. A Retrospective Session never reads the workspace, never continues the Session it examines, and proposes nothing when that Session carries no Friction Signal.
-_Avoid_: Memory Workflow, Memory Review Workflow, Session Continuation, reflection loop, self-improvement
-
 **Friction Signal**:
-Trace evidence that a Session's expectation did not match the workspace: a Tool Observation that failed, or a Permission Policy decision that denied the call or required confirmation. A Friction Signal marks where a discovered convention is most likely to be found, and its presence is the deterministic gate a Session must pass before a Retrospective Session examines it. It is evidence about where to look, not a defect report and not a measure of Session quality.
+Trace evidence that a Session's expectation did not match the workspace: a Tool Observation that failed, or a Permission Policy decision that denied the call or required confirmation. A Friction Signal marks where a discovered convention is most likely to be found, and its presence is the deterministic gate that decides whether a finished Session prompts its user to capture a Durable Memory entry (ADR 0076). It is evidence about where to look, not a defect report and not a measure of Session quality.
 _Avoid_: Error, failure, defect report, retry, session quality signal
 
 **Session**:

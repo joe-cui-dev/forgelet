@@ -797,19 +797,22 @@ test("parses memory commands", () => {
     kind: "memory-show",
     suggestionId: "mem_123"
   });
-  expect(parseArgs(["memory", "suggest", "sess_123"])).toEqual({
-    kind: "memory-suggest",
-    sessionId: "sess_123"
+  expect(parseArgs(["memory", "add", "Remember", "this", "convention"])).toEqual({
+    kind: "memory-add",
+    text: "Remember this convention",
   });
-  expect(parseArgs(["memory", "suggest", "--all"])).toEqual({
-    kind: "memory-suggest-all",
+  expect(
+    parseArgs(["memory", "add", "--session", "sess_123", "Remember this"]),
+  ).toEqual({
+    kind: "memory-add",
+    sessionId: "sess_123",
+    text: "Remember this",
   });
-  expect(parseArgs(["memory", "suggest", "--since", "10"])).toEqual({
-    kind: "memory-suggest-all",
-    since: 10,
-  });
-  expect(() => parseArgs(["memory", "suggest", "--since", "0"])).toThrow(
-    /positive integer/,
+  expect(() => parseArgs(["memory", "add"])).toThrow(
+    /Usage: forge memory add/,
+  );
+  expect(() => parseArgs(["memory", "add", "--session"])).toThrow(
+    /Missing value for --session/,
   );
   expect(parseArgs(["memory", "accept", "mem_123"])).toEqual({
     kind: "memory-accept",

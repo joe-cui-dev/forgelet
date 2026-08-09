@@ -53,6 +53,32 @@ export function detectFrictionSignals(events: KnownTraceEvent[]): FrictionGateRe
   return { admitted: signals.length > 0, signals };
 }
 
+/** Renders the Friction Signals for a human at a terminal, one short line
+ * each: which tool call failed or which permission was denied, and why. This is
+ * what the Session-end capture prompt shows before asking for a Memory entry
+ * (ADR 0076), so the user does not have to recall a wall they hit hundreds of
+ * Trace lines ago. Returns one numbered line per signal, with no header. */
+export function formatFrictionSignalsForHuman(signals: FrictionSignal[]): string[] {
+  return signals.map((signal, index) => `${index + 1}. ${describeFrictionSignal(signal)}`);
+}
+
+function describeFrictionSignal(signal: FrictionSignal): string {
+  if (signal.kind === "tool_failure") {
+    return (
+      `${signal.toolName} failed` +
+      (signal.path ? ` on ${signal.path}` : "") +
+      (signal.error ? `: ${signal.error}` : signal.errorCode ? ` [${signal.errorCode}]` : "")
+    );
+  }
+  const subject = signal.toolName ?? "a tool call";
+  const verb = signal.decision === "deny" ? "was denied" : "needed confirmation";
+  return (
+    `${subject} ${verb}` +
+    (signal.capability ? ` (${signal.capability})` : "") +
+    (signal.reason ? `: ${signal.reason}` : "")
+  );
+}
+
 function toolFailureSignal(
   payload: Extract<KnownTraceEvent, { type: "tool_result" }>["payload"],
 ): FrictionSignal {

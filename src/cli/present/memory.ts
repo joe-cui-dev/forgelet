@@ -1,8 +1,6 @@
-import type { SuggestMemoryResult } from "../../memory/index.js";
-import type {
-  MemorySuggestBatchProgress,
-  MemorySuggestBatchReport,
-} from "../commands/memory.js";
+import type { CapturedMemory } from "../../memory/index.js";
+import type { FrictionSignal } from "../../memory/frictionSignal.js";
+import { formatFrictionSignalsForHuman } from "../../memory/frictionSignal.js";
 import type {
   MemoryReviewItem,
   MemoryReviewList,
@@ -61,67 +59,50 @@ function decidedHint(count: number): string {
     : `${count} decided suggestions recorded. Run forge memory list --all to include them.`;
 }
 
-export function formatMemorySuggestion(result: SuggestMemoryResult): string {
-  if (!result.admitted)
-    return `No Friction Signal in Session ${result.sourceSessionId}; no Memory Suggestion proposed.`;
-
-  const header = result.derivationSessionId
-    ? `Retrospective Session ${result.derivationSessionId} examined ${result.sourceSessionId}.`
-    : `Examined Session ${result.sourceSessionId}.`;
-  if (result.suggestions.length === 0)
-    return [header, "No Memory Suggestion met the bar."].join("\n");
-
+/** The receipt for a capture — `forge memory add` or the Session-end prompt:
+ * one line per recorded suggestion, distinguishing a new proposal from a line
+ * this Session already carried. */
+export function formatMemoryCapture(
+  sessionId: string,
+  captured: CapturedMemory[],
+): string {
+  if (captured.length === 0)
+    return `Nothing captured for Session ${sessionId}.`;
+  const created = captured.filter((entry) => entry.outcome === "created").length;
+  const existing = captured.length - created;
   const lines = [
-    header,
-    `${result.suggestions.length} Memory Suggestion${result.suggestions.length === 1 ? "" : "s"}:`,
+    `Captured ${created} new Memory Suggestion${created === 1 ? "" : "s"}` +
+      (existing > 0 ? ` (${existing} already recorded)` : "") +
+      ` for Session ${sessionId}:`,
   ];
-  for (const { suggestion, state, outcome } of result.suggestions) {
+  for (const { suggestion, outcome } of captured) {
     lines.push(
-      `- ${suggestion.id} (${outcome === "created" ? "new" : "existing"} proposal, ${stateLabel(state)})`,
+      `- ${suggestion.id} (${outcome === "created" ? "new" : "existing"} proposal)`,
       `  ${suggestion.text}`,
     );
   }
+  lines.push("Review with: forge memory list");
   return lines.join("\n");
 }
 
-/** One live progress line for `forge memory suggest --all`, written to stderr.
- * `examining` marks the Session a possibly-slow model call is about to run on;
- * `done` reports its outcome. */
-export function formatMemorySuggestBatchProgress(
-  progress: MemorySuggestBatchProgress,
+/** The friction block shown before the Session-end capture prompt, and printed
+ * into a non-TTY Session's final output so it survives for later backfill
+ * (ADR 0076). */
+export function formatSessionFriction(signals: FrictionSignal[]): string[] {
+  if (signals.length === 0) return [];
+  return ["This Session hit friction:", ...formatFrictionSignalsForHuman(signals)];
+}
+
+/** The non-TTY tail: the friction points plus how to record a memory later,
+ * appended to the Session output when the capture prompt cannot run. */
+export function formatNonInteractiveCaptureHint(
+  sessionId: string,
+  signals: FrictionSignal[],
 ): string {
-  const counter = `[${progress.index}/${progress.total}]`;
-  if (progress.phase === "examining")
-    return `${counter} examining ${progress.sessionId} …`;
-  if (progress.status === "skipped")
-    return `${counter} ${progress.sessionId} — no Friction Signal`;
-  if (progress.status === "failed")
-    return `${counter} ${progress.sessionId} — failed: ${progress.error ?? "unknown error"}`;
-  const count = progress.result?.suggestions.length ?? 0;
-  return `${counter} ${progress.sessionId} — ${count} suggestion${count === 1 ? "" : "s"}`;
-}
-
-export function formatMemorySuggestBatch(report: MemorySuggestBatchReport): string {
-  const lines: string[] = [];
-  for (const entry of report.entries) {
-    if (entry.error) {
-      lines.push(`${entry.sessionId}: derivation failed — ${entry.error}`);
-      continue;
-    }
-    const result = entry.result;
-    if (!result) continue;
-    const created = result.suggestions.filter((item) => item.outcome === "created").length;
-    const existing = result.suggestions.length - created;
-    lines.push(
-      `${entry.sessionId}: ${result.suggestions.length} suggestion${result.suggestions.length === 1 ? "" : "s"} (${created} new, ${existing} existing)`,
-    );
-    for (const item of result.suggestions)
-      lines.push(`  - ${item.suggestion.id}: ${item.suggestion.text}`);
-  }
-  lines.push(
-    `Examined ${report.examined} Session${report.examined === 1 ? "" : "s"}: ${report.admitted} admitted, ${report.created} new, ${report.existing} existing, ${report.failed} failed.`,
-  );
-  return lines.join("\n");
+  return [
+    ...formatSessionFriction(signals),
+    `If any of that is worth remembering, add it with: forge memory add --session ${sessionId} "..."`,
+  ].join("\n");
 }
 
 /** Concise, evidence-aware receipt for `forge memory accept|reject`: leads

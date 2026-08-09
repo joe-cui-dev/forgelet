@@ -6,7 +6,7 @@ import { helpText } from "./help.js";
 import { loadConfig, setGlobalConfigValue } from "../config/index.js";
 import { explainSession } from "../explain/index.js";
 import { formatDebugTranscriptShow } from "../debugTranscript/index.js";
-import { runMemorySuggestCommand, runMemorySuggestBatchCommand } from "./commands/memory.js";
+import { runMemoryAddCommand } from "./commands/memory.js";
 import { loadCurrentBrowserSnapshot } from "../browser/index.js";
 import { installChromeNativeMessagingHost } from "../browser/nativeHostInstall.js";
 import {
@@ -31,6 +31,7 @@ import type { ApprovalHandler } from "../tools/toolRegistry.js";
 import { runRunCommand } from "./commands/run.js";
 import { runResumeCommand } from "./commands/resume.js";
 import { runDecideCommand } from "./commands/decide.js";
+import { createTerminalMemoryCapturePrompt, type MemoryCapturePrompt } from "./wiring.js";
 import {
   createInteractiveTerminalOutputController,
   type InteractiveTerminalOutputController,
@@ -70,6 +71,10 @@ export interface RunCliOptions {
   ) => Promise<ModelClient>;
   approvalHandler?: ApprovalHandler;
   decidePrompt?: (prompt: string) => Promise<string>;
+  /** The Session-end Durable Memory capture prompt (ADR 0076). Present only for
+   * an interactive terminal; absent means a non-TTY Session that prints its
+   * friction for later backfill instead of blocking. */
+  capturePrompt?: MemoryCapturePrompt;
   onLiveEvent?: SessionLiveEventSink;
 }
 
@@ -191,10 +196,8 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
             await showMemoryReview(workspaceRoot, command.suggestionId),
           ),
         );
-      case "memory-suggest":
-        return ok(await runMemorySuggestCommand(command, { workspaceRoot, options }));
-      case "memory-suggest-all":
-        return ok(await runMemorySuggestBatchCommand(command, { workspaceRoot, options }));
+      case "memory-add":
+        return ok(await runMemoryAddCommand(command, { workspaceRoot, options }));
       case "memory-accept":
         return ok(formatMemoryDecisionReceipt(await acceptMemorySuggestion(workspaceRoot, command.suggestionId)));
       case "memory-reject":
@@ -269,7 +272,12 @@ async function main(): Promise<void> {
         )
       : undefined;
   const argv = process.argv.slice(2);
+  const capturePrompt =
+    process.stdin.isTTY && process.stderr.isTTY
+      ? createTerminalMemoryCapturePrompt()
+      : undefined;
   const result = await runCli(argv, {
+    ...(capturePrompt ? { capturePrompt } : {}),
     onLiveEvent: terminalOutput?.onLiveEvent,
   });
   if (result.stdout) {

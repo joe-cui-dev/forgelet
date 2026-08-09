@@ -66,7 +66,7 @@ ADR filenames are self-describing (for example `0019-conversation-folds-into-rol
 - Keep ADRs short and decision-focused.
 - Delete completed execution plans instead of archiving them.
 - When adding a top-level `src/` directory, add it to the Source Map above in the same change.
-- Prefer source, tests, and `.forgelet/sessions/*.jsonl` traces over stale prose when behavior is in doubt.
+- Prefer source and tests over stale prose when behavior is in doubt; inspect a Session's Trace with `forge sessions show <id>` or `forge explain <id>`, since default read scope denies the raw `.forgelet/sessions/*.jsonl` files (ADR 0069).
 
 ## Agent skills
 

@@ -18,7 +18,7 @@ Current implemented surfaces:
 - `forge browser read-current` and `forge browser install-host` for read-only browser snapshots.
 - `forge resume` for child Session Continuations.
 - `forge sessions` (with `running` and `paused` states), `forge explain`, and config commands for review and operation.
-- `forge memory suggest` for versioned, idempotent Memory Suggestions, and Project Memory Review (`forge memory list/show/accept/reject`) for a guided, deterministic, model-free decision queue over them, backed by the append-only Memory Decision Log (ADR 0035).
+- In-session memory capture (a Session-end prompt gated on Friction Signals, plus `forge memory add`) for versioned, idempotent Memory Suggestions, and Project Memory Review (`forge memory list/show/accept/reject`) for a guided, deterministic, model-free decision queue over them, backed by the append-only Memory Decision Log (ADR 0035).
 
 ## Long-Term Direction
 
@@ -28,7 +28,7 @@ Forgelet's destination is a bounded autonomous agent: it acts on the user's beha
    The user starts a long task interactively, declares an Effect Envelope — write scope, command allowlist, budget — and leaves. The Session continues unattended, auto-approving confirmable actions inside the envelope with Trace evidence, and pauses in place as the same Session when it needs anything outside it (ADR 0026, ADR 0027). Paused Sessions surface in a CLI Decision Queue, and deciding from the queue resumes the Session; finished Sessions surface with their outcomes in `forge sessions`, not in the queue. The CLI remains the decision surface; the Local Review UI stays sequenced per ADR 0009, with its long-term job re-framed as the richer review surface for background outcomes.
 
 2. Memory depth before frequency:
-   Unattended runs replace interactive steering with remembered guidance, so memory quality gates the ladder. The gap is supply, not selection: Durable Memory holds only conventions discovered in real Sessions and not already declared in the Anchor Files. The committed slice is the Retrospective Workflow (ADR 0075) — a Memory Suggestion is derived by a model-backed Session that reads one finished Session's Trace, and only Sessions carrying a Friction Signal are examined. Memory Graduation into `AGENTS.md` stays deferred until the staging area has entries worth graduating, and automatic proposal at Session end waits until derivation quality is demonstrated. Bounded Memory Recall and personal Memory Scope are deliberately not on this path — a staging area drained by graduation stays small enough for whole-file injection (ADR 0064). Writes stay user-approved per ADR 0007; memory suggestions produced by background Sessions land in the Decision Queue.
+   Unattended runs replace interactive steering with remembered guidance, so memory quality gates the ladder. The gap is supply, not selection: Durable Memory holds only conventions discovered in real Sessions and not already declared in the Anchor Files. The committed slice is in-session capture (ADR 0076): a Session that hit a Friction Signal prompts its user to write the entry at the end, because model derivation from friction was tried and falsified (ADR 0075). Retrieval belongs to the machine, wording to the human. Memory Graduation into `AGENTS.md` stays deferred until the staging area has entries worth graduating. Bounded Memory Recall and personal Memory Scope are deliberately not on this path — a staging area drained by graduation stays small enough for whole-file injection (ADR 0064). Writes stay user-approved per ADR 0007. A completed Background Session cannot prompt, so it prints its Friction Signals for the user to backfill with `forge memory add` rather than queueing a suggestion.
 
 3. Scheduled Routines paired with read-only external sources:
    Recurring user-declared Sessions — nightly repo digests, learning review packs — reuse the Effect Envelope and the Decision Queue; the scheduler is the only new part. They advance together with read-only external Tool Providers (issue trackers, docs, feeds) whose output enters Sessions as Context Attachments, following the Browser Context Bridge precedent, because routine runs without fresh external input produce mediocre output.
@@ -37,22 +37,19 @@ Far-future and not committed: event-triggered Sessions, proactive suggestions, a
 
 ## Next Candidate Slices
 
-0. Retrospective Workflow (committed, ladder rung 2):
-   Replace the actionable-audit derivation behind `forge memory suggest` with a Retrospective Session gated on Friction Signals, add a batch form for existing Sessions, and flatten the Rendered Memory Block. See ADR 0075 for the decision and its retreat criterion.
-
-1. Diagnose workflow:
+0. Diagnose workflow:
    Add a debugging workflow that follows reproduce, minimize, hypothesize, instrument, fix, and regression-test stages.
 
-2. Test discovery improvements:
+1. Test discovery improvements:
    Help Coding Sessions find the right verification command before editing.
 
-3. Model pricing and diagnostics:
+2. Model pricing and diagnostics:
    Make provider/model availability, routing, and estimated cost easier to inspect.
 
-4. Local review UI:
+3. Local review UI:
    Add an inspect-and-review web surface after the CLI workflows remain stable. Its primary long-term job is reviewing background Session outcomes and Decision Queue items.
 
-5. Shared types decomposition:
+4. Shared types decomposition:
    Split `src/types.ts` by owning module: model-client contract types move under `src/models`, session and audit types to their owning modules. Unblocked now that the CLI decomposition has landed.
 
 ## Non-Goals

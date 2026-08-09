@@ -462,27 +462,22 @@ async function writeFrictionSession(workspaceRoot: string, sessionId: string): P
   );
 }
 
-test("CLI derives a Memory Suggestion from a Session carrying a Friction Signal", async () => {
+test("CLI captures a Memory Suggestion for a named Session with memory add", async () => {
   const workspaceRoot = await mkdtemp(
-    join(tmpdir(), "forgelet-cli-memory-suggest-"),
+    join(tmpdir(), "forgelet-cli-memory-add-"),
   );
   await writeFrictionSession(workspaceRoot, "sess_memory");
-  const modelClient = new FakeModelClient([
-    {
-      content: "- In this workspace, search_text expects a directory, not a single file path.",
-      toolCalls: [],
-    },
-  ]);
 
-  const result = await runCli(["memory", "suggest", "sess_memory"], {
-    workspaceRoot,
-    createLiveModelClient: async () => modelClient,
-  });
+  const text = "In this workspace, search_text matches literal substrings, not regex.";
+  const result = await runCli(
+    ["memory", "add", "--session", "sess_memory", text],
+    { workspaceRoot },
+  );
 
   expect(result.exitCode).toBe(0);
-  expect(result.stdout).toMatch(/examined sess_memory/);
+  expect(result.stdout).toMatch(/Captured 1 new Memory Suggestion for Session sess_memory/);
   expect(result.stdout).toMatch(/mem_[0-9a-f]+ \(new proposal/);
-  expect(result.stdout).toMatch(/search_text expects a directory/);
+  expect(result.stdout).toContain(text);
 
   const store = await readFile(
     join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"),
@@ -492,60 +487,58 @@ test("CLI derives a Memory Suggestion from a Session carrying a Friction Signal"
   expect(suggestion).toMatchObject({
     schemaVersion: 1,
     sourceSessionId: "sess_memory",
+    text,
     provenance: {
       derivation: { frictionSignals: { total: 1 } },
       trace: expect.objectContaining({ path: ".forgelet/sessions/sess_memory.jsonl" }),
     },
   });
   expect(suggestion).not.toHaveProperty("status");
-  expect(suggestion.provenance.derivationSessionId).toMatch(/^sess_/);
+  expect(suggestion.provenance).not.toHaveProperty("derivationSessionId");
 
-  // A second derivation deduplicates to the existing proposal.
-  const repeatModel = new FakeModelClient([
-    {
-      content: "- In this workspace, search_text expects a directory, not a single file path.",
-      toolCalls: [],
-    },
-  ]);
-  const repeated = await runCli(["memory", "suggest", "sess_memory"], {
-    workspaceRoot,
-    createLiveModelClient: async () => repeatModel,
-  });
+  // Capturing the same line again deduplicates to the existing proposal.
+  const repeated = await runCli(
+    ["memory", "add", "--session", "sess_memory", text],
+    { workspaceRoot },
+  );
   expect(repeated.exitCode).toBe(0);
   expect(repeated.stdout).toContain(`${suggestion.id} (existing proposal`);
   expect(await readFile(join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"), "utf8"))
     .toBe(store);
 });
 
-test("CLI proposes nothing for a Session with no Friction Signal", async () => {
+test("CLI memory add defaults to the most recent finished Session", async () => {
   const workspaceRoot = await mkdtemp(
-    join(tmpdir(), "forgelet-cli-memory-quiet-"),
+    join(tmpdir(), "forgelet-cli-memory-add-default-"),
   );
-  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
-  await mkdir(sessionDir, { recursive: true });
-  await writeFile(
-    join(sessionDir, "sess_quiet.jsonl"),
-    [
-      JSON.stringify({
-        type: "session_started",
-        ts: "2026-06-20T00:00:00.000Z",
-        sessionId: "sess_quiet",
-        payload: { workflow: "coding", startedAt: "2026-06-20T00:00:00.000Z" },
-      }),
-      JSON.stringify({
-        type: "session_finished",
-        ts: "2026-06-20T00:00:02.000Z",
-        sessionId: "sess_quiet",
-        payload: { status: "completed", finishedAt: "2026-06-20T00:00:02.000Z" },
-      }),
-    ].join("\n"),
-    "utf8",
-  );
+  await writeFrictionSession(workspaceRoot, "sess_recent");
 
-  const result = await runCli(["memory", "suggest", "sess_quiet"], { workspaceRoot });
+  const text = "A convention captured without naming a Session.";
+  const result = await runCli(["memory", "add", text], { workspaceRoot });
 
   expect(result.exitCode).toBe(0);
-  expect(result.stdout).toContain("No Friction Signal in Session sess_quiet");
+  expect(result.stdout).toContain("for Session sess_recent");
+
+  const store = await readFile(
+    join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"),
+    "utf8",
+  );
+  expect(JSON.parse(store.trim())).toMatchObject({
+    sourceSessionId: "sess_recent",
+    text,
+  });
+});
+
+test("CLI memory add reports when there is no finished Session to attribute to", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-cli-memory-add-none-"),
+  );
+  await mkdir(join(workspaceRoot, ".forgelet", "sessions"), { recursive: true });
+
+  const result = await runCli(["memory", "add", "Nowhere to put this."], { workspaceRoot });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toMatch(/No finished Session to attribute this memory to/);
 });
 
 test("CLI accepts a pending Memory Suggestion into Durable Memory", async () => {
@@ -581,7 +574,7 @@ test("CLI accepts a pending Memory Suggestion into Durable Memory", async () => 
     "utf8",
   );
   expect(memory).toMatch(/In this workspace, use npm test as verification\./);
-  expect(memory).toMatch(/Source Session: sess_memory/);
+  expect(memory).toMatch(/<!-- forgelet-memory mem_accept source:sess_memory -->/);
 
   // The suggestions file is append-only evidence and is never rewritten by
   // acceptance; current state comes from the Memory Decision Log instead.
@@ -1858,6 +1851,105 @@ test("CLI default coding run creates a model-backed Session", async () => {
   expect(events.some((event) => event.type === "model_turn")).toBe(true);
 });
 
+test("CLI prompts for a Durable Memory entry after a Session that hit friction", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-capture-prompt-"));
+  const modelClient = new FakeModelClient([
+    {
+      content: "Trying to read a missing file.",
+      toolCalls: [{ id: "call_miss", name: "read_file", input: { path: "does-not-exist.md" } }],
+    },
+    { content: "Done inspecting.", toolCalls: [] },
+  ]);
+  let promptedWith: { sessionId: string; frictionLines: string[] } | undefined;
+
+  const result = await runCli(["code", "inspect this repo"], {
+    workspaceRoot,
+    env: {},
+    createLiveModelClient: async () => modelClient,
+    capturePrompt: async (input) => {
+      promptedWith = input;
+      return ["In this workspace, read_file needs an existing path."];
+    },
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(promptedWith).toBeDefined();
+  expect(promptedWith?.frictionLines.join("\n")).toMatch(/This Session hit friction/);
+  expect(promptedWith?.frictionLines.join("\n")).toMatch(/read_file failed/);
+  expect(result.stdout).toMatch(/Captured 1 new Memory Suggestion/);
+  expect(result.stdout).toMatch(/In this workspace, read_file needs an existing path\./);
+
+  const store = await readFile(
+    join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"),
+    "utf8",
+  );
+  expect(JSON.parse(store.trim())).toMatchObject({
+    schemaVersion: 1,
+    sourceSessionId: promptedWith?.sessionId,
+    text: "In this workspace, read_file needs an existing path.",
+    provenance: { derivation: { frictionSignals: { total: 1 } } },
+  });
+});
+
+test("CLI non-TTY Session prints friction for backfill instead of blocking", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-capture-nontty-"));
+  const modelClient = new FakeModelClient([
+    {
+      content: "Trying to read a missing file.",
+      toolCalls: [{ id: "call_miss", name: "read_file", input: { path: "does-not-exist.md" } }],
+    },
+    { content: "Done inspecting.", toolCalls: [] },
+  ]);
+
+  // No capturePrompt option: the non-interactive path.
+  const result = await runCli(["code", "inspect this repo"], {
+    workspaceRoot,
+    env: {},
+    createLiveModelClient: async () => modelClient,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toMatch(/This Session hit friction/);
+  expect(result.stdout).toMatch(/read_file failed/);
+  expect(result.stdout).toMatch(/forge memory add --session sess_/);
+  // Nothing is recorded until the user backfills.
+  await expect(
+    readFile(join(workspaceRoot, ".forgelet", "memory-suggestions.jsonl"), "utf8"),
+  ).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+test("CLI capture prompt stays silent when disabled by config", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-capture-off-"));
+  await mkdir(join(workspaceRoot, ".forgelet"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "config.json"),
+    JSON.stringify({ memoryCapturePrompt: false }),
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([
+    {
+      content: "Trying to read a missing file.",
+      toolCalls: [{ id: "call_miss", name: "read_file", input: { path: "does-not-exist.md" } }],
+    },
+    { content: "Done inspecting.", toolCalls: [] },
+  ]);
+  let prompted = false;
+
+  const result = await runCli(["code", "inspect this repo"], {
+    workspaceRoot,
+    env: {},
+    createLiveModelClient: async () => modelClient,
+    capturePrompt: async (input) => {
+      prompted = true;
+      return [];
+    },
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(prompted).toBe(false);
+  expect(result.stdout).not.toMatch(/This Session hit friction/);
+});
+
 test("CLI coding run with browser context attaches browser content without storing full page text in the Trace", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-browser-code-"));
   const homeDir = await mkdtemp(join(tmpdir(), "forgelet-cli-browser-code-home-"));
@@ -2329,8 +2421,9 @@ test("CLI help documents the active observation config key", async () => {
   expect(result.stdout).toMatch(/forge write artifacts list/);
   expect(result.stdout).toMatch(/forge write artifacts show <sessionId> --full/);
   expect(result.stdout).toMatch(
-    /config set supports memoryFile, activeContext config keys, and provider API key env vars/,
+    /config set supports memoryFile, memoryCapturePrompt, activeContext config keys, and provider API key env vars/,
   );
+  expect(result.stdout).toMatch(/forge memory add "<text>"/);
 });
 
 test("CLI rejects an invalid active observation working-set target", async () => {

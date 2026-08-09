@@ -63,8 +63,8 @@ Usage:
   forge explain <sessionId>
   forge memory list [--all]
   forge memory show <suggestionId>
-  forge memory suggest <sessionId>
-  forge memory suggest --all [--since <N>]
+  forge memory add "<text>"
+  forge memory add --session <sessionId> "<text>"
   forge memory accept <suggestionId>
   forge memory reject <suggestionId>
 
@@ -77,6 +77,7 @@ Session Continuation supports live Coding Workflow resume. Use plain resume for 
 Repeat --write-scope with workspace-relative path prefixes (or "." for the whole workspace) to declare a coding run's Effect Envelope; this is the only switch into background semantics, so no separate flag is needed. Within the envelope, confirm-tier actions auto-approve and are cited in the Trace; the command allowlist defaults to every configured safe command unless narrowed with --allow-command. An action outside the envelope pauses the Session in place instead of prompting and exits; use forge queue to list paused Sessions and forge decide <sessionId> (or forge decide with exactly one paused Session) to approve, deny, approve-and-widen, or stop it. Use --max-wall-clock-ms and --max-turns to override the wall-clock and model-turn ceilings for one run.
 Debug Transcripts are explicit local diagnostics. Use debug show for a structured preview, or debug show --full to expand the stored content.
 Workspace Profiles are the only way a non-CLI surface, such as the Browser Workbench, is authorized to a local workspace. Use browser profiles approve [--name <name>] to approve the current directory, browser profiles list to review approved profiles and the current default, browser profiles set-default <profileId> to choose the default, and browser profiles revoke <profileId> to block later use. Installing the Native Messaging host does not approve a workspace.
+Durable Memory is supplied by in-session capture: when a Session that hit a Friction Signal ends at an interactive terminal, Forgelet prints where the friction was and asks you to write a Memory line, if any is worth writing; a non-interactive Session prints the friction instead so you can backfill with memory add. memory add [--session <id>] "<text>" records one line as a Memory Suggestion with provenance to the source Session (defaulting to the most recent finished one). Retrieval is Forgelet's job; the wording is yours.
 Project Memory Review (memory list/show/accept/reject) is a guided, deterministic, model-free review queue over project-scope Memory Suggestions: list shows actionable items with plain-language state and a next command, list --all adds decided history, show previews the exact evidence and Rendered Memory Block an accept will write, and accept/reject record the user's explicit decision as the commit point in the Memory Decision Log. No command in this surface starts a model client, Workflow, Session, or Session Trace, and Durable Memory is written only after explicit user approval.
-V1 config set supports memoryFile, activeContext config keys, and provider API key env vars.`;
+V1 config set supports memoryFile, memoryCapturePrompt, activeContext config keys, and provider API key env vars.`;
 }

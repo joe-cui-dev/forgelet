@@ -114,6 +114,40 @@ export function createTerminalApprovalHandler(): ApprovalHandler {
   };
 }
 
+/** The Session-end Durable Memory capture prompt (ADR 0076). It prints where
+ * the Session hit friction, then collects free-text Memory lines until a blank
+ * line ends the input — the user is not constrained to answer a listed friction
+ * point. Output goes to stderr so the Session's stdout stays the summary. */
+export type MemoryCapturePrompt = (input: {
+  sessionId: string;
+  frictionLines: string[];
+}) => Promise<string[]>;
+
+export function createTerminalMemoryCapturePrompt(): MemoryCapturePrompt {
+  return async ({ frictionLines }) => {
+    const readline = createInterface({
+      input: process.stdin,
+      output: process.stderr,
+    });
+    try {
+      for (const line of frictionLines) process.stderr.write(`${line}\n`);
+      process.stderr.write(
+        "\nIf that revealed a durable convention, write it as a Memory line " +
+          "(in this workspace, X is done with Y).\nBlank line to finish.\n",
+      );
+      const captured: string[] = [];
+      for (;;) {
+        const answer = (await readline.question("memory> ")).trim();
+        if (answer.length === 0) break;
+        captured.push(answer);
+      }
+      return captured;
+    } finally {
+      readline.close();
+    }
+  };
+}
+
 export function createTerminalDecidePrompt(): (prompt: string) => Promise<string> {
   return async (prompt) => {
     const readline = createInterface({

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
 import { loadConfig } from "../config/index.js";
+import { memoryBlockMarkerPrefix } from "./renderedMemoryBlock.js";
 
 export interface DurableMemoryDestination {
   /** The filesystem path Forgelet actually reads and writes. */
@@ -34,8 +35,12 @@ export interface ExistingMemoryBlock {
   blockBytes: number;
 }
 
-/** Looks for the exact `## <suggestionId>` heading already present in Durable
- * Memory, so acceptance never appends a duplicate block during a repair. */
+/** Looks for a Rendered Memory Block already present in Durable Memory so
+ * acceptance never appends a duplicate during a repair. Two shapes are
+ * recognized: the flattened single-bullet block written since WP7, located by
+ * its trailing provenance marker (ADR 0076), and the legacy `## <suggestionId>`
+ * heading a v0-era acceptance wrote, so the Compatibility Import can still
+ * observe blocks written before the flattening. */
 export async function findExistingMemoryBlock(
   absolutePath: string,
   suggestionId: string,
@@ -47,6 +52,14 @@ export async function findExistingMemoryBlock(
     return undefined;
   }
   const lines = content.split("\n");
+
+  const markerPrefix = memoryBlockMarkerPrefix(suggestionId);
+  const bulletIndex = lines.findIndex((line) => line.includes(markerPrefix));
+  if (bulletIndex !== -1) {
+    const block = `${lines[bulletIndex] ?? ""}\n`;
+    return hashBlock(block);
+  }
+
   const headingIndex = lines.findIndex((line) => line === `## ${suggestionId}`);
   if (headingIndex === -1) return undefined;
   let endIndex = lines.length;
@@ -60,6 +73,10 @@ export async function findExistingMemoryBlock(
     endIndex === lines.length
       ? lines.slice(headingIndex).join("\n")
       : lines.slice(headingIndex, endIndex).join("\n") + "\n";
+  return hashBlock(block);
+}
+
+function hashBlock(block: string): ExistingMemoryBlock {
   return {
     blockHash: createHash("sha256").update(block).digest("hex"),
     blockBytes: Buffer.byteLength(block, "utf8"),
