@@ -9,7 +9,6 @@ export interface RoutingConfig {
   coding: StageRoutingConfig;
   writing: StageRoutingConfig;
   learning: StageRoutingConfig;
-  retrospective: StageRoutingConfig;
   fallback: string;
 }
 
@@ -82,12 +81,6 @@ export const defaultConfig: ForgeletConfig = {
       maxConversationBytes: 128 * 1024,
     },
     learning: {
-      default: "deepseek-v4-flash",
-      review: "deepseek-v4-flash",
-      effort: "high",
-      maxConversationBytes: 256 * 1024,
-    },
-    retrospective: {
       default: "deepseek-v4-flash",
       review: "deepseek-v4-flash",
       effort: "high",

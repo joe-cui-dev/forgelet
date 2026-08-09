@@ -54,7 +54,6 @@ describe("maxConversationBytesForRoute", () => {
       coding: { default: "deepseek-v4-flash", review: "deepseek-v4-flash" },
       writing: { default: "deepseek-v4-flash", review: "deepseek-v4-flash" },
       learning: { default: "deepseek-v4-flash", review: "deepseek-v4-flash" },
-      retrospective: { default: "deepseek-v4-flash", review: "deepseek-v4-flash" },
       fallback: "gpt-5",
     },
     activeContext: {
@@ -88,7 +87,6 @@ test("derives the output ceiling from the route conversation budget", () => {
       coding: { default: "deepseek-v4-flash", review: "deepseek-v4-flash", maxConversationBytes: 65_536 },
       writing: { default: "deepseek-v4-flash", review: "deepseek-v4-flash" },
       learning: { default: "deepseek-v4-flash", review: "deepseek-v4-flash" },
-      retrospective: { default: "deepseek-v4-flash", review: "deepseek-v4-flash" },
       fallback: "gpt-5",
     },
     activeContext: { maxConversationBytes: 65_536, observationDigestPreviewBytes: 2_048, protectedRecentTurns: 3 },
@@ -104,7 +102,6 @@ describe("maxObservationBytesForRoute", () => {
       coding: { default: "deepseek-v4-flash", review: "deepseek-v4-flash", maxConversationBytes },
       writing: { default: "deepseek-v4-flash", review: "deepseek-v4-flash" },
       learning: { default: "deepseek-v4-flash", review: "deepseek-v4-flash" },
-      retrospective: { default: "deepseek-v4-flash", review: "deepseek-v4-flash" },
       fallback: "gpt-5",
     },
     activeContext: {

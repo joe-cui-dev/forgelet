@@ -1,6 +1,6 @@
 import type { ToolObservationErrorCode } from "./observation/index.js";
 
-export type WorkflowKind = "coding" | "writing" | "learning" | "retrospective";
+export type WorkflowKind = "coding" | "writing" | "learning";
 
 export type WorkflowVariant = "creative";
 /** Style Preset names remain open to workspace-defined additions and replacements. */
