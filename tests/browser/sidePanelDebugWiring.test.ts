@@ -46,6 +46,8 @@ test("the Debug toggle restores its stored preference and persists changes witho
     "note-title": fakeElement("note-title"),
     "save-note": fakeElement("save-note"),
     "save-note-result": fakeElement("save-note-result"),
+    "settings-toggle": fakeElement("settings-toggle"),
+    "panel-settings": fakeElement("panel-settings"),
   };
 
   const stored: Record<string, unknown> = { forgeletBrowserWorkbenchDebug: true };

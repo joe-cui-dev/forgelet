@@ -44,6 +44,8 @@ test("clicking Send after a successful root Page Brief sends pageConversationSen
     "note-title": fakeElement("note-title"),
     "save-note": fakeElement("save-note"),
     "save-note-result": fakeElement("save-note-result"),
+    "settings-toggle": fakeElement("settings-toggle"),
+    "panel-settings": fakeElement("panel-settings"),
   };
 
   const sentMessages: any[] = [];
@@ -135,4 +137,17 @@ test("clicking Send after a successful root Page Brief sends pageConversationSen
     windowId: 7,
     title: "Example",
   });
+
+  // The settings footer starts collapsed so the transcript keeps the space,
+  // and the composer toggle opens and closes it without touching preferences.
+  expect(elements["panel-settings"].hidden).toBe(true);
+  expect(elements["settings-toggle"].attributes["aria-expanded"]).toBe("false");
+
+  elements["settings-toggle"].click();
+  expect(elements["panel-settings"].hidden).toBe(false);
+  expect(elements["settings-toggle"].attributes["aria-expanded"]).toBe("true");
+
+  elements["settings-toggle"].click();
+  expect(elements["panel-settings"].hidden).toBe(true);
+  expect(elements["settings-toggle"].attributes["aria-expanded"]).toBe("false");
 });

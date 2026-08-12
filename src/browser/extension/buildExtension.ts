@@ -215,6 +215,11 @@ export function sidePanelHtml(): string {
         border-top: 1px solid var(--border);
         background: var(--surface);
       }
+      /* The footer starts collapsed so the transcript keeps the vertical
+         space; [hidden] alone loses to the display: grid above. */
+      .panel-settings[hidden] {
+        display: none;
+      }
       label {
         display: block;
         color: var(--muted);
@@ -332,6 +337,20 @@ export function sidePanelHtml(): string {
         opacity: 0.5;
         cursor: not-allowed;
       }
+      /* Sits inside the composer row, so a collapsed footer costs no height. */
+      #settings-toggle {
+        padding: 5px 9px;
+        font-size: 14px;
+        line-height: 1.35;
+      }
+      #settings-toggle[aria-expanded="true"] {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      #settings-toggle:focus-visible {
+        outline: 1px solid var(--accent);
+        outline-offset: 1px;
+      }
     </style>
   </head>
   <body data-font-size="medium">
@@ -349,10 +368,11 @@ export function sidePanelHtml(): string {
       <div id="save-note-result" class="save-note-result"></div>
     </div>
     <div class="composer">
+      <button id="settings-toggle" type="button" aria-controls="panel-settings" aria-expanded="false" title="Settings" aria-label="Settings">⚙</button>
       <textarea id="question" rows="1" placeholder="Ask a question about this page…" disabled></textarea>
       <button id="send" type="button" disabled>Send</button>
     </div>
-    <footer class="panel-settings">
+    <footer class="panel-settings" id="panel-settings" hidden>
       <div class="workspace-field">
         <label for="workspace-profile">Workspace</label>
         <select id="workspace-profile"></select>

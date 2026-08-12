@@ -838,6 +838,23 @@ test("Side Panel keeps settings in a footer below the content, the composer abov
   expect(html.indexOf('id="stop"')).toBeLessThan(html.indexOf('id="workbench-root"'));
 });
 
+test("Side Panel settings footer is collapsed by default behind a composer toggle", () => {
+  const html = sidePanelHtml();
+
+  // The footer keeps its content but starts hidden so the transcript above it
+  // gets the vertical space back.
+  expect(html).toContain('id="panel-settings"');
+  expect(html).toMatch(/<footer class="panel-settings" id="panel-settings" hidden>/);
+  expect(html).toContain(".panel-settings[hidden]");
+
+  // The toggle lives in the composer row, so the collapsed state costs no
+  // extra vertical space at all.
+  expect(html).toContain('id="settings-toggle"');
+  expect(html).toContain('aria-controls="panel-settings"');
+  expect(html).toContain('aria-expanded="false"');
+  expect(html.indexOf('id="settings-toggle"')).toBeLessThan(html.indexOf('id="panel-settings"'));
+});
+
 test("font-size normalization keeps known sizes and falls back to medium", () => {
   expect(normalizeFontSizePreference("small")).toBe("small");
   expect(normalizeFontSizePreference("medium")).toBe("medium");

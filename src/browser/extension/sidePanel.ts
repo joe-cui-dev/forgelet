@@ -553,6 +553,8 @@ async function initializeSidePanel(): Promise<void> {
   const noteTitle = document.getElementById("note-title");
   const saveNote = document.getElementById("save-note");
   const saveNoteResult = document.getElementById("save-note-result");
+  const settingsToggle = document.getElementById("settings-toggle");
+  const panelSettings = document.getElementById("panel-settings");
   if (
     !output ||
     !stop ||
@@ -565,9 +567,26 @@ async function initializeSidePanel(): Promise<void> {
     !saveNoteBar ||
     !noteTitle ||
     !saveNote ||
-    !saveNoteResult
+    !saveNoteResult ||
+    !settingsToggle ||
+    !panelSettings
   )
     return;
+
+  // The settings footer is collapsed on every open, deliberately not sticky:
+  // it is a rarely-touched panel whose default state should always leave the
+  // maximum height to the conversation above it. Only the settings collapse —
+  // the composer stays visible because it is the panel's primary input, and
+  // the Save-as-Knowledge-Note bar because it already appears only once a
+  // conversation is savable and burying it would hide ADR 0077's affordance.
+  const setSettingsExpanded = (expanded: boolean): void => {
+    panelSettings.hidden = !expanded;
+    settingsToggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+  };
+  setSettingsExpanded(false);
+  settingsToggle.addEventListener("click", () => {
+    setSettingsExpanded(panelSettings.hidden === true);
+  });
 
   const windowId: number = (await chrome.windows.getCurrent()).id;
 
