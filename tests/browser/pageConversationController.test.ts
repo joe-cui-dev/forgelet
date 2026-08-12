@@ -5,6 +5,8 @@ import {
   type PageConversationBridge,
   type PageConversationNotice,
   type PageConversationStartRequest,
+  type SaveKnowledgeNoteBridgeRequest,
+  type SaveKnowledgeNoteResult,
 } from "../../src/browser/extension/pageConversationController.js";
 import type { PageConversationProjection } from "../../src/browser/extension/pageConversationProjection.js";
 import type { PageConversationFrame } from "../../src/browser/extension/pageConversationProjection.js";
@@ -44,10 +46,18 @@ interface Harness {
   notices: { windowId: number; notice: PageConversationNotice }[];
   captureCalls: number;
   captureImpl: () => Promise<Record<string, unknown>>;
+  saveCalls: SaveKnowledgeNoteBridgeRequest[];
+  saveResult: SaveKnowledgeNoteResult;
   controller: ReturnType<typeof createPageConversationController>;
 }
 
-function harness(options: { evictionByteBudget?: number; storage?: PageConversationSessionStorage; resolveDebug?: () => boolean | undefined } = {}): Harness {
+function harness(options: {
+  evictionByteBudget?: number;
+  storage?: PageConversationSessionStorage;
+  resolveDebug?: () => boolean | undefined;
+  resolveWorkspaceProfileId?: () => string | undefined;
+  profiles?: { id: string; label: string; isDefault: boolean }[];
+} = {}): Harness {
   const state: Harness = {
     starts: [],
     ports: new Map<string, PortRecord>(),
@@ -63,11 +73,17 @@ function harness(options: { evictionByteBudget?: number; storage?: PageConversat
       capturedAt: "2026-07-14T00:00:00.000Z",
       truncated: false,
     }),
+    saveCalls: [],
+    saveResult: { ok: true, path: ".forgelet/knowledge/docs-sess_1.md", headSessionId: "sess_1" },
     controller: undefined as unknown as ReturnType<typeof createPageConversationController>,
   };
   const bridge: PageConversationBridge = {
     async listProfiles() {
-      return [{ id: "profile_default", label: "Forgelet", isDefault: true }];
+      return options.profiles ?? [{ id: "profile_default", label: "Forgelet", isDefault: true }];
+    },
+    async saveKnowledgeNote(request) {
+      state.saveCalls.push(request);
+      return state.saveResult;
     },
     start(request) {
       state.starts.push(request);
@@ -98,6 +114,9 @@ function harness(options: { evictionByteBudget?: number; storage?: PageConversat
     },
     createId: idFactory(),
     ...(options.resolveDebug ? { resolveDebug: options.resolveDebug } : {}),
+    ...(options.resolveWorkspaceProfileId
+      ? { resolveWorkspaceProfileId: options.resolveWorkspaceProfileId }
+      : {}),
     broadcastProjection: (windowId, projection) => state.projections.push({ windowId, projection }),
     broadcastDelta: (windowId, delta) => state.deltas.push({ windowId, ...delta }),
     broadcastNotice: (windowId, notice) => state.notices.push({ windowId, notice }),
@@ -301,4 +320,64 @@ test("eviction is actually applied to the saved and broadcast projection, not ju
   expect(projection.turns.length).toBeLessThan(7);
   // The broadcast the panel actually renders is the bounded projection too.
   expect(h.projections.at(-1)?.projection.historyEvicted).toBe(true);
+});
+
+async function completeRoot(h: Harness, windowId: number): Promise<void> {
+  await h.controller.handleToolbarClick(windowId);
+  const invocationId = h.starts.at(-1)!.invocationId;
+  const port = h.ports.get(invocationId)!;
+  port.frame({ type: "session_ready", invocationId, sessionId: "sess_1", tracePath: "/tmp/sess_1.jsonl" });
+  port.frame({ type: "page_brief_completed", invocationId, pageBrief: { summary: "S", keyConcepts: "- K" } });
+}
+
+test("saving a completed conversation forwards the pinned identity and chosen title to the bridge", async () => {
+  const h = harness();
+  await completeRoot(h, 1);
+  const projection = h.projections.at(-1)!.projection;
+
+  const result = await h.controller.saveKnowledgeNote(1, "  My Chosen Title  ");
+
+  expect(result).toEqual({ ok: true, path: ".forgelet/knowledge/docs-sess_1.md", headSessionId: "sess_1" });
+  expect(h.saveCalls).toEqual([
+    {
+      conversationId: projection.conversationId,
+      rootSessionId: "sess_1",
+      headSessionId: "sess_1",
+      workspaceProfileId: "profile_default",
+      title: "My Chosen Title",
+    },
+  ]);
+});
+
+test("saving falls back to the captured page title when the title is blank", async () => {
+  const h = harness();
+  await completeRoot(h, 1);
+
+  await h.controller.saveKnowledgeNote(1, "   ");
+
+  expect(h.saveCalls.at(-1)?.title).toBe("Docs");
+});
+
+test("saving is refused before a root Page Brief completes and reaches no bridge", async () => {
+  const h = harness();
+  await h.controller.handleToolbarClick(1);
+
+  const result = await h.controller.saveKnowledgeNote(1, "Too Early");
+
+  expect(result.ok).toBe(false);
+  expect(h.saveCalls).toEqual([]);
+});
+
+test("a sticky Workspace Profile selection steers the next launch, falling back to the default", async () => {
+  const profiles = [
+    { id: "profile_default", label: "Forgelet", isDefault: true },
+    { id: "profile_other", label: "Other", isDefault: false },
+  ];
+  const chosen = harness({ profiles, resolveWorkspaceProfileId: () => "profile_other" });
+  await chosen.controller.handleToolbarClick(1);
+  expect(chosen.starts.at(-1)).toMatchObject({ workspaceProfileId: "profile_other" });
+
+  const stale = harness({ profiles, resolveWorkspaceProfileId: () => "profile_revoked" });
+  await stale.controller.handleToolbarClick(1);
+  expect(stale.starts.at(-1)).toMatchObject({ workspaceProfileId: "profile_default" });
 });

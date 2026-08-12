@@ -68,9 +68,27 @@ export type PageConversationStartRequest =
       question: string;
     };
 
+export interface SaveKnowledgeNoteBridgeRequest {
+  conversationId: string;
+  rootSessionId: string;
+  headSessionId: string;
+  workspaceProfileId: string;
+  title: string;
+}
+
+export type SaveKnowledgeNoteResult =
+  | { ok: true; path: string; headSessionId: string }
+  | { ok: false; error: string; code?: string };
+
 export interface PageConversationBridge {
   listProfiles(): Promise<BrowserWorkspaceProfileProjection[]>;
   start(request: PageConversationStartRequest): BrowserWorkbenchPort;
+  /** One-shot request/response promotion of the whole Page Conversation into a
+   * single Knowledge Note (ADR 0077). Distinct from `start`, which owns the
+   * streaming attempt port. */
+  saveKnowledgeNote(
+    request: SaveKnowledgeNoteBridgeRequest,
+  ): Promise<SaveKnowledgeNoteResult>;
 }
 
 export type PageConversationNotice =
@@ -98,6 +116,10 @@ export function createPageConversationController(input: {
   createId(): string;
   resolveOutputLanguage?(): string | undefined | Promise<string | undefined>;
   resolveDebug?(): boolean | undefined | Promise<boolean | undefined>;
+  /** The sticky Workspace Profile the user picked in the Side Panel (ADR
+   * 0077 decision 4). It only steers the next launch; the running attempt keeps
+   * the profile pinned in its projection. Falls back to the default profile. */
+  resolveWorkspaceProfileId?(): string | undefined | Promise<string | undefined>;
   broadcastProjection?(windowId: number, projection: PageConversationProjection): void;
   broadcastDelta?(windowId: number, delta: { invocationId: string; text: string }): void;
   broadcastNotice?(windowId: number, notice: PageConversationNotice): void;
@@ -110,6 +132,8 @@ export function createPageConversationController(input: {
   stop(windowId: number): void;
   sendFollowUp(windowId: number, question: string): Promise<void>;
   retry(windowId: number, invocationId: string): Promise<void>;
+  listWorkspaceProfiles(): Promise<BrowserWorkspaceProfileProjection[]>;
+  saveKnowledgeNote(windowId: number, title: string): Promise<SaveKnowledgeNoteResult>;
 } {
   const projections = new Map<number, PageConversationProjection>();
   const ports = new Map<string, BrowserWorkbenchPort>();
@@ -211,7 +235,13 @@ export function createPageConversationController(input: {
       }
 
       const profiles = await input.bridge.listProfiles();
-      const profile = profiles.find((candidate) => candidate.isDefault);
+      const preferredId = await input.resolveWorkspaceProfileId?.();
+      // The sticky Side Panel selection wins; a stale selection (revoked
+      // profile) falls back to the default, matching the language selector.
+      const profile =
+        (preferredId
+          ? profiles.find((candidate) => candidate.id === preferredId)
+          : undefined) ?? profiles.find((candidate) => candidate.isDefault);
       if (!profile) {
         input.broadcastNotice?.(windowId, {
           kind: "needs_profile",
@@ -311,6 +341,36 @@ export function createPageConversationController(input: {
         question,
       });
       attachPort(windowId, invocationId, port);
+    },
+
+    async listWorkspaceProfiles(): Promise<BrowserWorkspaceProfileProjection[]> {
+      return input.bridge.listProfiles();
+    },
+
+    async saveKnowledgeNote(
+      windowId: number,
+      title: string,
+    ): Promise<SaveKnowledgeNoteResult> {
+      // Recover window-scoped state first: an MV3 Service Worker may have
+      // restarted while the panel stayed open.
+      const current = await projectionFor(windowId);
+      if (!current || current.currentAttempt)
+        return {
+          ok: false,
+          error: "Wait for the current attempt to finish before saving.",
+        };
+      if (!current.rootSessionId || !current.headSessionId)
+        return {
+          ok: false,
+          error: "There is no completed Page Conversation to save yet.",
+        };
+      return input.bridge.saveKnowledgeNote({
+        conversationId: current.conversationId,
+        rootSessionId: current.rootSessionId,
+        headSessionId: current.headSessionId,
+        workspaceProfileId: current.workspaceProfileId,
+        title: title.trim() || current.source.title,
+      });
     },
 
     async retry(windowId: number, invocationId: string): Promise<void> {

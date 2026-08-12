@@ -41,6 +41,11 @@ test("the Debug toggle restores its stored preference and persists changes witho
     debug: fakeElement("debug"),
     question: fakeElement("question"),
     send: fakeElement("send"),
+    "workspace-profile": fakeElement("workspace-profile"),
+    "save-note-bar": fakeElement("save-note-bar"),
+    "note-title": fakeElement("note-title"),
+    "save-note": fakeElement("save-note"),
+    "save-note-result": fakeElement("save-note-result"),
   };
 
   const stored: Record<string, unknown> = { forgeletBrowserWorkbenchDebug: true };

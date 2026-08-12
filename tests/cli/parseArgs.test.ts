@@ -171,6 +171,41 @@ test("parses project Knowledge Note creation", () => {
   });
 });
 
+test("parses Knowledge Note creation from a whole Page Conversation", () => {
+  expect(
+    parseArgs([
+      "notes",
+      "create",
+      "--scope",
+      "project",
+      "--from-conversation",
+      "conv_abc",
+      "--title",
+      "My Note",
+    ]),
+  ).toEqual({
+    kind: "notes-create-from-conversation",
+    scope: "project",
+    conversationId: "conv_abc",
+    title: "My Note",
+  });
+});
+
+test("rejects giving both --from-session and --from-conversation", () => {
+  expect(() =>
+    parseArgs([
+      "notes",
+      "create",
+      "--scope",
+      "project",
+      "--from-session",
+      "sess_123",
+      "--from-conversation",
+      "conv_abc",
+    ]),
+  ).toThrow(/only one of --from-session or --from-conversation/);
+});
+
 test("parses project Knowledge Notes search", () => {
   expect(
     parseArgs(["notes", "search", "--scope", "project", "--limit", "5", "workflow graph"]),
@@ -187,7 +222,7 @@ test("rejects unsupported Knowledge Notes command shapes clearly", () => {
     parseArgs(["notes", "create", "--scope", "personal", "--from-session", "sess_123"]),
   ).toThrow(/Personal Knowledge Scope is not available yet/);
   expect(() => parseArgs(["notes", "create", "--scope", "project"])).toThrow(
-    /forge notes create --scope project --from-session <sessionId> \[--title <title>\]/,
+    /forge notes create --scope project \(--from-session <sessionId> \| --from-conversation <conversationId>\)/,
   );
   expect(() => parseArgs(["notes", "search", "--scope", "project"])).toThrow(
     /forge notes search --scope project \[--limit <n>\] "<query>"/,

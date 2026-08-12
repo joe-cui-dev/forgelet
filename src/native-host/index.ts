@@ -13,9 +13,18 @@ import {
   BrowserProtocolValidationError,
   runBrowserInvocation,
   validateBrowserInvocationRequest,
+  validateSaveKnowledgeNoteRequest,
   type BrowserInvocationRequest,
+  type SaveKnowledgeNoteRejectionCode,
+  type SaveKnowledgeNoteResponse,
 } from "../browser/protocol.js";
 import { createBrowserWorkbench } from "../browserWorkbench/index.js";
+import {
+  KnowledgeNotePromotionError,
+  promotePageConversationToKnowledgeNote,
+} from "../browserWorkbench/knowledgeNotePromotion.js";
+import { PageConversationHistoryUnavailableError } from "../browserWorkbench/pageConversationHistory.js";
+import { KnowledgeNoteConflictError } from "../knowledge/index.js";
 import { createDeferredLiveModelClient, createDeepSeekLiveModelClient } from "../cli/wiring.js";
 import { createBrowserLearningLauncher } from "../sessionLauncher/index.js";
 import type { ModelClient } from "../types.js";
@@ -244,6 +253,70 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+/** Promotes a whole Page Conversation into one Knowledge Note on behalf of the
+ * Side Panel (ADR 0077). Every failure returns a structured rejection with a
+ * machine-readable code so the panel can render the right recovery — a
+ * hand-edited note in particular becomes `note_conflict`, never a bare error. */
+export async function handleSaveKnowledgeNote(
+  rawRequest: unknown,
+  input: { homeDir?: string } = {},
+): Promise<SaveKnowledgeNoteResponse> {
+  let request;
+  try {
+    request = validateSaveKnowledgeNoteRequest(rawRequest);
+  } catch (error) {
+    return rejectSaveKnowledgeNote(error);
+  }
+
+  let workspaceRoot: string;
+  try {
+    const profile = await resolveWorkspaceProfile({
+      homeDir: input.homeDir,
+      profileId: request.workspaceProfileId,
+    });
+    workspaceRoot = profile.path;
+  } catch (error) {
+    return {
+      ok: false,
+      code: "workspace_profile_unavailable",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  try {
+    const note = await promotePageConversationToKnowledgeNote({
+      workspaceRoot,
+      conversationId: request.conversationId,
+      rootSessionId: request.rootSessionId,
+      headSessionId: request.headSessionId,
+      title: request.title,
+    });
+    return { ok: true, path: note.path, headSessionId: request.headSessionId };
+  } catch (error) {
+    return rejectSaveKnowledgeNote(error);
+  }
+}
+
+function rejectSaveKnowledgeNote(error: unknown): SaveKnowledgeNoteResponse {
+  const code = saveKnowledgeNoteCode(error);
+  return {
+    ok: false,
+    error: error instanceof Error ? error.message : String(error),
+    ...(code ? { code } : {}),
+  };
+}
+
+function saveKnowledgeNoteCode(
+  error: unknown,
+): SaveKnowledgeNoteRejectionCode | undefined {
+  if (error instanceof BrowserProtocolValidationError) return error.reason;
+  if (error instanceof KnowledgeNoteConflictError) return "note_conflict";
+  if (error instanceof KnowledgeNotePromotionError) return error.reason;
+  if (error instanceof PageConversationHistoryUnavailableError)
+    return "conversation_history_unavailable";
+  return undefined;
+}
+
 export function createNativeHostApplication(input: {
   homeDir?: string;
   modelClientForWorkspace?: (workspaceRoot: string) => ModelClient | undefined;
@@ -279,6 +352,12 @@ export function createNativeHostApplication(input: {
       if (message.type === "listWorkspaceProfiles") {
         const listing = await listWorkspaceProfiles({ homeDir: context.homeDir });
         await response.send({ profiles: toExtensionWorkspaceProfileProjection(listing) });
+        return;
+      }
+      if (message.type === "saveKnowledgeNote") {
+        await response.send(
+          await handleSaveKnowledgeNote(message.request, { homeDir: context.homeDir }),
+        );
         return;
       }
       if (message.type === "cancel") {

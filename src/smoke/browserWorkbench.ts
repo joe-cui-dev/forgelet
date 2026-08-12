@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, readdir } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { PassThrough, Writable } from "node:stream";
@@ -42,6 +42,7 @@ export async function runBrowserWorkbenchSmoke(): Promise<{ tracePath: string; s
     supportedAnswer("Only captured content is used.", evidence),
     "wait_for_stop",
     supportedAnswer("The retried question is answered from the capture.", evidence),
+    supportedAnswer("One more grounded answer from the capture.", evidence),
   ]);
   const run = runNativeHostStdio({
     stdin,
@@ -214,13 +215,83 @@ export async function runBrowserWorkbenchSmoke(): Promise<{ tracePath: string; s
   const finalSessionId = sessionIdFor(outputChunks, "inv_stop_retry");
   assertFrame(lastFrameFor(outputChunks, "inv_stop_retry"), { type: "page_answer_completed" }, "Stop Retry terminal");
 
+  // Promote the whole Page Conversation into a single Knowledge Note (ADR
+  // 0077): save, grow the chain, re-save (in-place overwrite), then hand-edit
+  // the note and confirm a re-save is refused without touching the file.
+  const noteTitle = "Browser Workbench Smoke Note";
+  const knowledgeDir = join(workspaceRoot, ".forgelet", "knowledge");
+  sendSave(stdin, {
+    version: 3,
+    conversationId,
+    rootSessionId,
+    headSessionId: finalSessionId,
+    workspaceProfileId: profile.id,
+    title: noteTitle,
+  });
+  const firstSave = await waitForSaveResponse(outputChunks, 1);
+  if (firstSave.ok !== true) throw new Error("Browser Workbench smoke expected the first Note save to succeed.");
+  const notePath = join(workspaceRoot, stringField(firstSave, "path"));
+  const firstNote = await readFile(notePath, "utf8");
+  if (!firstNote.includes(`# ${noteTitle}`) || !firstNote.includes(`conversationId: ${conversationId}`))
+    throw new Error("Browser Workbench smoke expected the saved Note to carry its title and conversation identity.");
+  if (await countMarkdownNotes(knowledgeDir) !== 1)
+    throw new Error("Browser Workbench smoke expected exactly one Knowledge Note after the first save.");
+
+  sendInvocation(stdin, followUpRequest({
+    conversationId,
+    actionId: "action_grow",
+    invocationId: "inv_grow",
+    workspaceProfileId: profile.id,
+    captureId: capture.captureId,
+    rootSessionId,
+    parentSessionId: finalSessionId,
+    question: "Is one more grounded question still within the capture?",
+  }));
+  await waitForTerminal(outputChunks, "inv_grow");
+  const grownHeadSessionId = sessionIdFor(outputChunks, "inv_grow");
+  assertFrame(lastFrameFor(outputChunks, "inv_grow"), { type: "page_answer_completed" }, "grow terminal");
+
+  sendSave(stdin, {
+    version: 3,
+    conversationId,
+    rootSessionId,
+    headSessionId: grownHeadSessionId,
+    workspaceProfileId: profile.id,
+    title: noteTitle,
+  });
+  const secondSave = await waitForSaveResponse(outputChunks, 2);
+  if (secondSave.ok !== true) throw new Error("Browser Workbench smoke expected the unedited Note re-save to overwrite.");
+  if (stringField(secondSave, "path") !== stringField(firstSave, "path"))
+    throw new Error("Browser Workbench smoke expected the overwrite to keep the same Note path.");
+  const secondNote = await readFile(notePath, "utf8");
+  if (secondNote === firstNote)
+    throw new Error("Browser Workbench smoke expected the re-save to grow the Note with the new turn.");
+  if (await countMarkdownNotes(knowledgeDir) !== 1)
+    throw new Error("Browser Workbench smoke expected the overwrite to leave exactly one Knowledge Note.");
+
+  const handEdited = `${secondNote}\nA human annotation the save must never clobber.\n`;
+  await writeFile(notePath, handEdited, "utf8");
+  sendSave(stdin, {
+    version: 3,
+    conversationId,
+    rootSessionId,
+    headSessionId: grownHeadSessionId,
+    workspaceProfileId: profile.id,
+    title: noteTitle,
+  });
+  const thirdSave = await waitForSaveResponse(outputChunks, 3);
+  if (thirdSave.ok !== false || thirdSave.code !== "note_conflict")
+    throw new Error("Browser Workbench smoke expected a hand-edited Note re-save to be refused with note_conflict.");
+  if (await readFile(notePath, "utf8") !== handEdited)
+    throw new Error("Browser Workbench smoke expected the refused save to leave the hand-edited Note byte-for-byte.");
+
   stdin.end();
   await run;
 
   const traces = await readdir(join(workspaceRoot, ".forgelet", "sessions"));
   const traceFiles = traces.filter((file) => file.endsWith(".jsonl"));
-  if (traceFiles.length !== 8)
-    throw new Error(`Browser Workbench smoke expected 8 Learning Session Traces, found ${traceFiles.length}.`);
+  if (traceFiles.length !== 9)
+    throw new Error(`Browser Workbench smoke expected 9 Learning Session Traces, found ${traceFiles.length}.`);
   const traceContents = await Promise.all(traceFiles.map((file) => readFile(join(workspaceRoot, ".forgelet", "sessions", file), "utf8")));
   const allTraceText = traceContents.join("\n");
   if (allTraceText.includes(pageBody))
@@ -301,6 +372,31 @@ function followUpRequest(input: {
 
 function sendInvocation(stdin: PassThrough, request: Record<string, unknown>): void {
   stdin.write(encodeNativeHostMessage({ type: "browserInvocation", request }));
+}
+
+function sendSave(stdin: PassThrough, request: Record<string, unknown>): void {
+  stdin.write(encodeNativeHostMessage({ type: "saveKnowledgeNote", request }));
+}
+
+/** The Knowledge Note save is a one-shot request/response frame with no
+ * invocationId, so responses are matched positionally as they arrive. */
+async function waitForSaveResponse(
+  chunks: Buffer[],
+  count: number,
+): Promise<Record<string, unknown>> {
+  await waitForFrames(
+    chunks,
+    (frames) => frames.filter((frame) => typeof frame.ok === "boolean").length >= count,
+  );
+  return decodeFrames(chunks).filter((frame) => typeof frame.ok === "boolean")[count - 1]!;
+}
+
+async function countMarkdownNotes(knowledgeDir: string): Promise<number> {
+  try {
+    return (await readdir(knowledgeDir)).filter((file) => file.endsWith(".md")).length;
+  } catch {
+    return 0;
+  }
 }
 
 function decodeFrames(chunks: Buffer[]): Record<string, unknown>[] {

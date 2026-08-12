@@ -225,6 +225,61 @@ export function validateFollowUpQuestion(raw: string): FollowUpQuestionValidatio
   return { ok: true, question: trimmed };
 }
 
+// ---- Save-as-Knowledge-Note ----
+
+export interface SaveKnowledgeNoteAvailability {
+  canSave: boolean;
+  defaultTitle: string;
+}
+
+/** A whole Page Conversation can be promoted once its root Page Brief has
+ * succeeded and no attempt is in flight (ADR 0077). The default Note title is
+ * the captured page title, prefilled and editable (decision 8). */
+export function buildSaveKnowledgeNoteAvailability(
+  projection: PageConversationProjection | undefined,
+): SaveKnowledgeNoteAvailability {
+  const canSave = Boolean(
+    projection?.rootSessionId &&
+      projection?.headSessionId &&
+      !projection?.currentAttempt,
+  );
+  return { canSave, defaultTitle: projection?.source.title ?? "" };
+}
+
+export interface SaveKnowledgeNoteResultLike {
+  ok: boolean;
+  path?: string;
+  error?: string;
+  code?: string;
+}
+
+export interface SaveKnowledgeNoteResultView {
+  kind: "success" | "conflict" | "error";
+  message: string;
+}
+
+/** Turns a host save response into a panel message. A `note_conflict` renders
+ * the host's own guidance — which names the note path and the rename/remove
+ * recovery — verbatim (ADR 0077 decision 10): the panel never offers to
+ * overwrite a hand-edited note. */
+export function formatSaveKnowledgeNoteResult(
+  result: SaveKnowledgeNoteResultLike,
+): SaveKnowledgeNoteResultView {
+  if (result.ok && result.path)
+    return { kind: "success", message: `Saved to ${result.path}` };
+  if (result.code === "note_conflict")
+    return {
+      kind: "conflict",
+      message:
+        result.error ??
+        "This note has local edits and was not overwritten. Rename or remove it, then save again.",
+    };
+  return {
+    kind: "error",
+    message: result.error ?? "Saving the Knowledge Note failed.",
+  };
+}
+
 /** Restricted markdown subset for model-authored prose: bold, list items,
  * and http(s) links. Anything else stays literal text — the content derives
  * from external web pages and model output, so no HTML is ever interpreted. */
@@ -493,7 +548,26 @@ async function initializeSidePanel(): Promise<void> {
   const debug = document.getElementById("debug");
   const question = document.getElementById("question");
   const send = document.getElementById("send");
-  if (!output || !stop || !outputLanguage || !fontSize || !debug || !question || !send) return;
+  const workspaceProfile = document.getElementById("workspace-profile");
+  const saveNoteBar = document.getElementById("save-note-bar");
+  const noteTitle = document.getElementById("note-title");
+  const saveNote = document.getElementById("save-note");
+  const saveNoteResult = document.getElementById("save-note-result");
+  if (
+    !output ||
+    !stop ||
+    !outputLanguage ||
+    !fontSize ||
+    !debug ||
+    !question ||
+    !send ||
+    !workspaceProfile ||
+    !saveNoteBar ||
+    !noteTitle ||
+    !saveNote ||
+    !saveNoteResult
+  )
+    return;
 
   const windowId: number = (await chrome.windows.getCurrent()).id;
 
@@ -531,6 +605,22 @@ async function initializeSidePanel(): Promise<void> {
     await chrome.storage.local.set({ forgeletBrowserWorkbenchDebug: debug.checked === true });
   });
 
+  // The Workspace Profile selector lists every approved profile and stays
+  // sticky in chrome.storage.local; like the language selector, it only steers
+  // the next toolbar gesture and never re-runs the current attempt (ADR 0077).
+  const storedProfile = await chrome.storage.local.get([
+    "forgeletBrowserWorkbenchWorkspaceProfile",
+  ]);
+  await populateWorkspaceProfiles(
+    workspaceProfile,
+    storedProfile.forgeletBrowserWorkbenchWorkspaceProfile,
+  );
+  workspaceProfile.addEventListener("change", async () => {
+    await chrome.storage.local.set({
+      forgeletBrowserWorkbenchWorkspaceProfile: workspaceProfile.value,
+    });
+  });
+
   let latestProjection: PageConversationProjection | undefined;
   let latestNotice: PageConversationNotice | undefined;
   let streamElement: any;
@@ -546,6 +636,13 @@ async function initializeSidePanel(): Promise<void> {
     }).streamElement;
     question.disabled = !view.inputEnabled;
     send.disabled = !view.inputEnabled;
+
+    const savable = buildSaveKnowledgeNoteAvailability(latestProjection);
+    saveNoteBar.hidden = !savable.canSave;
+    saveNote.disabled = !savable.canSave;
+    if (savable.canSave && String(noteTitle.value ?? "").trim() === "") {
+      noteTitle.value = savable.defaultTitle;
+    }
   };
 
   latestProjection = await requestPageConversationProjection(
@@ -586,6 +683,55 @@ async function initializeSidePanel(): Promise<void> {
     question.value = "";
     await chrome.runtime.sendMessage({ type: "pageConversationSend", windowId, question: validation.question });
   });
+
+  saveNote.addEventListener("click", async () => {
+    saveNote.disabled = true;
+    saveNoteResult.textContent = "Saving…";
+    saveNoteResult.setAttribute("class", "save-note-result");
+    let result: SaveKnowledgeNoteResultLike;
+    try {
+      result = (await chrome.runtime.sendMessage({
+        type: "pageConversationSaveNote",
+        windowId,
+        title: String(noteTitle.value ?? ""),
+      })) as SaveKnowledgeNoteResultLike;
+    } catch (error) {
+      result = { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+    const view = formatSaveKnowledgeNoteResult(result ?? { ok: false });
+    saveNoteResult.textContent = view.message;
+    saveNoteResult.setAttribute("class", `save-note-result save-note-${view.kind}`);
+    saveNote.disabled = false;
+  });
+}
+
+async function populateWorkspaceProfiles(
+  select: any,
+  storedProfileId: unknown,
+): Promise<void> {
+  let profiles: { id: string; label: string; isDefault: boolean }[] = [];
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "pageConversationListProfiles" });
+    if (isRecord(response) && Array.isArray(response.profiles)) {
+      profiles = response.profiles as typeof profiles;
+    }
+  } catch {
+    // A missing Service Worker leaves the selector empty; the toolbar gesture
+    // still falls back to the default profile in the controller.
+  }
+  select.textContent = "";
+  for (const profile of profiles) {
+    const option = document.createElement("option");
+    option.value = profile.id;
+    option.textContent = profile.isDefault ? `${profile.label} (default)` : profile.label;
+    select.appendChild(option);
+  }
+  const preselect =
+    typeof storedProfileId === "string" &&
+    profiles.some((profile) => profile.id === storedProfileId)
+      ? storedProfileId
+      : profiles.find((profile) => profile.isDefault)?.id;
+  if (preselect) select.value = preselect;
 }
 
 if (typeof document !== "undefined" && typeof chrome !== "undefined") {

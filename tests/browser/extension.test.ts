@@ -16,7 +16,9 @@ import {
 } from "../../src/browser/extension/buildExtension.js";
 import { normalizeBrowserOutputLanguage } from "../../src/browser/extension/pageConversationController.js";
 import {
+  buildSaveKnowledgeNoteAvailability,
   buildSidePanelViewModel,
+  formatSaveKnowledgeNoteResult,
   normalizeFontSizePreference,
   normalizeSidePanelLanguage,
   parsePanelMarkdown,
@@ -883,4 +885,51 @@ test("a notice from the controller (capture unavailable, needs profile, attempt 
   });
   expect(view.noticeMessage).toBe("A Browser Workbench attempt is already running in this window. Wait for it to finish or Stop it.");
   expect(view.turns).toHaveLength(1);
+});
+
+test("Save-as-Knowledge-Note availability tracks a completed, idle conversation", () => {
+  const base = { source: { title: "Page Title" } } as unknown as PageConversationProjection;
+  expect(buildSaveKnowledgeNoteAvailability(undefined)).toEqual({
+    canSave: false,
+    defaultTitle: "",
+  });
+  expect(buildSaveKnowledgeNoteAvailability(base)).toEqual({
+    canSave: false,
+    defaultTitle: "Page Title",
+  });
+  const completed = {
+    ...base,
+    rootSessionId: "r",
+    headSessionId: "h",
+  } as unknown as PageConversationProjection;
+  expect(buildSaveKnowledgeNoteAvailability(completed)).toEqual({
+    canSave: true,
+    defaultTitle: "Page Title",
+  });
+  const running = {
+    ...completed,
+    currentAttempt: { invocationId: "x" },
+  } as unknown as PageConversationProjection;
+  expect(buildSaveKnowledgeNoteAvailability(running).canSave).toBe(false);
+});
+
+test("Save-as-Knowledge-Note result rendering keeps the conflict guidance verbatim", () => {
+  expect(
+    formatSaveKnowledgeNoteResult({ ok: true, path: ".forgelet/knowledge/a.md" }),
+  ).toEqual({ kind: "success", message: "Saved to .forgelet/knowledge/a.md" });
+  expect(
+    formatSaveKnowledgeNoteResult({
+      ok: false,
+      code: "note_conflict",
+      error: "Knowledge Note has local edits and will not be overwritten: a.md. Rename or remove it, then save again.",
+    }),
+  ).toEqual({
+    kind: "conflict",
+    message:
+      "Knowledge Note has local edits and will not be overwritten: a.md. Rename or remove it, then save again.",
+  });
+  expect(formatSaveKnowledgeNoteResult({ ok: false, error: "boom" })).toEqual({
+    kind: "error",
+    message: "boom",
+  });
 });

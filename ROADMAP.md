@@ -13,8 +13,8 @@ Current implemented surfaces:
 - `forge write` for prose revision, creative drafting, browser-backed writing, saved Writing Artifacts, artifact continuation, Writing Project continuity, and artifact catalog search.
 - `forge learn` for source-backed Learning Packs from files or browser context.
 - `forge learn --web` for bounded, source-ledger-backed Public Web Learning through Brave Search or an offline fake provider.
-- Browser Workbench for one-gesture current-page Page Briefs with bounded, source-grounded follow-up Page Conversations in the Side Panel, a user-chosen output language, Stop/Retry, and per-window reattachment.
-- `forge notes create/search` for project-scope Knowledge Notes promoted from completed Learning Sessions.
+- Browser Workbench for one-gesture current-page Page Briefs with bounded, source-grounded follow-up Page Conversations in the Side Panel, a user-chosen output language and workspace, Stop/Retry, per-window reattachment, and one-click promotion of a whole conversation into a Knowledge Note.
+- `forge notes create/search` for project-scope Knowledge Notes promoted from a completed Learning Session (`--from-session`) or a whole Page Conversation (`--from-conversation`).
 - `forge browser read-current` and `forge browser install-host` for read-only browser snapshots.
 - `forge resume` for child Session Continuations.
 - `forge sessions` (with `running` and `paused` states), `forge explain`, and config commands for review and operation.

@@ -10,6 +10,7 @@ import {
 export const BROWSER_PROTOCOL_VERSION = 3;
 const MAX_INVOCATION_PAYLOAD_BYTES = 64 * 1024;
 export const MAX_FOLLOW_UP_QUESTION_BYTES = 4 * 1024;
+export const MAX_KNOWLEDGE_NOTE_TITLE_BYTES = 1024;
 
 export interface BrowserCaptureRequest {
   url: string;
@@ -92,6 +93,83 @@ export class BrowserProtocolValidationError extends Error {
     super(message);
     this.reason = reason;
   }
+}
+
+/** A one-shot request/response host command (sent via sendNativeMessage, not
+ * the streaming invocation channel): promote a whole Page Conversation into one
+ * Knowledge Note (ADR 0077). It carries its own `version: 3` field validated by
+ * a dedicated validator, so a new extension against an old host gets the same
+ * clean protocol-mismatch recovery text — without bumping
+ * BROWSER_PROTOCOL_VERSION, which only ever gated `browserInvocation`. */
+export interface SaveKnowledgeNoteRequest {
+  version: typeof BROWSER_PROTOCOL_VERSION;
+  conversationId: string;
+  rootSessionId: string;
+  headSessionId: string;
+  workspaceProfileId: string;
+  title: string;
+}
+
+export type SaveKnowledgeNoteRejectionCode =
+  | BrowserProtocolValidationReason
+  | "workspace_profile_unavailable"
+  | "conversation_not_found"
+  | "conversation_history_unavailable"
+  | "note_conflict";
+
+export type SaveKnowledgeNoteResponse =
+  | { ok: true; path: string; headSessionId: string }
+  | { ok: false; error: string; code?: SaveKnowledgeNoteRejectionCode };
+
+export function validateSaveKnowledgeNoteRequest(
+  raw: unknown,
+): SaveKnowledgeNoteRequest {
+  if (!isRecord(raw))
+    throw new BrowserProtocolValidationError(
+      "malformed",
+      "Save Knowledge Note request must be an object.",
+    );
+  if (raw.version !== BROWSER_PROTOCOL_VERSION)
+    throw new BrowserProtocolValidationError(
+      "protocol_mismatch",
+      `Browser Workbench protocol mismatch (received v${String(raw.version)}, expected v3). Rebuild Forgelet, reload the unpacked extension, and rerun forge browser install-host if needed.`,
+    );
+  const payloadBytes = Buffer.byteLength(JSON.stringify(raw), "utf8");
+  if (payloadBytes > MAX_INVOCATION_PAYLOAD_BYTES)
+    throw new BrowserProtocolValidationError(
+      "oversized",
+      `Save Knowledge Note request exceeds ${MAX_INVOCATION_PAYLOAD_BYTES} bytes.`,
+    );
+  requireOnlyKeys(
+    raw,
+    [
+      "version",
+      "conversationId",
+      "rootSessionId",
+      "headSessionId",
+      "workspaceProfileId",
+      "title",
+    ],
+    "Save Knowledge Note request",
+  );
+  const title = requiredString(raw, "title", "Save Knowledge Note request").trim();
+  if (Buffer.byteLength(title, "utf8") > MAX_KNOWLEDGE_NOTE_TITLE_BYTES)
+    throw new BrowserProtocolValidationError(
+      "oversized",
+      `Knowledge Note title exceeds ${MAX_KNOWLEDGE_NOTE_TITLE_BYTES} bytes.`,
+    );
+  return {
+    version: BROWSER_PROTOCOL_VERSION,
+    conversationId: requiredString(raw, "conversationId", "Save Knowledge Note request"),
+    rootSessionId: requiredString(raw, "rootSessionId", "Save Knowledge Note request"),
+    headSessionId: requiredString(raw, "headSessionId", "Save Knowledge Note request"),
+    workspaceProfileId: requiredString(
+      raw,
+      "workspaceProfileId",
+      "Save Knowledge Note request",
+    ),
+    title,
+  };
 }
 
 export function validateBrowserInvocationRequest(

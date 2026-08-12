@@ -39,6 +39,11 @@ test("clicking Send after a successful root Page Brief sends pageConversationSen
     debug: fakeElement("debug"),
     question: fakeElement("question"),
     send: fakeElement("send"),
+    "workspace-profile": fakeElement("workspace-profile"),
+    "save-note-bar": fakeElement("save-note-bar"),
+    "note-title": fakeElement("note-title"),
+    "save-note": fakeElement("save-note"),
+    "save-note-result": fakeElement("save-note-result"),
   };
 
   const sentMessages: any[] = [];
@@ -55,6 +60,10 @@ test("clicking Send after a successful root Page Brief sends pageConversationSen
     runtime: {
       sendMessage: async (message: any) => {
         sentMessages.push(message);
+        if (message.type === "pageConversationListProfiles")
+          return { profiles: [{ id: "profile_1", label: "Forgelet", isDefault: true }] };
+        if (message.type === "pageConversationSaveNote")
+          return { ok: true, path: ".forgelet/knowledge/example-sess_root.md", headSessionId: "sess_root" };
         return { ok: true };
       },
       onMessage: {
@@ -112,5 +121,18 @@ test("clicking Send after a successful root Page Brief sends pageConversationSen
     type: "pageConversationSend",
     windowId: 7,
     question: "What is this page about?",
+  });
+
+  // A completed conversation exposes Save-as-Knowledge-Note, prefilled with the
+  // captured page title and wired to the service worker save command.
+  expect(elements["save-note-bar"].hidden).toBe(false);
+  expect(elements["save-note"].disabled).toBe(false);
+  expect(elements["note-title"].value).toBe("Example");
+  elements["save-note"].click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(sentMessages).toContainEqual({
+    type: "pageConversationSaveNote",
+    windowId: 7,
+    title: "Example",
   });
 });

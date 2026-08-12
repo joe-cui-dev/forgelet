@@ -176,6 +176,10 @@ _Avoid_: Latest file, newest artifact, cursor
 User-approved Markdown notes stored in a Knowledge Scope. The Knowledge Library stores source-linked articles, outlines, summaries, and learning notes for humans to read and reuse.
 _Avoid_: Memory file, vector database, terminal-only output
 
+**Knowledge Note**:
+One human-facing Markdown note in the Knowledge Library. It is promoted from either a single completed, source-backed Learning Session or the complete completed chain of one Page Conversation, and it records its title, source provenance, and a content hash in frontmatter. A Session-derived note is never overwritten; a Page-Conversation note is identified by its conversation and may be re-saved as the conversation grows, but a re-save is refused once a human has edited the note by hand.
+_Avoid_: Export file, snapshot, generated document
+
 **Durable Memory**:
 User-approved guidance discovered in real Sessions — never guidance the user already declared up front — that Forgelet may reuse in later Sessions. It must be inspectable, editable, and traceable to its source, and it stays bounded because entries leave through Memory Graduation.
 _Avoid_: Vector cache, session trace, permanent guidance layer
@@ -229,7 +233,7 @@ The read-only browser surface that turns an explicit browser action into a permi
 _Avoid_: Browser Workflow, browser agent, browser automation, Side Panel Workflow
 
 **Page Conversation**:
-A source-bound Browser Workbench conversation created from one explicit immutable page capture, identified independently from its launch attempts and Sessions, and projected in the Side Panel from a linear Session Continuation chain. Its first successful root Session delivers the Page Brief; follow-up turns use the original captured page, the conversation so far, and the model's own background knowledge, and never silently recapture, read the workspace, or query the public Web.
+A source-bound Browser Workbench conversation created from one explicit immutable page capture, identified independently from its launch attempts and Sessions, and projected in the Side Panel from a linear Session Continuation chain. Its first successful root Session delivers the Page Brief; follow-up turns use the original captured page, the conversation so far, and the model's own background knowledge, and never silently recapture, read the workspace, or query the public Web. A completed Page Conversation can be promoted whole into one Knowledge Note.
 _Avoid_: Browser chat, live-page chat, general assistant conversation
 
 **Page Conversation History**:

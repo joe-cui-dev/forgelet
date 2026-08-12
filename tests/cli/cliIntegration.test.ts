@@ -11,6 +11,29 @@ import {
 } from "../../src/cli/index.js";
 import { FakeModelClient } from "../../src/models/testing/index.js";
 
+async function writePageConversationSession(
+  workspaceRoot: string,
+  sessionId: string,
+  events: { type: string; payload: Record<string, unknown> }[],
+): Promise<void> {
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(sessionDir, `${sessionId}.jsonl`),
+    events
+      .map((event, index) =>
+        JSON.stringify({
+          type: event.type,
+          ts: `2026-07-12T00:0${index}:00.000Z`,
+          sessionId,
+          payload: event.payload,
+        }),
+      )
+      .join("\n"),
+    "utf8",
+  );
+}
+
 function memorySuggestionId(sourceSessionId: string, text: string): string {
   return `mem_${createHash("sha256")
     .update(`${sourceSessionId}\n${text}`)
@@ -1027,6 +1050,90 @@ test("CLI runs a source-backed learning workflow and does not write Knowledge Li
   expect(explain.stdout).toMatch(new RegExp(`Session explanation: ${sessionId}`));
   expect(explain.stdout).toMatch(/Workflow: learning/);
   await expect(readdir(join(workspaceRoot, ".forgelet", "knowledge"))).rejects.toThrow();
+});
+
+test("CLI promotes a whole Page Conversation into one Knowledge Note", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-conv-note-"));
+  await writePageConversationSession(workspaceRoot, "sess_root", [
+    {
+      type: "session_started",
+      payload: {
+        workflow: "learning",
+        trigger: { kind: "root", conversationId: "conv_1", captureId: "cap_1" },
+      },
+    },
+    {
+      type: "context_attachment",
+      payload: {
+        id: "ctx_cap_1",
+        source: "browser",
+        title: "The Captured Article",
+        uri: "https://example.com/article",
+        mimeType: "text/plain",
+        contentBytes: 128,
+        contentHash: createHash("sha256").update("cap").digest("hex"),
+        preview: "preview",
+        trustLevel: "external",
+      },
+    },
+    { type: "user_task", payload: { task: "Summarize the page." } },
+    {
+      type: "final_summary",
+      payload: { finalContent: "## Summary\nA summary.\n\n## Key Concepts\n- One" },
+    },
+    { type: "session_finished", payload: { status: "completed" } },
+  ]);
+  await writePageConversationSession(workspaceRoot, "sess_f1", [
+    {
+      type: "session_started",
+      payload: {
+        workflow: "learning",
+        trigger: {
+          kind: "follow_up",
+          conversationId: "conv_1",
+          captureId: "cap_1",
+          parentSessionId: "sess_root",
+        },
+      },
+    },
+    { type: "user_task", payload: { task: "What is the main claim?" } },
+    {
+      type: "final_summary",
+      payload: {
+        finalContent: "## Answer\nThe main claim.\n\n## Evidence\n- claim passage",
+      },
+    },
+    { type: "session_finished", payload: { status: "completed" } },
+  ]);
+
+  const result = await runCli(
+    ["notes", "create", "--scope", "project", "--from-conversation", "conv_1"],
+    { workspaceRoot },
+  );
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toMatch(/Knowledge Note created/);
+  const noteFiles = await readdir(join(workspaceRoot, ".forgelet", "knowledge"));
+  expect(noteFiles).toHaveLength(1);
+  const note = await readFile(
+    join(workspaceRoot, ".forgelet", "knowledge", noteFiles[0] ?? ""),
+    "utf8",
+  );
+  expect(note).toContain("conversationId: conv_1");
+  expect(note).toContain("# The Captured Article");
+  expect(note).toContain("## Follow-up 1: What is the main claim?");
+  expect(note).toContain("- claim passage");
+});
+
+test("CLI reports a clear error for an unknown Page Conversation", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-cli-conv-missing-"));
+  const result = await runCli(
+    ["notes", "create", "--scope", "project", "--from-conversation", "conv_missing"],
+    { workspaceRoot },
+  );
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toMatch(/No completed Page Conversation found/);
 });
 
 test("CLI debug mode writes a Debug Transcript for a model-backed Session", async () => {

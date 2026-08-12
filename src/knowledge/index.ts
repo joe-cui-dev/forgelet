@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, open, readFile, readdir, stat } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import type { ContextAttachment } from "../types.js";
 import { findSessionTracePath, isTraceEvent, readTraceFile, type TraceEvent } from "../trace/index.js";
@@ -18,6 +18,38 @@ export interface CreatedKnowledgeNote {
   sourceSessionId: string;
   sourceCount: number;
   contentHash: string;
+}
+
+/** Promotes a whole Page Conversation into a single Knowledge Note (ADR 0077).
+ * Unlike a Session-derived note, the same conversation is expected to grow as
+ * the user asks more follow-ups, so a re-save overwrites the earlier note in
+ * place — but only when the earlier note has not been edited by hand. */
+export interface CreateConversationKnowledgeNoteInput {
+  scope: KnowledgeScope;
+  conversationId: string;
+  rootSessionId: string;
+  headSessionId: string;
+  title: string;
+  /** The already-rendered Markdown body (without the leading H1 title). */
+  body: string;
+  sources: ContextAttachment[];
+  createdAt?: string;
+}
+
+/** Raised when a re-save would clobber a Knowledge Note that a human has since
+ * edited by hand (ADR 0077, decision 10). Nothing is written. The typed reason
+ * lets the Native Host and Side Panel present the recovery path without parsing
+ * a free-text message. */
+export class KnowledgeNoteConflictError extends Error {
+  readonly reason = "note_conflict" as const;
+  readonly existingPath: string;
+  constructor(existingPath: string) {
+    super(
+      `Knowledge Note has local edits and will not be overwritten: ${existingPath}. Rename or remove it, then save again.`,
+    );
+    this.name = "KnowledgeNoteConflictError";
+    this.existingPath = existingPath;
+  }
 }
 
 export interface SearchKnowledgeNotesInput {
@@ -66,7 +98,7 @@ export async function createKnowledgeNote(
   await mkdir(noteDir, { recursive: true });
   const notePath = join(
     noteDir,
-    `${slugTaskForFilename(source.task)}-${input.fromSessionId}.md`,
+    `${slugForFilename(source.task)}-${input.fromSessionId}.md`,
   );
   const handle = await openExclusive(workspaceRoot, notePath);
   try {
@@ -79,6 +111,60 @@ export async function createKnowledgeNote(
     path: relative(workspaceRoot, notePath),
     sourceSessionId: input.fromSessionId,
     sourceCount: source.attachments.length,
+    contentHash,
+  };
+}
+
+export async function createConversationKnowledgeNote(
+  workspaceRoot: string,
+  input: CreateConversationKnowledgeNoteInput,
+): Promise<CreatedKnowledgeNote> {
+  const title = input.title.trim() || "Knowledge Note";
+  const body = renderKnowledgeNoteBody(title, input.body, false);
+  const contentHash = hash(body);
+  const content = renderKnowledgeNote({
+    title,
+    sourceSessionId: input.rootSessionId,
+    createdAt: input.createdAt ?? new Date().toISOString(),
+    contentHash,
+    sources: input.sources,
+    body,
+    conversationId: input.conversationId,
+    rootSessionId: input.rootSessionId,
+    headSessionId: input.headSessionId,
+  });
+
+  const noteDir = join(workspaceRoot, ".forgelet", "knowledge");
+  await mkdir(noteDir, { recursive: true });
+
+  // Locate by conversationId, never by file name: the title (and therefore the
+  // file name) is editable, so only the frontmatter identifies the note.
+  const existing = await locateNoteByConversationId(noteDir, input.conversationId);
+  if (existing) {
+    assertNoteUnedited(existing, workspaceRoot);
+    await writeFileAtomically(existing.path, content);
+    return {
+      path: relative(workspaceRoot, existing.path),
+      sourceSessionId: input.rootSessionId,
+      sourceCount: input.sources.length,
+      contentHash,
+    };
+  }
+
+  const notePath = join(
+    noteDir,
+    `${slugForFilename(title)}-${input.rootSessionId}.md`,
+  );
+  const handle = await openExclusive(workspaceRoot, notePath);
+  try {
+    await handle.writeFile(content, "utf8");
+  } finally {
+    await handle.close();
+  }
+  return {
+    path: relative(workspaceRoot, notePath),
+    sourceSessionId: input.rootSessionId,
+    sourceCount: input.sources.length,
     contentHash,
   };
 }
@@ -186,6 +272,9 @@ function renderKnowledgeNote(input: {
   contentHash: string;
   sources: ContextAttachment[];
   body: string;
+  conversationId?: string;
+  rootSessionId?: string;
+  headSessionId?: string;
 }): string {
   return [
     "---",
@@ -193,6 +282,15 @@ function renderKnowledgeNote(input: {
     "scope: project",
     `title: ${yamlScalar(input.title)}`,
     `sourceSessionId: ${yamlScalar(input.sourceSessionId)}`,
+    ...(input.conversationId
+      ? [`conversationId: ${yamlScalar(input.conversationId)}`]
+      : []),
+    ...(input.rootSessionId
+      ? [`rootSessionId: ${yamlScalar(input.rootSessionId)}`]
+      : []),
+    ...(input.headSessionId
+      ? [`headSessionId: ${yamlScalar(input.headSessionId)}`]
+      : []),
     "sourceWorkflow: learning",
     `createdAt: ${yamlScalar(input.createdAt)}`,
     `contentHash: ${input.contentHash}`,
@@ -234,8 +332,8 @@ function titleFromTask(task: string): string {
   return trimmed || "Knowledge Note";
 }
 
-function slugTaskForFilename(task: string): string {
-  const slug = task
+function slugForFilename(text: string): string {
+  const slug = text
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
@@ -277,6 +375,8 @@ function parseKnowledgeFrontmatter(content: string): {
   title?: string;
   sourceSessionId?: string;
   createdAt?: string;
+  conversationId?: string;
+  contentHash?: string;
 } {
   const match = /^---\n([\s\S]*?)\n---/.exec(content);
   const frontmatter = match?.[1] ?? "";
@@ -284,7 +384,48 @@ function parseKnowledgeFrontmatter(content: string): {
     title: readFrontmatterValue(frontmatter, "title"),
     sourceSessionId: readFrontmatterValue(frontmatter, "sourceSessionId"),
     createdAt: readFrontmatterValue(frontmatter, "createdAt"),
+    conversationId: readFrontmatterValue(frontmatter, "conversationId"),
+    contentHash: readFrontmatterValue(frontmatter, "contentHash"),
   };
+}
+
+async function locateNoteByConversationId(
+  noteDir: string,
+  conversationId: string,
+): Promise<{ path: string; content: string } | undefined> {
+  for (const path of await listMarkdownFiles(noteDir)) {
+    const content = await readFile(path, "utf8");
+    if (parseKnowledgeFrontmatter(content).conversationId === conversationId)
+      return { path, content };
+  }
+  return undefined;
+}
+
+/** The hash guard behind the in-place overwrite (ADR 0077): the recorded
+ * `contentHash` is over the note body alone, so recomputing it from the file on
+ * disk reveals any hand edit. A mismatch (or a note predating the field) is
+ * treated as edited and refused, protecting the human-facing Markdown the
+ * original never-overwrite semantics existed to guard. */
+function assertNoteUnedited(
+  existing: { path: string; content: string },
+  workspaceRoot: string,
+): void {
+  const recordedHash = parseKnowledgeFrontmatter(existing.content).contentHash;
+  if (!recordedHash || recordedHash !== hash(extractNoteBody(existing.content)))
+    throw new KnowledgeNoteConflictError(relative(workspaceRoot, existing.path));
+}
+
+function extractNoteBody(content: string): string {
+  const match = /^---\n[\s\S]*?\n---\n/.exec(content);
+  if (!match) return content;
+  const rest = content.slice(match[0].length);
+  return rest.startsWith("\n") ? rest.slice(1) : rest;
+}
+
+async function writeFileAtomically(path: string, content: string): Promise<void> {
+  const tempPath = `${path}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(tempPath, content, "utf8");
+  await rename(tempPath, path);
 }
 
 function readFrontmatterValue(frontmatter: string, key: string): string | undefined {

@@ -52,6 +52,12 @@ export type ForgeCommand =
       title?: string;
     }
   | {
+      kind: "notes-create-from-conversation";
+      scope: "project";
+      conversationId: string;
+      title?: string;
+    }
+  | {
       kind: "notes-search";
       scope: "project";
       query: string;
@@ -273,9 +279,12 @@ function parseDebug(args: string[]): ForgeCommand {
 
 function parseNotes(args: string[]): ForgeCommand {
   if (args[0] === "search") return parseNotesSearch(args.slice(1));
-  if (args[0] !== "create") throw new Error("Usage: forge notes create --scope project --from-session <sessionId> [--title <title>]");
+  const usage =
+    "Usage: forge notes create --scope project (--from-session <sessionId> | --from-conversation <conversationId>) [--title <title>]";
+  if (args[0] !== "create") throw new Error(usage);
   let scope: string | undefined;
   let fromSessionId: string | undefined;
+  let fromConversationId: string | undefined;
   let title: string | undefined;
 
   for (let i = 1; i < args.length; i += 1) {
@@ -286,6 +295,10 @@ function parseNotes(args: string[]): ForgeCommand {
     }
     if (arg === "--from-session") {
       fromSessionId = args[++i];
+      continue;
+    }
+    if (arg === "--from-conversation") {
+      fromConversationId = args[++i];
       continue;
     }
     if (arg === "--title") {
@@ -299,8 +312,18 @@ function parseNotes(args: string[]): ForgeCommand {
     throw new Error("Personal Knowledge Scope is not available yet.");
   if (scope !== "project")
     throw new Error("The first Knowledge Notes slice requires --scope project.");
-  if (!fromSessionId)
-    throw new Error("Usage: forge notes create --scope project --from-session <sessionId> [--title <title>]");
+  if (fromSessionId && fromConversationId)
+    throw new Error(
+      "Choose only one of --from-session or --from-conversation, not both.",
+    );
+  if (fromConversationId)
+    return {
+      kind: "notes-create-from-conversation",
+      scope,
+      conversationId: fromConversationId,
+      title,
+    };
+  if (!fromSessionId) throw new Error(usage);
 
   return { kind: "notes-create", scope, fromSessionId, title };
 }

@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   BROWSER_PROTOCOL_VERSION,
+  BrowserProtocolValidationError,
   validateBrowserInvocationRequest,
+  validateSaveKnowledgeNoteRequest,
   runBrowserInvocation,
   type BrowserRunFrame,
   type ProtocolLauncher,
@@ -63,6 +65,35 @@ test("v3 validates only closed root, root Retry, follow-up, and follow-up Retry 
   expect(validateBrowserInvocationRequest(followUp)).toMatchObject({ kind: "follow_up", question: "What does this mean?" });
   expect(validateBrowserInvocationRequest({ ...followUp, kind: "follow_up_retry" })).toMatchObject({ kind: "follow_up_retry" });
   expect(() => validateBrowserInvocationRequest({ ...rootRequest, workflow: "learning" })).toThrow(/forbidden/i);
+});
+
+test("saveKnowledgeNote validates its own v3 shape and rejects mismatches cleanly", () => {
+  const saveRequest = {
+    version: 3 as const,
+    conversationId: "conv_1",
+    rootSessionId: "sess_root",
+    headSessionId: "sess_head",
+    workspaceProfileId: "profile_1",
+    title: "  A Note Title  ",
+  };
+  expect(validateSaveKnowledgeNoteRequest(saveRequest)).toEqual({
+    ...saveRequest,
+    title: "A Note Title",
+  });
+  expect(() =>
+    validateSaveKnowledgeNoteRequest({ ...saveRequest, extra: "x" }),
+  ).toThrow(/forbidden/i);
+  expect(() =>
+    validateSaveKnowledgeNoteRequest({ ...saveRequest, conversationId: "" }),
+  ).toThrow(/conversationId/);
+  try {
+    validateSaveKnowledgeNoteRequest({ ...saveRequest, version: 2 });
+    throw new Error("expected a protocol mismatch");
+  } catch (error) {
+    expect(error).toBeInstanceOf(BrowserProtocolValidationError);
+    expect((error as BrowserProtocolValidationError).reason).toBe("protocol_mismatch");
+    expect((error as Error).message).toMatch(/rebuild.*reload.*install-host/i);
+  }
 });
 
 test("an optional debug flag round-trips as a boolean and rejects non-boolean values", () => {

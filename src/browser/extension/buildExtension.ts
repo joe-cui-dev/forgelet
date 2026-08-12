@@ -251,6 +251,55 @@ export function sidePanelHtml(): string {
         outline: 1px solid var(--accent);
         outline-offset: 1px;
       }
+      .workspace-field {
+        grid-column: 1 / -1;
+      }
+      .save-note {
+        flex: none;
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 10px 14px;
+        border-top: 1px solid var(--border);
+        background: var(--surface);
+      }
+      .save-note[hidden] {
+        display: none;
+      }
+      #note-title {
+        flex: 1;
+        min-width: 140px;
+        padding: 6px 8px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--surface-raised);
+        color: var(--fg);
+        font: inherit;
+        font-size: 12px;
+      }
+      #note-title:focus-visible,
+      #save-note:focus-visible {
+        outline: 1px solid var(--accent);
+        outline-offset: 1px;
+      }
+      #save-note:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .save-note-result {
+        flex-basis: 100%;
+        font-size: 12px;
+        color: var(--muted);
+        overflow-wrap: anywhere;
+      }
+      .save-note-result.save-note-success {
+        color: var(--accent);
+      }
+      .save-note-result.save-note-conflict,
+      .save-note-result.save-note-error {
+        color: var(--danger, #c0392b);
+      }
       .composer {
         flex: none;
         display: flex;
@@ -294,11 +343,20 @@ export function sidePanelHtml(): string {
       <button id="stop" type="button">Stop</button>
     </header>
     <main id="workbench-root"></main>
+    <div class="save-note" id="save-note-bar" hidden>
+      <input id="note-title" type="text" placeholder="Knowledge Note title">
+      <button id="save-note" type="button">Save as Knowledge Note</button>
+      <div id="save-note-result" class="save-note-result"></div>
+    </div>
     <div class="composer">
       <textarea id="question" rows="1" placeholder="Ask a question about this page…" disabled></textarea>
       <button id="send" type="button" disabled>Send</button>
     </div>
     <footer class="panel-settings">
+      <div class="workspace-field">
+        <label for="workspace-profile">Workspace</label>
+        <select id="workspace-profile"></select>
+      </div>
       <div>
         <label for="output-language">Output language</label>
         <select id="output-language">

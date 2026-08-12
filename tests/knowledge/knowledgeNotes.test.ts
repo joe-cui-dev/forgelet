@@ -1,11 +1,14 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@jest/globals";
 import {
+  createConversationKnowledgeNote,
   createKnowledgeNote,
+  KnowledgeNoteConflictError,
   searchKnowledgeNotes,
+  type CreateConversationKnowledgeNoteInput,
 } from "../../src/knowledge/index.js";
 
 test("creates a project Knowledge Note from a completed source-backed Learning Session", async () => {
@@ -315,6 +318,124 @@ test("searching a missing project Knowledge Library returns no results", async (
     results: [],
   });
 });
+
+test("promotes a Page Conversation into one Knowledge Note", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-knowledge-"));
+  const result = await createConversationKnowledgeNote(
+    workspaceRoot,
+    conversationNoteInput({}),
+  );
+
+  expect(result.path).toBe(
+    ".forgelet/knowledge/page-brief-of-the-article-sess_root.md",
+  );
+  expect(result.sourceSessionId).toBe("sess_root");
+  expect(result.sourceCount).toBe(1);
+
+  const note = await readFile(join(workspaceRoot, result.path), "utf8");
+  expect(note).toContain("conversationId: conv_1");
+  expect(note).toContain("rootSessionId: sess_root");
+  expect(note).toContain("headSessionId: sess_head");
+  expect(note).toContain("sourceSessionId: sess_root");
+  expect(note).toContain("# Page Brief of the Article\n\n## Summary");
+});
+
+test("overwrites an unedited note in place and advances the head", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-knowledge-"));
+  const first = await createConversationKnowledgeNote(
+    workspaceRoot,
+    conversationNoteInput({}),
+  );
+
+  const second = await createConversationKnowledgeNote(
+    workspaceRoot,
+    conversationNoteInput({
+      headSessionId: "sess_head2",
+      body: "## Summary\nCore ideas.\n\n## Key Concepts\n- One\n\n## Follow-up\nMore.",
+    }),
+  );
+
+  expect(second.path).toBe(first.path);
+  const notePaths = await readdir(join(workspaceRoot, ".forgelet", "knowledge"));
+  expect(notePaths).toEqual([
+    "page-brief-of-the-article-sess_root.md",
+  ]);
+  const note = await readFile(join(workspaceRoot, second.path), "utf8");
+  expect(note).toContain("headSessionId: sess_head2");
+  expect(note).toContain("## Follow-up\nMore.");
+});
+
+test("locates the note by conversationId even after the file is renamed", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-knowledge-"));
+  const first = await createConversationKnowledgeNote(
+    workspaceRoot,
+    conversationNoteInput({}),
+  );
+  const renamed = join(
+    workspaceRoot,
+    ".forgelet",
+    "knowledge",
+    "a-manually-renamed-note.md",
+  );
+  await rename(join(workspaceRoot, first.path), renamed);
+
+  const second = await createConversationKnowledgeNote(
+    workspaceRoot,
+    conversationNoteInput({ title: "Any New Title" }),
+  );
+
+  expect(second.path).toBe(".forgelet/knowledge/a-manually-renamed-note.md");
+  const notePaths = await readdir(join(workspaceRoot, ".forgelet", "knowledge"));
+  expect(notePaths).toEqual(["a-manually-renamed-note.md"]);
+});
+
+test("refuses to overwrite a hand-edited note and leaves it byte-for-byte", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-knowledge-"));
+  const first = await createConversationKnowledgeNote(
+    workspaceRoot,
+    conversationNoteInput({}),
+  );
+  const notePath = join(workspaceRoot, first.path);
+  const original = await readFile(notePath, "utf8");
+  const handEdited = `${original}\n\nMy own private annotation.\n`;
+  await writeFile(notePath, handEdited, "utf8");
+
+  await expect(
+    createConversationKnowledgeNote(
+      workspaceRoot,
+      conversationNoteInput({ body: "## Summary\nSomething new." }),
+    ),
+  ).rejects.toBeInstanceOf(KnowledgeNoteConflictError);
+  await expect(readFile(notePath, "utf8")).resolves.toBe(handEdited);
+});
+
+function conversationNoteInput(
+  overrides: Partial<CreateConversationKnowledgeNoteInput>,
+): CreateConversationKnowledgeNoteInput {
+  return {
+    scope: "project",
+    conversationId: "conv_1",
+    rootSessionId: "sess_root",
+    headSessionId: "sess_head",
+    title: "Page Brief of the Article",
+    body: "## Summary\nCore ideas.\n\n## Key Concepts\n- One",
+    createdAt: "2026-07-03T01:02:03.000Z",
+    sources: [
+      {
+        id: "ctx_capture",
+        source: "browser",
+        title: "The Article",
+        uri: "https://example.com/article",
+        mimeType: "text/plain",
+        contentBytes: 512,
+        contentHash: createHash("sha256").update("capture").digest("hex"),
+        preview: "Capture preview",
+        trustLevel: "external",
+      },
+    ],
+    ...overrides,
+  };
+}
 
 async function writeLearningTrace(
   workspaceRoot: string,

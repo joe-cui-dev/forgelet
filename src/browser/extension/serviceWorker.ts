@@ -41,6 +41,25 @@ const bridge: PageConversationBridge = {
       disconnect: () => port.disconnect(),
     };
   },
+  async saveKnowledgeNote(request) {
+    // A one-shot request/response, not the streaming attempt port (ADR 0077):
+    // saving is deterministic and not incremental.
+    try {
+      const response = await chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, {
+        type: "saveKnowledgeNote",
+        request: { version: 3, ...request },
+      });
+      if (response?.ok === true && typeof response.path === "string")
+        return { ok: true, path: response.path, headSessionId: request.headSessionId };
+      return {
+        ok: false,
+        error: typeof response?.error === "string" ? response.error : "Saving the Knowledge Note failed.",
+        ...(typeof response?.code === "string" ? { code: response.code } : {}),
+      };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  },
 };
 
 const pageConversations = createPageConversationController({
@@ -76,6 +95,16 @@ const pageConversations = createPageConversationController({
     } catch {
       // A storage failure must not silently turn Debug on; fail closed.
       return false;
+    }
+  },
+  resolveWorkspaceProfileId: async () => {
+    try {
+      const stored = await chrome.storage.local.get("forgeletBrowserWorkbenchWorkspaceProfile");
+      const value = stored.forgeletBrowserWorkbenchWorkspaceProfile;
+      return typeof value === "string" && value.length > 0 ? value : undefined;
+    } catch {
+      // A storage failure just falls back to the default profile downstream.
+      return undefined;
     }
   },
   broadcastProjection: (windowId, projection) =>
@@ -140,6 +169,22 @@ chrome.runtime.onMessage.addListener(
       pageConversations.stop(message.windowId);
       sendResponse({ ok: true });
       return false;
+    }
+    if (message?.type === "pageConversationListProfiles") {
+      pageConversations
+        .listWorkspaceProfiles()
+        .then((profiles) => sendResponse({ profiles }))
+        .catch(() => sendResponse({ profiles: [] }));
+      return true;
+    }
+    if (message?.type === "pageConversationSaveNote") {
+      pageConversations
+        .saveKnowledgeNote(message.windowId, String(message.title ?? ""))
+        .then((result) => sendResponse(result))
+        .catch((error: unknown) =>
+          sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }),
+        );
+      return true;
     }
     if (message?.type !== "sharePage") return false;
     shareCurrentPage()

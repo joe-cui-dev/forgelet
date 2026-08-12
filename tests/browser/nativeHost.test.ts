@@ -1,5 +1,6 @@
 import { expect, test } from "@jest/globals";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough, Writable } from "node:stream";
@@ -11,6 +12,7 @@ import {
   encodeNativeHostMessage,
   handleNativeHostBuffer,
   handleNativeHostMessage,
+  handleSaveKnowledgeNote,
   runNativeHostStdio,
 } from "../../src/native-host/index.js";
 import type { ModelClient, ModelTurnInput, ModelTurnOutput } from "../../src/types.js";
@@ -194,6 +196,199 @@ test("Native Messaging host streams multiple application responses and forwards 
   ]);
   stdin.end();
   await runPromise;
+});
+
+async function writeConversationSession(
+  workspaceRoot: string,
+  sessionId: string,
+  events: { type: string; payload: Record<string, unknown> }[],
+): Promise<void> {
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(sessionDir, `${sessionId}.jsonl`),
+    events
+      .map((event, index) =>
+        JSON.stringify({
+          type: event.type,
+          ts: `2026-07-14T00:0${index}:00.000Z`,
+          sessionId,
+          payload: event.payload,
+        }),
+      )
+      .join("\n"),
+    "utf8",
+  );
+}
+
+async function seedPageConversation(workspaceRoot: string): Promise<void> {
+  await writeConversationSession(workspaceRoot, "sess_root", [
+    {
+      type: "session_started",
+      payload: {
+        workflow: "learning",
+        trigger: { kind: "root", conversationId: "conv_1", captureId: "cap_1" },
+      },
+    },
+    {
+      type: "context_attachment",
+      payload: {
+        id: "ctx_cap_1",
+        source: "browser",
+        title: "The Page",
+        uri: "https://example.com/page",
+        mimeType: "text/plain",
+        contentBytes: 64,
+        contentHash: createHash("sha256").update("cap").digest("hex"),
+        preview: "preview",
+        trustLevel: "external",
+      },
+    },
+    { type: "user_task", payload: { task: "Summarize the page." } },
+    {
+      type: "final_summary",
+      payload: { finalContent: "## Summary\nS.\n\n## Key Concepts\n- K" },
+    },
+    { type: "session_finished", payload: { status: "completed" } },
+  ]);
+  await writeConversationSession(workspaceRoot, "sess_head", [
+    {
+      type: "session_started",
+      payload: {
+        workflow: "learning",
+        trigger: {
+          kind: "follow_up",
+          conversationId: "conv_1",
+          captureId: "cap_1",
+          parentSessionId: "sess_root",
+        },
+      },
+    },
+    { type: "user_task", payload: { task: "Any detail?" } },
+    {
+      type: "final_summary",
+      payload: { finalContent: "## Answer\nYes.\n\n## Evidence\n- a detail" },
+    },
+    { type: "session_finished", payload: { status: "completed" } },
+  ]);
+}
+
+test("Native Host saves a whole Page Conversation as one Knowledge Note", async () => {
+  const homeDir = await mkdtemp(join(tmpdir(), "forgelet-save-note-home-"));
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-save-note-ws-"));
+  const profile = await approveWorkspaceProfile({ homeDir, cwd: workspaceRoot, name: "WS" });
+  await seedPageConversation(workspaceRoot);
+
+  const response = await handleSaveKnowledgeNote(
+    {
+      version: 3,
+      conversationId: "conv_1",
+      rootSessionId: "sess_root",
+      headSessionId: "sess_head",
+      workspaceProfileId: profile.id,
+      title: "My Saved Note",
+    },
+    { homeDir },
+  );
+
+  expect(response).toMatchObject({ ok: true, headSessionId: "sess_head" });
+  if (!response.ok) throw new Error(response.error);
+  const note = await readFile(join(workspaceRoot, response.path), "utf8");
+  expect(note).toContain("conversationId: conv_1");
+  expect(note).toContain("# My Saved Note");
+  expect(note).toContain("## Follow-up 1: Any detail?");
+  expect(note).toContain("- a detail");
+});
+
+test("Native Host reports note_conflict when the note was hand-edited", async () => {
+  const homeDir = await mkdtemp(join(tmpdir(), "forgelet-save-note-conflict-home-"));
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-save-note-conflict-ws-"));
+  const profile = await approveWorkspaceProfile({ homeDir, cwd: workspaceRoot, name: "WS" });
+  await seedPageConversation(workspaceRoot);
+  const request = {
+    version: 3 as const,
+    conversationId: "conv_1",
+    rootSessionId: "sess_root",
+    headSessionId: "sess_head",
+    workspaceProfileId: profile.id,
+    title: "My Saved Note",
+  };
+  const first = await handleSaveKnowledgeNote(request, { homeDir });
+  if (!first.ok) throw new Error(first.error);
+  const notePath = join(workspaceRoot, first.path);
+  const edited = `${await readFile(notePath, "utf8")}\nHand edit.\n`;
+  await writeFile(notePath, edited, "utf8");
+
+  const response = await handleSaveKnowledgeNote(request, { homeDir });
+
+  expect(response).toMatchObject({ ok: false, code: "note_conflict" });
+  await expect(readFile(notePath, "utf8")).resolves.toBe(edited);
+});
+
+test("Native Host rejects a version-mismatched saveKnowledgeNote with a clean recovery message", async () => {
+  const homeDir = await mkdtemp(join(tmpdir(), "forgelet-save-note-v2-home-"));
+  const response = await handleSaveKnowledgeNote(
+    {
+      version: 2,
+      conversationId: "conv_1",
+      rootSessionId: "sess_root",
+      headSessionId: "sess_head",
+      workspaceProfileId: "profile_1",
+      title: "Nope",
+    },
+    { homeDir },
+  );
+  expect(response).toMatchObject({
+    ok: false,
+    code: "protocol_mismatch",
+    error: expect.stringMatching(/rebuild.*reload.*install-host/i),
+  });
+});
+
+test("Native Host rejects saveKnowledgeNote for an unknown workspace profile", async () => {
+  const homeDir = await mkdtemp(join(tmpdir(), "forgelet-save-note-noprofile-home-"));
+  const response = await handleSaveKnowledgeNote(
+    {
+      version: 3,
+      conversationId: "conv_1",
+      rootSessionId: "sess_root",
+      headSessionId: "sess_head",
+      workspaceProfileId: "profile_missing",
+      title: "Nope",
+    },
+    { homeDir },
+  );
+  expect(response).toMatchObject({ ok: false, code: "workspace_profile_unavailable" });
+});
+
+test("Native Host application routes a saveKnowledgeNote message to a single response", async () => {
+  const homeDir = await mkdtemp(join(tmpdir(), "forgelet-save-note-route-home-"));
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-save-note-route-ws-"));
+  const profile = await approveWorkspaceProfile({ homeDir, cwd: workspaceRoot, name: "WS" });
+  await seedPageConversation(workspaceRoot);
+  const application = createNativeHostApplication({ homeDir });
+  const sent: Record<string, unknown>[] = [];
+
+  await application.handle(
+    {
+      type: "saveKnowledgeNote",
+      request: {
+        version: 3,
+        conversationId: "conv_1",
+        rootSessionId: "sess_root",
+        headSessionId: "sess_head",
+        workspaceProfileId: profile.id,
+        title: "Routed Note",
+      },
+    },
+    { send: async (message) => { sent.push(message as Record<string, unknown>); } },
+    { homeDir },
+  );
+
+  expect(sent).toHaveLength(1);
+  expect(sent[0]).toMatchObject({ ok: true, headSessionId: "sess_head" });
+  const noteFiles = await readdir(join(workspaceRoot, ".forgelet", "knowledge"));
+  expect(noteFiles).toHaveLength(1);
 });
 
 function decodeFrames(buffer: Buffer): unknown[] {

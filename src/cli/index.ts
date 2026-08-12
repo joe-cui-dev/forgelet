@@ -16,6 +16,7 @@ import {
   setDefaultWorkspaceProfile,
 } from "../browser/workspaceProfiles.js";
 import { createKnowledgeNote, searchKnowledgeNotes } from "../knowledge/index.js";
+import { promotePageConversationById } from "../browserWorkbench/knowledgeNotePromotion.js";
 import { listSessions, showSession } from "../sessions/index.js";
 import { listPausedSessions } from "../sessions/queue.js";
 import {
@@ -132,6 +133,16 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
             await createKnowledgeNote(workspaceRoot, {
               scope: command.scope,
               fromSessionId: command.fromSessionId,
+              title: command.title,
+            }),
+          ),
+        );
+      case "notes-create-from-conversation":
+        return ok(
+          formatCreatedKnowledgeNote(
+            await promotePageConversationById({
+              workspaceRoot,
+              conversationId: command.conversationId,
               title: command.title,
             }),
           ),
