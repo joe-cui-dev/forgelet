@@ -129,13 +129,6 @@ describe("modelRunnability", () => {
     });
   });
 
-  it("rejects an effort a profiled model would silently remap", () => {
-    expect(modelRunnability("deepseek-v4-pro", "low")).toMatchObject({
-      runnable: false,
-      errorMessage: expect.stringContaining("does not accept reasoning effort low"),
-    });
-  });
-
   it("marks non-deepseek models as not runnable, with distinct wiring and preview texts", () => {
     expect(modelRunnability("gpt-4o")).toEqual({
       runnable: false,

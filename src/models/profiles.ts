@@ -18,6 +18,12 @@ export interface ModelProfile {
   replacement?: string;
 }
 
+// Facts verified against https://api-docs.deepseek.com on 2026-08-13, covering
+// DeepSeek-V4-Pro-0813 and DeepSeek-V4-Flash-0731. Both are in-place updates:
+// the API ids below are unchanged, so nothing in a request or response marks
+// which weights answered. Prices are the rates published on that date, and
+// DeepSeek has announced a planned significant increase — these figures, and
+// every budget estimate derived from them, go stale with no API-visible signal.
 const deepSeekProfiles: readonly ModelProfile[] = [
   {
     id: "deepseek-v4-flash",
@@ -32,7 +38,7 @@ const deepSeekProfiles: readonly ModelProfile[] = [
   {
     id: "deepseek-v4-pro",
     protocols: ["chat_completions"],
-    acceptedEfforts: ["none", "high", "max"],
+    acceptedEfforts: ["none", "low", "high", "max"],
     contextWindowTokens: 1_000_000,
     maxOutputTokens: 384_000,
     pricesUsdPerMillion: { inputCacheHit: 0.003625, inputCacheMiss: 0.435, output: 0.87 },
