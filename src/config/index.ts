@@ -77,8 +77,8 @@ export const defaultConfig: ForgeletConfig = {
     writing: {
       default: "deepseek-v4-flash",
       review: "deepseek-v4-flash",
-      effort: "high",
-      maxConversationBytes: 128 * 1024,
+      effort: "low",
+      maxConversationBytes: 512 * 1024,
     },
     learning: {
       default: "deepseek-v4-flash",
@@ -316,7 +316,8 @@ function mergeConfig(
     commandTimeoutMs: override.commandTimeoutMs ?? base.commandTimeoutMs,
     maxPatchBytes: override.maxPatchBytes ?? base.maxPatchBytes,
     memoryFile: override.memoryFile ?? base.memoryFile,
-    memoryCapturePrompt: override.memoryCapturePrompt ?? base.memoryCapturePrompt,
+    memoryCapturePrompt:
+      override.memoryCapturePrompt ?? base.memoryCapturePrompt,
   };
 }
 

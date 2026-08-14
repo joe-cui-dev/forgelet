@@ -41,8 +41,8 @@ test("defaults workflow routes to V4-sized conversation budgets and efforts", as
     maxConversationBytes: 256 * 1024,
   });
   expect(config.routing.writing).toMatchObject({
-    effort: "high",
-    maxConversationBytes: 128 * 1024,
+    effort: "low",
+    maxConversationBytes: 512 * 1024,
   });
 });
 
