@@ -76,3 +76,10 @@ export function modelProfile(model: string): ModelProfile | undefined {
 export function isKnownDeepSeekModel(model: string): boolean {
   return modelProfile(model) !== undefined;
 }
+
+/** Model ids that may be selected for a new Route. Retired profiles remain
+ * known so routing can offer their migration guidance, but they cannot be
+ * chosen by a Browser Workbench invocation. */
+export function routableModelIds(): ReadonlySet<string> {
+  return new Set(deepSeekProfiles.filter((profile) => !profile.retired).map((profile) => profile.id));
+}

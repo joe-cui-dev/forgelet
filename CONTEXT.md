@@ -17,7 +17,7 @@ A bounded unit of model-and-tool interaction that the Agent Kernel runs for a Wo
 _Avoid_: Agent loop, chat loop, Session, workflow stage
 
 **Route**:
-The model decision in force for one Workflow stage: which model answers and how much reasoning effort it spends. A Route is chosen by the Routing Policy, recorded in the Trace, and persisted in a Pause Snapshot, so a Session's behaviour stays explainable after the fact.
+The model decision in force for one Workflow stage: which model answers and how much reasoning effort it spends. A Route is chosen by the Routing Policy unless an explicit per-invocation override replaces it; it is recorded in the Trace and persisted in a Pause Snapshot, so a Session's behaviour stays explainable after the fact.
 _Avoid_: Model, model id, model name, provider
 
 **Model Profile**:

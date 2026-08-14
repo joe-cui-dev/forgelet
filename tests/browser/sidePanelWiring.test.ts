@@ -34,6 +34,7 @@ test("clicking Send after a successful root Page Brief sends pageConversationSen
   const elements: Record<string, any> = {
     "workbench-root": fakeElement("workbench-root"),
     stop: fakeElement("stop"),
+    model: fakeElement("model"),
     "output-language": fakeElement("output-language"),
     "font-size": fakeElement("font-size"),
     debug: fakeElement("debug"),

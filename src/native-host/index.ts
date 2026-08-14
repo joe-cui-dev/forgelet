@@ -319,20 +319,21 @@ function saveKnowledgeNoteCode(
 
 export function createNativeHostApplication(input: {
   homeDir?: string;
-  modelClientForWorkspace?: (workspaceRoot: string) => ModelClient | undefined;
+  modelClientForWorkspace?: (workspaceRoot: string, model?: string) => ModelClient | undefined;
 }): NativeHostApplication {
   const { homeDir } = input;
   const controllers = new Map<string, AbortController>();
   const learningLauncher = createBrowserLearningLauncher({
     homeDir,
-    modelClientForWorkspace: (workspaceRoot) =>
-      input.modelClientForWorkspace?.(workspaceRoot) ??
+    modelClientForWorkspace: (workspaceRoot, model) =>
+      input.modelClientForWorkspace?.(workspaceRoot, model) ??
       createDeferredLiveModelClient(
         {
           workflow: "learning",
           homeDir,
           workspaceRoot,
           env: process.env,
+          ...(model ? { modelOverride: model } : {}),
         },
         createDeepSeekLiveModelClient,
       ),

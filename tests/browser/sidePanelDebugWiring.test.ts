@@ -36,6 +36,7 @@ test("the Debug toggle restores its stored preference and persists changes witho
   const elements: Record<string, any> = {
     "workbench-root": fakeElement("workbench-root"),
     stop: fakeElement("stop"),
+    model: fakeElement("model"),
     "output-language": fakeElement("output-language"),
     "font-size": fakeElement("font-size"),
     debug: fakeElement("debug"),

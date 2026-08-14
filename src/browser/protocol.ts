@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { routableModelIds } from "../models/profiles.js";
 import type { SessionLiveEvent, SessionLiveEventSink } from "../sessionLiveView/index.js";
 import type { PageAnswer, PageBrief } from "../pageConversation/index.js";
 import {
@@ -32,6 +33,7 @@ interface BrowserInvocationBase {
   invocationId: string;
   workspaceProfileId: string;
   outputLanguage?: string;
+  model?: string;
   debug?: boolean;
 }
 
@@ -192,14 +194,18 @@ export function validateBrowserInvocationRequest(
       `Invocation payload exceeds ${MAX_INVOCATION_PAYLOAD_BYTES} bytes.`,
     );
   requireOnlyKeys(raw, requestKeys(raw.kind), "Invocation request");
+  const outputLanguage = optionalLanguageTag(raw);
+  const model = optionalModelId(raw);
+  const debug = optionalDebugFlag(raw);
   const base: BrowserInvocationBase = {
     version: BROWSER_PROTOCOL_VERSION,
     conversationId: requiredString(raw, "conversationId", "Invocation request"),
     actionId: requiredString(raw, "actionId", "Invocation request"),
     invocationId: requiredString(raw, "invocationId", "Invocation request"),
     workspaceProfileId: requiredString(raw, "workspaceProfileId", "Invocation request"),
-    ...(optionalLanguageTag(raw) ? { outputLanguage: optionalLanguageTag(raw) } : {}),
-    ...(optionalDebugFlag(raw) !== undefined ? { debug: optionalDebugFlag(raw) } : {}),
+    ...(outputLanguage ? { outputLanguage } : {}),
+    ...(model ? { model } : {}),
+    ...(debug !== undefined ? { debug } : {}),
   };
   if (raw.kind === "root") return { ...base, kind: "root", capture: parseCapture(raw.capture) };
   if (raw.kind === "root_retry") return { ...base, kind: "root_retry", captureId: requiredString(raw, "captureId", "Invocation request"), rootSessionId: requiredString(raw, "rootSessionId", "Invocation request") };
@@ -230,7 +236,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function requestKeys(kind: unknown): string[] {
-  const base = ["version", "kind", "conversationId", "actionId", "invocationId", "workspaceProfileId", "outputLanguage", "debug"];
+  const base = ["version", "kind", "conversationId", "actionId", "invocationId", "workspaceProfileId", "outputLanguage", "model", "debug"];
   if (kind === "root") return [...base, "capture"];
   if (kind === "root_retry") return [...base, "captureId", "rootSessionId"];
   if (kind === "follow_up" || kind === "follow_up_retry") return [...base, "captureId", "rootSessionId", "parentSessionId", "question"];
@@ -254,6 +260,14 @@ function optionalLanguageTag(value: Record<string, unknown>): string | undefined
   if (field === undefined) return undefined;
   if (typeof field !== "string" || field.length > 35 || !/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{1,8})*$/.test(field))
     throw new BrowserProtocolValidationError("malformed", "Invocation request has an invalid outputLanguage.");
+  return field;
+}
+
+function optionalModelId(value: Record<string, unknown>): string | undefined {
+  const field = value.model;
+  if (field === undefined) return undefined;
+  if (typeof field !== "string" || !routableModelIds().has(field))
+    throw new BrowserProtocolValidationError("malformed", "Invocation request has an invalid model.");
   return field;
 }
 

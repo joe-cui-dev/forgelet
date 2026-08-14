@@ -531,6 +531,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export type PanelFontSizePreference = "small" | "medium" | "large" | "xlarge";
+type PanelModelPreference = "default" | "deepseek-v4-flash" | "deepseek-v4-pro";
 
 export function normalizeFontSizePreference(raw: unknown): PanelFontSizePreference {
   return raw === "small" || raw === "large" || raw === "xlarge" ? raw : "medium";
@@ -540,9 +541,14 @@ function normalizeOutputLanguagePreference(raw: unknown): "auto" | "en" | "zh-CN
   return raw === "en" || raw === "zh-CN" ? raw : "auto";
 }
 
+function normalizeModelPreference(raw: unknown): PanelModelPreference {
+  return raw === "deepseek-v4-flash" || raw === "deepseek-v4-pro" ? raw : "default";
+}
+
 async function initializeSidePanel(): Promise<void> {
   const output = document.getElementById("workbench-root");
   const stop = document.getElementById("stop");
+  const model = document.getElementById("model");
   const outputLanguage = document.getElementById("output-language");
   const fontSize = document.getElementById("font-size");
   const debug = document.getElementById("debug");
@@ -558,6 +564,7 @@ async function initializeSidePanel(): Promise<void> {
   if (
     !output ||
     !stop ||
+    !model ||
     !outputLanguage ||
     !fontSize ||
     !debug ||
@@ -591,10 +598,20 @@ async function initializeSidePanel(): Promise<void> {
   const windowId: number = (await chrome.windows.getCurrent()).id;
 
   const storedPreferences = await chrome.storage.local.get([
+    "forgeletBrowserWorkbenchModel",
     "forgeletBrowserWorkbenchOutputLanguage",
     "forgeletBrowserWorkbenchFontSize",
     "forgeletBrowserWorkbenchDebug",
   ]);
+  let modelPreference = normalizeModelPreference(storedPreferences.forgeletBrowserWorkbenchModel);
+  model.value = modelPreference;
+  model.addEventListener("change", async () => {
+    modelPreference = normalizeModelPreference(model.value);
+    model.value = modelPreference;
+    // Selecting Default route deliberately omits the model field from the
+    // next browser invocation, preserving the current Routing Policy default.
+    await chrome.storage.local.set({ forgeletBrowserWorkbenchModel: modelPreference });
+  });
   let languagePreference = normalizeOutputLanguagePreference(
     storedPreferences.forgeletBrowserWorkbenchOutputLanguage,
   );

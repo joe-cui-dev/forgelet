@@ -134,3 +134,60 @@ test("a Workbench-launched Page Brief writes a Debug Transcript when the trigger
   expect(transcript).toContain("model_request");
   expect(transcript).toContain("model_response");
 });
+
+test("a Browser model override reaches both the workspace model client and the Session Route", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-launcher-model-"));
+  const homeDir = await mkdtemp(join(tmpdir(), "forgelet-launcher-home-"));
+  const modelClient = new FakeModelClient([
+    { content: "## Summary\nA concise page summary.", toolCalls: [] },
+  ]);
+  const requestedModels: (string | undefined)[] = [];
+  const launcher = createBrowserLearningLauncher({
+    homeDir,
+    modelClientForWorkspace: (_workspaceRoot, model) => {
+      requestedModels.push(model);
+      return modelClient;
+    },
+  });
+  const liveEvents: SessionLiveEvent[] = [];
+
+  await launcher.startLearning({
+    workspaceRoot,
+    task: "Summarize the explicitly shared current browser page as a concise Page Brief.",
+    browserSnapshot: {
+      url: "https://example.com/docs",
+      title: "Example Docs",
+      capturedAt: "2026-07-12T00:00:00.000Z",
+      contentKind: "mainText",
+      content: PAGE_BODY,
+      contentBytes: Buffer.byteLength(PAGE_BODY, "utf8"),
+      contentHash: "c".repeat(64),
+      truncated: true,
+      preview: `${PAGE_BODY.replace(/\s+/g, " ").trim().slice(0, 157)}...`,
+    },
+    executionPolicy: "answer_once",
+    trigger: {
+      kind: "root",
+      conversationId: "conversation_model",
+      actionId: "action_model",
+      invocationId: "invocation_model",
+      workspaceProfileId: "profile_1",
+      captureId: CAPTURE_ID,
+      captureReadyMs: 12,
+    },
+    model: "deepseek-v4-pro",
+    onLiveEvent: async (event) => {
+      liveEvents.push(event);
+    },
+  });
+
+  expect(requestedModels).toEqual(["deepseek-v4-pro"]);
+  const ready = liveEvents.find((event) => event.type === "session_ready");
+  if (ready?.type !== "session_ready") throw new Error("Expected a session_ready live event.");
+  const routingSelected = (await readFile(ready.tracePath, "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line))
+    .find((event: { type: string }) => event.type === "routing_selected");
+  expect(routingSelected.payload.model).toBe("deepseek-v4-pro");
+});

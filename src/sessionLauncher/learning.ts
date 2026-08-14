@@ -64,7 +64,10 @@ function browserSessionTraceExtras(
 
 export function createBrowserLearningLauncher(input: {
   homeDir?: string;
-  modelClientForWorkspace(workspaceRoot: string): LearningSessionInput["modelClient"];
+  modelClientForWorkspace(
+    workspaceRoot: string,
+    model?: string,
+  ): LearningSessionInput["modelClient"];
 }): BrowserLearningLauncher {
   return {
     async startLearning(launch: AuthorizedBrowserLearningLaunch) {
@@ -93,7 +96,8 @@ export function createBrowserLearningLauncher(input: {
         task: launch.task,
         contextFiles: [],
         browserSnapshot: { ...launch.browserSnapshot, contentPath },
-        modelClient: input.modelClientForWorkspace(launch.workspaceRoot),
+        modelClient: input.modelClientForWorkspace(launch.workspaceRoot, launch.model),
+        ...(launch.model ? { model: launch.model } : {}),
         workspaceRoot: launch.workspaceRoot,
         homeDir: input.homeDir,
         executionPolicy: launch.executionPolicy,
@@ -124,7 +128,8 @@ export function createBrowserLearningLauncher(input: {
         task: launch.question,
         contextFiles: [],
         browserSnapshot: launch.browserSnapshot,
-        modelClient: input.modelClientForWorkspace(launch.workspaceRoot),
+        modelClient: input.modelClientForWorkspace(launch.workspaceRoot, launch.model),
+        ...(launch.model ? { model: launch.model } : {}),
         workspaceRoot: launch.workspaceRoot,
         homeDir: input.homeDir,
         executionPolicy: launch.executionPolicy,

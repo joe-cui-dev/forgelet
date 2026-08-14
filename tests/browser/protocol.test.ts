@@ -102,6 +102,20 @@ test("an optional debug flag round-trips as a boolean and rejects non-boolean va
   expect(() => validateBrowserInvocationRequest({ ...rootRequest, debug: "true" })).toThrow(/debug/i);
 });
 
+test("an optional model accepts live route ids, omits an absent field, and rejects invalid ids", () => {
+  expect(validateBrowserInvocationRequest({ ...rootRequest, model: "deepseek-v4-flash" }))
+    .toMatchObject({ model: "deepseek-v4-flash" });
+  expect(validateBrowserInvocationRequest({ ...rootRequest, model: "deepseek-v4-pro" }))
+    .toMatchObject({ model: "deepseek-v4-pro" });
+  expect(validateBrowserInvocationRequest(rootRequest)).not.toHaveProperty("model");
+  expect(() => validateBrowserInvocationRequest({ ...rootRequest, model: "unknown-model" }))
+    .toThrow(/model/i);
+  expect(() => validateBrowserInvocationRequest({ ...rootRequest, model: "deepseek-chat" }))
+    .toThrow(/model/i);
+  expect(() => validateBrowserInvocationRequest({ ...rootRequest, model: 42 }))
+    .toThrow(/model/i);
+});
+
 test("v2 and unknown versions fail with recovery guidance", () => {
   for (const version of [2, 999]) {
     expect(() => validateBrowserInvocationRequest({ ...rootRequest, version })).toThrow(/rebuild.*reload.*install-host/i);

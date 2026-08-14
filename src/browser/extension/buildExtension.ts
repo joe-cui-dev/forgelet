@@ -378,6 +378,14 @@ export function sidePanelHtml(): string {
         <select id="workspace-profile"></select>
       </div>
       <div>
+        <label for="model">Model</label>
+        <select id="model">
+          <option value="default">Default route</option>
+          <option value="deepseek-v4-flash">Flash</option>
+          <option value="deepseek-v4-pro">Pro</option>
+        </select>
+      </div>
+      <div>
         <label for="output-language">Output language</label>
         <select id="output-language">
           <option value="auto">Auto</option>

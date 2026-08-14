@@ -40,6 +40,7 @@ export type PageConversationStartRequest =
       invocationId: string;
       workspaceProfileId: string;
       outputLanguage?: string;
+      model?: string;
       debug?: boolean;
       capture: Record<string, unknown>;
     }
@@ -50,6 +51,7 @@ export type PageConversationStartRequest =
       invocationId: string;
       workspaceProfileId: string;
       outputLanguage?: string;
+      model?: string;
       debug?: boolean;
       captureId: string;
       rootSessionId: string;
@@ -61,6 +63,7 @@ export type PageConversationStartRequest =
       invocationId: string;
       workspaceProfileId: string;
       outputLanguage?: string;
+      model?: string;
       debug?: boolean;
       captureId: string;
       rootSessionId: string;
@@ -115,6 +118,7 @@ export function createPageConversationController(input: {
   captureCurrentPage(): Promise<Record<string, unknown>>;
   createId(): string;
   resolveOutputLanguage?(): string | undefined | Promise<string | undefined>;
+  resolveModel?(): string | undefined | Promise<string | undefined>;
   resolveDebug?(): boolean | undefined | Promise<boolean | undefined>;
   /** The sticky Workspace Profile the user picked in the Side Panel (ADR
    * 0077 decision 4). It only steers the next launch; the running attempt keeps
@@ -196,6 +200,8 @@ export function createPageConversationController(input: {
   const resolveDebug = async (): Promise<boolean | undefined> =>
     (await input.resolveDebug?.()) === true ? true : undefined;
 
+  const resolveModel = async (): Promise<string | undefined> => await input.resolveModel?.();
+
   const projectionFor = async (windowId: number): Promise<PageConversationProjection | undefined> => {
     const inMemory = projections.get(windowId);
     if (inMemory) return inMemory;
@@ -272,6 +278,7 @@ export function createPageConversationController(input: {
       save(windowId, projection);
 
       const outputLanguage = await resolveOutputLanguage();
+      const model = await resolveModel();
       const debug = await resolveDebug();
       const port = input.bridge.start({
         kind: "root",
@@ -280,6 +287,7 @@ export function createPageConversationController(input: {
         invocationId,
         workspaceProfileId: profile.id,
         ...outputLanguageField(outputLanguage),
+        ...modelField(model),
         ...debugField(debug),
         capture,
       });
@@ -326,6 +334,7 @@ export function createPageConversationController(input: {
       save(windowId, next);
 
       const outputLanguage = await resolveOutputLanguage();
+      const model = await resolveModel();
       const debug = await resolveDebug();
       const port = input.bridge.start({
         kind: "follow_up",
@@ -334,6 +343,7 @@ export function createPageConversationController(input: {
         invocationId,
         workspaceProfileId: current.workspaceProfileId,
         ...outputLanguageField(outputLanguage),
+        ...modelField(model),
         ...debugField(debug),
         captureId: current.captureId,
         rootSessionId: current.rootSessionId,
@@ -394,6 +404,7 @@ export function createPageConversationController(input: {
       save(windowId, next);
 
       const outputLanguage = await resolveOutputLanguage();
+      const model = await resolveModel();
       const debug = await resolveDebug();
       const port =
         retryKind === "root_retry"
@@ -404,6 +415,7 @@ export function createPageConversationController(input: {
               invocationId: newInvocationId,
               workspaceProfileId: current.workspaceProfileId,
               ...outputLanguageField(outputLanguage),
+              ...modelField(model),
               ...debugField(debug),
               captureId: current.captureId,
               rootSessionId: rootRetrySessionId as string,
@@ -415,6 +427,7 @@ export function createPageConversationController(input: {
               invocationId: newInvocationId,
               workspaceProfileId: current.workspaceProfileId,
               ...outputLanguageField(outputLanguage),
+              ...modelField(model),
               ...debugField(debug),
               captureId: current.captureId,
               rootSessionId: current.rootSessionId ?? "",
@@ -433,6 +446,10 @@ function stringField(record: Record<string, unknown>, key: string): string {
 
 function outputLanguageField(outputLanguage: string | undefined): { outputLanguage?: string } {
   return outputLanguage ? { outputLanguage } : {};
+}
+
+function modelField(model: string | undefined): { model?: string } {
+  return model ? { model } : {};
 }
 
 function debugField(debug: boolean | undefined): { debug?: boolean } {

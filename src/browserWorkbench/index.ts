@@ -35,6 +35,7 @@ export interface AuthorizedBrowserLearningLaunch {
   browserSnapshot: LoadedBrowserSnapshot;
   executionPolicy: ExecutionPolicy;
   trigger: BrowserSessionTrigger;
+  model?: string;
   debug?: boolean;
   signal?: AbortSignal;
   onLiveEvent: SessionLiveEventSink;
@@ -48,6 +49,7 @@ export interface AuthorizedBrowserPageAnswerLaunch {
   pageConversationHistory: PageConversationTurn[];
   executionPolicy: ExecutionPolicy;
   trigger: BrowserSessionTrigger;
+  model?: string;
   debug?: boolean;
   signal?: AbortSignal;
   onLiveEvent: SessionLiveEventSink;
@@ -112,6 +114,7 @@ async function launchRoot(
       captureReadyMs: request.capture.captureReadyMs,
       ...(request.outputLanguage ? { outputLanguage: request.outputLanguage } : {}),
     },
+    ...(request.model ? { model: request.model } : {}),
     ...(request.debug ? { debug: request.debug } : {}),
     signal,
     onLiveEvent,
@@ -148,6 +151,7 @@ async function launchRootRetry(
       rootSessionId: request.rootSessionId,
       ...(request.outputLanguage ? { outputLanguage: request.outputLanguage } : {}),
     },
+    ...(request.model ? { model: request.model } : {}),
     ...(request.debug ? { debug: request.debug } : {}),
     signal,
     onLiveEvent,
@@ -191,6 +195,7 @@ async function launchFollowUp(
       parentSessionId: request.parentSessionId,
       ...(request.outputLanguage ? { outputLanguage: request.outputLanguage } : {}),
     },
+    ...(request.model ? { model: request.model } : {}),
     ...(request.debug ? { debug: request.debug } : {}),
     signal,
     onLiveEvent,
