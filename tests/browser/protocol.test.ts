@@ -143,6 +143,33 @@ test("v3 frames carry conversation and invocation identities with monotonic sequ
   expect(result.at(-1)).toMatchObject({ type: "page_brief_completed", pageBrief });
 });
 
+test("the Reasoning Stream never crosses into a live_event frame; bytesSoFar still does", async () => {
+  // ADR 0079: the Reasoning Stream is CLI-terminal-only. The Browser protocol
+  // enforces that by stripping `text` here, not by trusting every consumer
+  // to ignore it.
+  const launcher: ProtocolLauncher = {
+    async launch({ onLiveEvent }) {
+      await onLiveEvent({
+        type: "model_reasoning_progress",
+        turnIndex: 0,
+        model: "deepseek-v4-pro",
+        bytesSoFar: 1024,
+        text: "the model's private chain of thought",
+      });
+      return { status: "completed", summary: "done", pageBrief };
+    },
+  };
+  const result = await frames(runBrowserInvocation(rootRequest, launcher, { homeDir: await homeDir() }));
+  const reasoningFrame = result.find(
+    (frame) => frame.type === "live_event" && frame.event.type === "model_reasoning_progress",
+  );
+  expect(reasoningFrame).toMatchObject({ event: { bytesSoFar: 1024 } });
+  expect(reasoningFrame).toBeDefined();
+  expect(JSON.stringify(reasoningFrame)).not.toContain("private chain of thought");
+  if (reasoningFrame?.type === "live_event" && reasoningFrame.event.type === "model_reasoning_progress")
+    expect(reasoningFrame.event).not.toHaveProperty("text");
+});
+
 test("Page Answer completion is distinct from Page Brief completion", async () => {
   const request = { ...rootRequest, kind: "follow_up" as const, invocationId: "invocation_2", captureId: "capture_1", rootSessionId: "sess_root", parentSessionId: "sess_root", question: "Why?" };
   delete (request as { capture?: unknown }).capture;

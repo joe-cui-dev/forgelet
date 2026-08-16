@@ -157,12 +157,15 @@ export interface ModelOutputDelta {
   text: string;
 }
 
-/** Progress of a turn's Provider Carryover while it streams. Only its size
- * crosses this boundary: the carryover itself is opaque and is never rendered
- * (ADR 0065), so a live view can report that thinking is happening without
- * being handed anything it must not show. */
+/** Progress of a turn's Provider Carryover while it streams. `text` is the
+ * raw incremental delta, not cumulative — symmetric with `ModelOutputDelta`.
+ * Carryover itself stays opaque to Forgelet's own processing (ADR 0065); that
+ * is a claim about what Forgelet parses or rewrites, not about whether the
+ * interactive CLI terminal may render it live as the Reasoning Stream
+ * (ADR 0079). Consumers outside the CLI must not persist or forward `text`. */
 export interface ModelReasoningDelta {
   bytesSoFar: number;
+  text: string;
 }
 
 export interface ModelMessage {

@@ -20,6 +20,11 @@ export type SessionLiveEvent =
       turnIndex: number;
       model: string;
       bytesSoFar: number;
+      /** Raw text of Provider Carryover accumulated since the last heartbeat
+       * (not cumulative). Reasoning Stream only (ADR 0079): present for the
+       * interactive CLI terminal sink, stripped by the Browser protocol
+       * before an event crosses into a `live_event` frame. */
+      text?: string;
     }
   | {
       type: "model_turn_finished";
@@ -66,10 +71,11 @@ export const formatSessionLiveEvent = (event: SessionLiveEvent): string => {
       return `Model turn ${event.turnIndex + 1} started: ${event.model}`;
     case "model_output_delta":
       return event.text;
-    // Reports that thinking is progressing without showing any of it: Provider
-    // Carryover is opaque, so only its size reaches a live view.
+    // The header for a turn's Reasoning Stream (ADR 0079). The terminal sink
+    // prints this once per turn, then writes each event's `text` raw; the
+    // event's own bytesSoFar/text never flow through this formatter.
     case "model_reasoning_progress":
-      return `Model turn ${event.turnIndex + 1} thinking: ${event.bytesSoFar} bytes`;
+      return `Model turn ${event.turnIndex + 1} thinking:`;
     case "model_turn_finished":
       return `Model turn ${event.turnIndex + 1} finished: ${event.model}, ${formatCount(
         event.toolCallCount,
@@ -102,16 +108,39 @@ export const formatSessionLiveEvent = (event: SessionLiveEvent): string => {
 
 export const createTerminalSessionLiveEventSink =
   (write: (text: string) => void): SessionLiveEventSink => {
-    let lastWriteWasUnterminatedModelOutput = false;
+    // Which raw stream is open: both model_output_delta and
+    // model_reasoning_progress stream raw text across many events, and this
+    // says which one, if either, owns the current line. It gates the
+    // Reasoning Stream header to once per turn — it does not reset merely
+    // because a batch's own text happens to end in "\n".
+    let openRawStream: "none" | "output" | "reasoning" = "none";
+    // Whether the most recent write left the cursor mid-line. Tracked apart
+    // from openRawStream so a batch ending in "\n" doesn't cause a spurious
+    // blank line the next time a stream switches or a formatted line prints.
+    let lineIsOpen = false;
     return (event) => {
       if (event.type === "model_output_delta") {
+        if (openRawStream === "reasoning" && lineIsOpen) write("\n");
         write(event.text);
-        lastWriteWasUnterminatedModelOutput = !event.text.endsWith("\n");
+        openRawStream = "output";
+        lineIsOpen = !event.text.endsWith("\n");
         return;
       }
-      if (lastWriteWasUnterminatedModelOutput) write("\n");
+      if (event.type === "model_reasoning_progress") {
+        const text = event.text ?? "";
+        if (openRawStream !== "reasoning") {
+          if (openRawStream === "output" && lineIsOpen) write("\n");
+          write(`${formatSessionLiveEvent(event)}\n`);
+        }
+        write(text);
+        openRawStream = "reasoning";
+        lineIsOpen = !text.endsWith("\n");
+        return;
+      }
+      if (lineIsOpen) write("\n");
       write(`${formatSessionLiveEvent(event)}\n`);
-      lastWriteWasUnterminatedModelOutput = false;
+      openRawStream = "none";
+      lineIsOpen = false;
     };
   };
 

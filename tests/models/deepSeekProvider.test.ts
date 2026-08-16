@@ -142,10 +142,11 @@ test("DeepSeekModelClient sends tool_choice none with the tools still attached",
   expect(bodies[2]).not.toHaveProperty("tool_choice");
 });
 
-test("readDeepSeekResponse reports carryover size as it streams, never its text", async () => {
+test("readDeepSeekResponse reports carryover size and its raw incremental text as it streams", async () => {
   const response = new PassThrough() as PassThrough & { statusCode?: number };
   response.statusCode = 200;
   const reported: number[] = [];
+  const reportedText: string[] = [];
   const contentDeltas: string[] = [];
   const result = readDeepSeekResponse(response as unknown as IncomingMessage, {
     stream: true,
@@ -154,6 +155,7 @@ test("readDeepSeekResponse reports carryover size as it streams, never its text"
     },
     onReasoningDelta: (delta) => {
       reported.push(delta.bytesSoFar);
+      reportedText.push(delta.text);
     },
   });
 
@@ -171,12 +173,15 @@ test("readDeepSeekResponse reports carryover size as it streams, never its text"
   );
   response.end();
 
-  // Cumulative byte counts, so a live view needs no state of its own; the
-  // reasoning text itself only ever reaches the returned response.
+  // bytesSoFar is cumulative, so a live view needs no state of its own to
+  // track total size; text is the raw incremental delta (not cumulative),
+  // symmetric with onOutputDelta — no throttling happens at this layer
+  // (ADR 0079), that is the ReAct Node's job.
   expect(await result).toMatchObject({
     choices: [{ message: { reasoning_content: "abcdefg" } }],
   });
   expect(reported).toEqual([5, 7]);
+  expect(reportedText).toEqual(["abcde", "fg"]);
   expect(contentDeltas).toEqual(["Done."]);
 });
 

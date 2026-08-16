@@ -564,16 +564,24 @@ test("a model-backed coding Session streams model output deltas through Session 
   expect(eventTypes).not.toContain("model_output_delta");
 });
 
-test("a thinking turn reports carryover size to Session Live View without showing any of it", async () => {
+test("a thinking turn streams its Reasoning Stream text to Session Live View in 1 KiB batches", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-live-think-"));
+  // Incremental chunk sizes 300, 600, 300, 600, 600 give cumulative totals
+  // 300, 900, 1200, 1800, 2400. Under the 1024-byte heartbeat only the third
+  // and fifth deltas cross the threshold: the first two are buffered, not
+  // discarded, and surface as part of the batch that tips it over.
   const modelClient = new FakeModelClient([
     {
       content: "Done.",
       toolCalls: [],
       finishReason: "stop",
-      // Under the 1024-byte heartbeat only the third and fifth marks qualify:
-      // 300 and 900 are too close to the last report to be worth a line.
-      reasoningDeltaBytes: [300, 900, 1200, 1800, 2400],
+      reasoningDeltas: [
+        "a".repeat(300),
+        "b".repeat(600),
+        "c".repeat(300),
+        "d".repeat(600),
+        "e".repeat(600),
+      ],
       outputDeltas: ["Done."],
     },
   ]);
@@ -597,12 +605,61 @@ test("a thinking turn reports carryover size to Session Live View without showin
       turnIndex: 0,
       model: "deepseek-v4-flash",
       bytesSoFar: 1200,
+      text: "a".repeat(300) + "b".repeat(600) + "c".repeat(300),
     },
     {
       type: "model_reasoning_progress",
       turnIndex: 0,
       model: "deepseek-v4-flash",
       bytesSoFar: 2400,
+      text: "d".repeat(600) + "e".repeat(600),
+    },
+  ]);
+});
+
+test("a thinking turn's final sub-heartbeat segment is still flushed to Session Live View", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-live-think-tail-"));
+  // Cumulative total is 1200 + 300 = 1500, not a multiple of 1024: the first
+  // chunk crosses the heartbeat and flushes on its own, leaving the second
+  // chunk (300 bytes) pending when the turn returns. That tail must still
+  // reach the live view instead of being silently dropped.
+  const modelClient = new FakeModelClient([
+    {
+      content: "Done.",
+      toolCalls: [],
+      finishReason: "stop",
+      reasoningDeltas: ["x".repeat(1200), "y".repeat(300)],
+      outputDeltas: ["Done."],
+    },
+  ]);
+  const liveEvents: SessionLiveEvent[] = [];
+
+  await runCodingSession({
+    task: "think it over",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+    onLiveEvent: (event) => {
+      liveEvents.push(event);
+    },
+  });
+
+  expect(
+    liveEvents.filter((event) => event.type === "model_reasoning_progress"),
+  ).toEqual([
+    {
+      type: "model_reasoning_progress",
+      turnIndex: 0,
+      model: "deepseek-v4-flash",
+      bytesSoFar: 1200,
+      text: "x".repeat(1200),
+    },
+    {
+      type: "model_reasoning_progress",
+      turnIndex: 0,
+      model: "deepseek-v4-flash",
+      bytesSoFar: 1500,
+      text: "y".repeat(300),
     },
   ]);
 });

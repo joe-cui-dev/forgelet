@@ -55,7 +55,7 @@ test("formats concise terminal Session Live View events", () => {
   ).toBe("Session failed: model_execution_error");
 });
 
-test("terminal Session Live View reports thinking progress on its own line", async () => {
+test("terminal Session Live View streams the Reasoning Stream under one header, then closes it before the answer", async () => {
   const writes: string[] = [];
   const sink = createTerminalSessionLiveEventSink((text) => {
     writes.push(text);
@@ -70,7 +70,15 @@ test("terminal Session Live View reports thinking progress on its own line", asy
     type: "model_reasoning_progress",
     turnIndex: 0,
     model: "deepseek-v4-flash",
+    bytesSoFar: 1024,
+    text: "First I should check the tests.\n",
+  });
+  await sink({
+    type: "model_reasoning_progress",
+    turnIndex: 0,
+    model: "deepseek-v4-flash",
     bytesSoFar: 2048,
+    text: "Then update the docs",
   });
   await sink({
     type: "model_output_delta",
@@ -82,8 +90,43 @@ test("terminal Session Live View reports thinking progress on its own line", asy
   expect(writes.join("")).toBe(
     [
       "Model turn 1 started: deepseek-v4-flash\n",
-      "Model turn 1 thinking: 2048 bytes\n",
+      "Model turn 1 thinking:\n",
+      "First I should check the tests.\n",
+      "Then update the docs",
+      "\n",
       "Done.",
+    ].join(""),
+  );
+});
+
+test("terminal Session Live View does not repeat the thinking header within a turn", async () => {
+  const writes: string[] = [];
+  const sink = createTerminalSessionLiveEventSink((text) => {
+    writes.push(text);
+  });
+
+  // The first batch happens to end exactly on a newline: the header must
+  // still not reprint for the batch that follows it.
+  await sink({
+    type: "model_reasoning_progress",
+    turnIndex: 0,
+    model: "deepseek-v4-flash",
+    bytesSoFar: 1024,
+    text: "A complete sentence.\n",
+  });
+  await sink({
+    type: "model_reasoning_progress",
+    turnIndex: 0,
+    model: "deepseek-v4-flash",
+    bytesSoFar: 1500,
+    text: "Another one.",
+  });
+
+  expect(writes.join("")).toBe(
+    [
+      "Model turn 1 thinking:\n",
+      "A complete sentence.\n",
+      "Another one.",
     ].join(""),
   );
 });

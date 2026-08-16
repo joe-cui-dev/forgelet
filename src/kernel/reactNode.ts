@@ -643,8 +643,11 @@ export const runReactNode = async (
     let modelLatencyMs = 0;
     // A `max` effort turn can think for half a minute before its first content
     // byte. The live view gets a heartbeat every so many carryover bytes, which
-    // paces itself off real progress and needs no timer.
-    let reportedReasoningBytes = 0;
+    // paces itself off real progress and needs no timer. Buffered as a string,
+    // never sliced by byte offset (ADR 0079) — a byte-offset slice of the
+    // finished providerCarryover would split multi-byte characters.
+    let pendingReasoningText = "";
+    let latestReasoningBytesSoFar = 0;
     for (let attempt = 1; ; attempt += 1) {
       try {
         await emitLiveEvent(input.onLiveEvent, {
@@ -667,7 +670,8 @@ export const runReactNode = async (
           },
         });
         const startedAtMs = Date.now();
-        reportedReasoningBytes = 0;
+        pendingReasoningText = "";
+        latestReasoningBytesSoFar = 0;
         output = await input.modelClient.createTurn({
           messages,
           tools: requestTools,
@@ -677,17 +681,21 @@ export const runReactNode = async (
           signal: input.signal,
           onReasoningDelta: input.onLiveEvent
             ? async (delta) => {
+                pendingReasoningText += delta.text;
+                latestReasoningBytesSoFar = delta.bytesSoFar;
                 if (
-                  delta.bytesSoFar - reportedReasoningBytes <
+                  Buffer.byteLength(pendingReasoningText, "utf8") <
                   REASONING_HEARTBEAT_BYTES
                 )
                   return;
-                reportedReasoningBytes = delta.bytesSoFar;
+                const text = pendingReasoningText;
+                pendingReasoningText = "";
                 await emitLiveEvent(input.onLiveEvent, {
                   type: "model_reasoning_progress",
                   turnIndex,
                   model: input.route.model,
                   bytesSoFar: delta.bytesSoFar,
+                  text,
                 });
               }
             : undefined,
@@ -772,6 +780,22 @@ export const runReactNode = async (
         });
         throw error;
       }
+    }
+
+    // The heartbeat only fires once the pending buffer crosses 1 KiB, so a
+    // turn's closing sentences — whatever is left under that threshold when
+    // the turn returns — must still reach the live view (ADR 0079). Skipping
+    // this flush truncates the conclusion of every turn's thinking.
+    if (pendingReasoningText.length > 0) {
+      const text = pendingReasoningText;
+      pendingReasoningText = "";
+      await emitLiveEvent(input.onLiveEvent, {
+        type: "model_reasoning_progress",
+        turnIndex,
+        model: input.route.model,
+        bytesSoFar: latestReasoningBytesSoFar,
+        text,
+      });
     }
 
     usage.modelTurns += 1;

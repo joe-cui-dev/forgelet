@@ -581,7 +581,9 @@ function processDeepSeekStreamBlock(
     if (state.onReasoningDelta) {
       const bytesSoFar = Buffer.byteLength(state.providerCarryover, "utf8");
       state.deltaPromises.push(
-        Promise.resolve(state.onReasoningDelta({ bytesSoFar })),
+        Promise.resolve(
+          state.onReasoningDelta({ bytesSoFar, text: carryover }),
+        ),
       );
     }
   }

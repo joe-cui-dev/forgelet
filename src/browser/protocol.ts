@@ -388,6 +388,19 @@ export function runBrowserInvocation(
   return queue;
 }
 
+// The Reasoning Stream is CLI-terminal-only (ADR 0079): the Browser Workbench
+// side panel already ignores model_reasoning_progress, and its projection
+// lives inside ADR 0052's 24 KiB budget that a single turn's thinking would
+// exhaust on its own. Stripping `text` here makes CLI-only a property the
+// code enforces, rather than a convention two surfaces both have to
+// remember; `bytesSoFar` still crosses so the side panel could show a byte
+// heartbeat if it chose to.
+function stripReasoningStreamText(event: SessionLiveEvent): SessionLiveEvent {
+  if (event.type !== "model_reasoning_progress") return event;
+  const { text: _text, ...rest } = event;
+  return rest;
+}
+
 async function driveInvocation(
   request: BrowserInvocationRequest,
   launcher: ProtocolLauncher,
@@ -441,7 +454,7 @@ async function driveInvocation(
           });
           return;
         }
-        emit({ type: "live_event", event });
+        emit({ type: "live_event", event: stripReasoningStreamText(event) });
       },
     });
 
