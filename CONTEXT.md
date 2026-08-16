@@ -28,6 +28,10 @@ _Avoid_: Capability, model config, catalog entry
 The opaque payload a model turn returns that its provider requires replayed verbatim in later requests of the same tool-calling chain. Forgelet stores and replays it without reading or rewriting it, it is the one part of the conversation Forgelet cannot compact, and it never crosses a Session boundary.
 _Avoid_: Reasoning content, thinking, continuation, provider state
 
+**Reasoning Stream**:
+The transient live presentation of a model turn's thinking as it arrives, rendered only in the interactive CLI terminal and retained nowhere. It is the same wire bytes as a Provider Carryover in a second role — the Stream is watched and discarded where the Carryover is stored and replayed — so a Stream is never Trace evidence, never part of a Session's outcome, and never reaches another surface.
+_Avoid_: Provider Carryover, thinking log, reasoning trace, model output
+
 **Coding Workflow**:
 The Forgelet workflow for repository tasks such as searching code, editing files, running tests, and explaining changes.
 _Avoid_: The Forgelet product, generic agent loop
