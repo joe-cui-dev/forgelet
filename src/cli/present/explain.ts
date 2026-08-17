@@ -16,7 +16,7 @@ export function formatSessionExplanation(explanation: SessionExplanation): strin
       : "Route: none",
     `Model turns: ${explanation.modelTurns}`,
     ...formatEstimatedCost(explanation.audit),
-    `Provider diagnostics: ${explanation.providerDiagnostics.inputCacheHitTokens} cache-hit input tokens, ${explanation.providerDiagnostics.inputCacheMissTokens} cache-miss input tokens, ${explanation.providerDiagnostics.reasoningTokens} reasoning tokens, ${explanation.providerDiagnostics.providerCarryoverBytes} Provider Carryover bytes, ${explanation.providerDiagnostics.modelLatencyMs} ms in model turns`,
+    `Provider diagnostics: ${explanation.providerDiagnostics.inputCacheHitTokens} cache-hit input tokens, ${explanation.providerDiagnostics.inputCacheMissTokens} cache-miss input tokens, ${explanation.providerDiagnostics.reasoningTokens} reasoning tokens, ${explanation.providerDiagnostics.providerCarryoverBytes} Provider Carryover bytes, ${explanation.providerDiagnostics.modelLatencyMs} ms in model turns, ${explanation.providerDiagnostics.peakPricedTurns} turns priced at peak rates`,
     ...formatMissingEvidence(explanation.missingEvidence),
     "",
     "Tool use",

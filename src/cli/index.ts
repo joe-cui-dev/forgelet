@@ -77,6 +77,10 @@ export interface RunCliOptions {
    * friction for later backfill instead of blocking. */
   capturePrompt?: MemoryCapturePrompt;
   onLiveEvent?: SessionLiveEventSink;
+  /** Out-of-band lines emitted before a Session starts, when waiting for the
+   * final stdout would be too late to act on them. Absent means nowhere to
+   * print, and the notice is dropped rather than deferred. */
+  notify?: (text: string) => void;
 }
 
 export interface RunCliResult {
@@ -290,6 +294,7 @@ async function main(): Promise<void> {
   const result = await runCli(argv, {
     ...(capturePrompt ? { capturePrompt } : {}),
     onLiveEvent: terminalOutput?.onLiveEvent,
+    notify: (text) => process.stderr.write(`${text}\n`),
   });
   if (result.stdout) {
     if (terminalOutput?.shouldSuppressFinalStdout(argv)) {

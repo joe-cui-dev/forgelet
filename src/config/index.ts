@@ -102,7 +102,11 @@ export const defaultConfig: ForgeletConfig = {
   // answer turn, so it cannot be removed.
   budgets: {
     maxModelTurns: 32,
-    maxEstimatedCostUsd: 0.15,
+    // Calibrated to buy roughly one Session's worth of work at the off-peak
+    // rates, which cover 17 of every 24 hours. A Session running in a peak
+    // window buys about half that and stops sooner — that is the budget
+    // reporting a genuinely more expensive hour, not a regression.
+    maxEstimatedCostUsd: 0.35,
     maxWallClockMs: 30 * 60 * 1000,
   },
   activeContext: {

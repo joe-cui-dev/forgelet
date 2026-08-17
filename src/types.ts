@@ -193,6 +193,12 @@ export interface ModelTurnOutput {
   usage?: ModelUsage;
 }
 
+/** Which side of a provider's published time-of-day price split a turn was
+ * billed on. Recorded per turn because cost is no longer a function of token
+ * counts alone: the same tokens cost twice as much inside a peak window, so a
+ * Trace without this field cannot explain why one Session cost double another. */
+export type PricingWindow = "peak" | "off_peak";
+
 export interface ModelUsage {
   inputTokens?: number;
   outputTokens?: number;
@@ -200,6 +206,7 @@ export interface ModelUsage {
   inputCacheMissTokens?: number;
   reasoningTokens?: number;
   estimatedCostUsd?: number;
+  pricingWindow?: PricingWindow;
 }
 
 export interface ModelClient {

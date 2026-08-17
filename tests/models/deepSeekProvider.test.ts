@@ -6,6 +6,13 @@ import {
   readDeepSeekResponse,
   type DeepSeekChatRequest,
 } from "../../src/models/providers/deepseek.js";
+import { pricingWindowAt } from "../../src/models/profiles.js";
+
+/** `created` is Unix seconds. 12:00 UTC is off-peak, 02:00 UTC is inside the
+ * first published peak window. Fixtures pin it so cost assertions do not depend
+ * on what time of day the suite happens to run. */
+const OFF_PEAK_CREATED = Math.floor(Date.UTC(2026, 7, 17, 12) / 1000);
+const PEAK_CREATED = Math.floor(Date.UTC(2026, 7, 17, 2) / 1000);
 
 test("DeepSeekModelClient converts Forgelet turns to chat completions with tools", async () => {
   let requestBody: unknown;
@@ -15,6 +22,7 @@ test("DeepSeekModelClient converts Forgelet turns to chat completions with tools
     postJson: async (_url, body) => {
       requestBody = body;
       return {
+        created: OFF_PEAK_CREATED,
         choices: [
           {
             finish_reason: "tool_calls",
@@ -92,7 +100,9 @@ test("DeepSeekModelClient converts Forgelet turns to chat completions with tools
   expect(result.usage).toEqual({
     inputTokens: 12,
     outputTokens: 5,
-    estimatedCostUsd: 0.00000957,
+    pricingWindow: "off_peak",
+    // (12 * 0.66 + 5 * 1.98) / 1e6 at the off-peak rates
+    estimatedCostUsd: 0.00001782,
   });
 });
 
@@ -287,19 +297,22 @@ test("DeepSeekModelClient forwards a caller AbortSignal to the fetch adapter", a
   expect(observedSignal).toBe(controller.signal);
 });
 
+const usageOnlyResponse = (created?: number) => ({
+  choices: [{ message: { content: "Done." } }],
+  ...(created === undefined ? {} : { created }),
+  usage: {
+    prompt_tokens: 1000,
+    prompt_cache_hit_tokens: 100,
+    prompt_cache_miss_tokens: 900,
+    completion_tokens: 200,
+  },
+});
+
 test("DeepSeekModelClient estimates cost when the API returns token usage without cost", async () => {
   const client = new DeepSeekModelClient({
     apiKey: "test-key",
     model: "deepseek-v4-pro",
-    postJson: async () => ({
-      choices: [{ message: { content: "Done." } }],
-      usage: {
-        prompt_tokens: 1000,
-        prompt_cache_hit_tokens: 100,
-        prompt_cache_miss_tokens: 900,
-        completion_tokens: 200,
-      },
-    }),
+    postJson: async () => usageOnlyResponse(OFF_PEAK_CREATED),
   });
 
   const result = await client.createTurn({
@@ -311,8 +324,71 @@ test("DeepSeekModelClient estimates cost when the API returns token usage withou
   expect(result.usage?.inputCacheHitTokens).toBe(100);
   expect(result.usage?.inputCacheMissTokens).toBe(900);
   expect(result.usage?.outputTokens).toBe(200);
-  expect(Math.abs((result.usage?.estimatedCostUsd ?? 0) - 0.0005658625) <
-      Number.EPSILON).toBeTruthy();
+  // (100 * 0.022 + 900 * 0.66 + 200 * 1.98) / 1e6
+  expect(result.usage?.estimatedCostUsd).toBeCloseTo(0.0009922, 10);
+  expect(result.usage?.pricingWindow).toBe("off_peak");
+});
+
+test("DeepSeekModelClient prices a turn stamped inside a peak window at double the off-peak rate", async () => {
+  const client = new DeepSeekModelClient({
+    apiKey: "test-key",
+    model: "deepseek-v4-pro",
+    postJson: async () => usageOnlyResponse(PEAK_CREATED),
+  });
+
+  const result = await client.createTurn({
+    messages: [{ role: "user", content: "Hello" }],
+    tools: [],
+  });
+
+  expect(result.usage?.estimatedCostUsd).toBeCloseTo(0.0019844, 10);
+  expect(result.usage?.pricingWindow).toBe("peak");
+});
+
+test("DeepSeekModelClient falls back to the local clock when the response omits created", async () => {
+  const client = new DeepSeekModelClient({
+    apiKey: "test-key",
+    model: "deepseek-v4-pro",
+    postJson: async () => usageOnlyResponse(),
+  });
+
+  const result = await client.createTurn({
+    messages: [{ role: "user", content: "Hello" }],
+    tools: [],
+  });
+
+  // The local clock decides which window applies, so only the two possible
+  // outcomes are assertable — never that pricing silently went missing.
+  const expected = pricingWindowAt(Date.now()) === "peak" ? 0.0019844 : 0.0009922;
+  expect(result.usage?.estimatedCostUsd).toBeCloseTo(expected, 10);
+  expect(result.usage?.pricingWindow).toBe(pricingWindowAt(Date.now()));
+});
+
+test("readDeepSeekResponse carries the created stamp off the stream so the turn can be priced", async () => {
+  const stream = new PassThrough() as PassThrough & { statusCode?: number };
+  stream.statusCode = 200;
+  const response = readDeepSeekResponse(stream as unknown as IncomingMessage, {
+    model: "deepseek-v4-pro",
+    stream: true,
+    onOutputDelta: () => {},
+  });
+
+  stream.write(
+    `data: ${JSON.stringify({ created: PEAK_CREATED, choices: [{ delta: { content: "Done." } }] })}\n\n`,
+  );
+  stream.write(
+    `data: ${JSON.stringify({
+      created: PEAK_CREATED,
+      choices: [{ finish_reason: "stop", delta: {} }],
+      usage: { prompt_tokens: 1000, completion_tokens: 200 },
+    })}\n\n`,
+  );
+  stream.write("data: [DONE]\n\n");
+  stream.end();
+
+  const result = await response;
+
+  expect(result.created).toBe(PEAK_CREATED);
 });
 
 test("DeepSeekModelClient reports reasoning tokens separately from output tokens", async () => {

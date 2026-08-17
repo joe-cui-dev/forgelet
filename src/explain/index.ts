@@ -19,6 +19,9 @@ export interface SessionExplanation {
     reasoningTokens: number;
     providerCarryoverBytes: number;
     modelLatencyMs: number;
+    /** Turns billed at peak rates. Derived here rather than persisted: the
+     * window is recorded per turn, and a Trace reader can count them. */
+    peakPricedTurns: number;
   };
   toolResults: ToolResultExplanation[];
   permissionDecisions: PermissionExplanation[];
@@ -101,8 +104,11 @@ function explainProviderDiagnostics(events: KnownTraceEvent[]): SessionExplanati
         reasoningTokens: total.reasoningTokens + asNumber(event.payload.usage?.reasoningTokens),
         providerCarryoverBytes: total.providerCarryoverBytes + asNumber(event.payload.providerCarryoverBytes),
         modelLatencyMs: total.modelLatencyMs + asNumber(event.payload.latencyMs),
+        peakPricedTurns:
+          total.peakPricedTurns +
+          (event.payload.usage?.pricingWindow === "peak" ? 1 : 0),
       }),
-      { inputCacheHitTokens: 0, inputCacheMissTokens: 0, reasoningTokens: 0, providerCarryoverBytes: 0, modelLatencyMs: 0 },
+      { inputCacheHitTokens: 0, inputCacheMissTokens: 0, reasoningTokens: 0, providerCarryoverBytes: 0, modelLatencyMs: 0, peakPricedTurns: 0 },
     );
 }
 

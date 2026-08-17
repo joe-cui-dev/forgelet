@@ -87,6 +87,31 @@ test("explains a trace that retains retired input-token budget evidence", async 
   });
 });
 
+test("counts the turns a trace recorded as peak-priced", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-explain-peak-"));
+  const sessionDir = join(workspaceRoot, ".forgelet", "sessions");
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(sessionDir, "sess_compact.jsonl"),
+    [
+      event("session_started", { workflow: "coding" }),
+      event("user_task", { task: "span a peak window boundary" }),
+      event("model_turn", { turnIndex: 0, usage: { pricingWindow: "peak" } }),
+      event("model_turn", { turnIndex: 1, usage: { pricingWindow: "peak" } }),
+      event("model_turn", { turnIndex: 2, usage: { pricingWindow: "off_peak" } }),
+      // A turn from a trace written before Pricing Windows existed, or one
+      // whose usage never arrived: neither counts as peak.
+      event("model_turn", { turnIndex: 3 }),
+      event("session_finished", { status: "completed" }),
+    ].join("\n"),
+    "utf8",
+  );
+
+  const explanation = await explainSession(workspaceRoot, "sess_compact");
+
+  expect(explanation.providerDiagnostics.peakPricedTurns).toBe(2);
+});
+
 function event(type: string, payload: Record<string, unknown>): string {
   return JSON.stringify({
     type,

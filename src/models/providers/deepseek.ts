@@ -13,7 +13,7 @@ import type {
   ReasoningEffort,
   ToolSchema,
 } from "../../types.js";
-import { modelProfile } from "../profiles.js";
+import { modelProfile, pricesAt, pricingWindowAt } from "../profiles.js";
 
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
 const TOKENS_PER_MILLION = 1_000_000;
@@ -160,6 +160,9 @@ interface DeepSeekTool {
 }
 
 export interface DeepSeekChatResponse {
+  /** Unix seconds, from the provider's own clock. Used to decide which
+   * time-of-day rate applies — see `estimateDeepSeekCostUsd`. */
+  created?: number;
   choices?: Array<{
     finish_reason?: string | null;
     message?: {
@@ -260,7 +263,7 @@ function fromDeepSeekResponse(
     toolCalls: (message?.tool_calls ?? []).map(fromDeepSeekToolCall),
     finishReason: choice?.finish_reason ?? undefined,
     providerCarryover: message?.reasoning_content ?? undefined,
-    usage: fromDeepSeekUsage(response.usage, model),
+    usage: fromDeepSeekUsage(response.usage, model, response.created),
   };
 }
 
@@ -283,15 +286,20 @@ function parseToolArguments(value: string): unknown {
 function fromDeepSeekUsage(
   usage: DeepSeekChatResponse["usage"],
   model: string,
+  createdUnixSeconds: number | undefined,
 ): ModelUsage | undefined {
   if (!usage) return undefined;
+  const billedAtMs = billingInstantMs(createdUnixSeconds);
   const modelUsage: ModelUsage = {
     inputTokens: usage.prompt_tokens,
     outputTokens: usage.completion_tokens,
-    // DeepSeek does not report USD cost. This regular-rate estimate excludes
-    // its announced but undated peak-hour multiplier.
-    estimatedCostUsd: estimateDeepSeekCostUsd(model, usage),
+    // DeepSeek does not report USD cost, so this is an estimate from published
+    // rates — including the peak-hour multiplier, which the profile now carries
+    // as explicit UTC windows.
+    estimatedCostUsd: estimateDeepSeekCostUsd(model, usage, billedAtMs),
   };
+  if (modelUsage.estimatedCostUsd !== undefined)
+    modelUsage.pricingWindow = pricingWindowAt(billedAtMs);
   if (usage.prompt_cache_hit_tokens !== undefined)
     modelUsage.inputCacheHitTokens = usage.prompt_cache_hit_tokens;
   if (usage.prompt_cache_miss_tokens !== undefined)
@@ -301,12 +309,25 @@ function fromDeepSeekUsage(
   return modelUsage;
 }
 
+/** The instant a turn is priced at. The provider's own `created` stamp is
+ * preferred because the peak windows are facts about the provider's clock: a
+ * local clock even slightly off would silently misprice every turn landing near
+ * a window boundary. The local clock is the fallback when `created` is absent,
+ * which costs nothing away from a boundary. */
+function billingInstantMs(createdUnixSeconds: number | undefined): number {
+  if (createdUnixSeconds === undefined || !Number.isFinite(createdUnixSeconds))
+    return Date.now();
+  return createdUnixSeconds * 1000;
+}
+
 function estimateDeepSeekCostUsd(
   model: string,
   usage: NonNullable<DeepSeekChatResponse["usage"]>,
+  billedAtMs: number,
 ): number | undefined {
-  const pricing = modelProfile(model)?.pricesUsdPerMillion;
-  if (!pricing || modelProfile(model)?.retired) return undefined;
+  const profile = modelProfile(model);
+  if (!profile || profile.retired) return undefined;
+  const pricing = pricesAt(profile, billedAtMs);
   const promptTokens = usage.prompt_tokens ?? 0;
   const cacheHitTokens = usage.prompt_cache_hit_tokens ?? 0;
   const cacheMissTokens =
@@ -496,6 +517,7 @@ interface DeepSeekStreamState {
   content: string;
   providerCarryover: string;
   toolCalls: Map<number, DeepSeekToolCallAccumulator>;
+  created?: number;
   finishReason?: string;
   usage?: DeepSeekChatResponse["usage"];
   sawDone: boolean;
@@ -512,6 +534,7 @@ interface DeepSeekToolCallAccumulator {
 }
 
 type DeepSeekStreamChunk = {
+  created?: number;
   choices?: Array<{
     finish_reason?: string | null;
     delta?: {
@@ -572,6 +595,11 @@ function processDeepSeekStreamBlock(
     return;
   }
   const chunk = JSON.parse(data) as DeepSeekStreamChunk;
+  // Every chunk of one completion repeats the same `created`; keep the first
+  // so a turn is priced at one instant rather than drifting across a window
+  // boundary mid-stream.
+  if (state.created === undefined && chunk.created !== undefined)
+    state.created = chunk.created;
   if (chunk.usage) state.usage = chunk.usage;
   const choice = chunk.choices?.[0];
   const text = choice?.delta?.content ?? undefined;
@@ -629,6 +657,7 @@ async function finishDeepSeekStream(
     .sort(([left], [right]) => left - right)
     .map(([, toolCall]) => toCompleteDeepSeekToolCall(toolCall));
   return {
+    created: state.created,
     choices: [
       {
         finish_reason: state.finishReason,
