@@ -4,6 +4,7 @@ import {
   formatContinuationHeader,
 } from "../../sessions/continuation.js";
 import { createDeepSeekLiveModelClient, createTerminalApprovalHandler } from "../wiring.js";
+import { notifyPeakPricing } from "../present/pricing.js";
 import type { ForgeCommand } from "../parseArgs.js";
 import type { RunCliOptions } from "../index.js";
 
@@ -22,6 +23,7 @@ export async function runResumeCommand(
     throw new Error("Learning Workflow resume is not available yet.");
   if (continuationContext.sourceWorkflow !== "coding")
     throw new Error("Writing Workflow resume is not available yet.");
+  notifyPeakPricing(options.notify);
   const modelClient = await (
     options.createLiveModelClient ?? createDeepSeekLiveModelClient
   )({

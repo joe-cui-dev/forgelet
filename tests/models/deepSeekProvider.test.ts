@@ -1,4 +1,4 @@
-import { expect, test } from "@jest/globals";
+import { afterEach, expect, jest, test } from "@jest/globals";
 import { PassThrough } from "node:stream";
 import type { IncomingMessage } from "node:http";
 import {
@@ -6,13 +6,13 @@ import {
   readDeepSeekResponse,
   type DeepSeekChatRequest,
 } from "../../src/models/providers/deepseek.js";
-import { pricingWindowAt } from "../../src/models/profiles.js";
+import { utc } from "../testSupport/utc.js";
 
 /** `created` is Unix seconds. 12:00 UTC is off-peak, 02:00 UTC is inside the
  * first published peak window. Fixtures pin it so cost assertions do not depend
  * on what time of day the suite happens to run. */
-const OFF_PEAK_CREATED = Math.floor(Date.UTC(2026, 7, 17, 12) / 1000);
-const PEAK_CREATED = Math.floor(Date.UTC(2026, 7, 17, 2) / 1000);
+const OFF_PEAK_CREATED = utc(12) / 1000;
+const PEAK_CREATED = utc(2) / 1000;
 
 test("DeepSeekModelClient converts Forgelet turns to chat completions with tools", async () => {
   let requestBody: unknown;
@@ -345,23 +345,34 @@ test("DeepSeekModelClient prices a turn stamped inside a peak window at double t
   expect(result.usage?.pricingWindow).toBe("peak");
 });
 
-test("DeepSeekModelClient falls back to the local clock when the response omits created", async () => {
-  const client = new DeepSeekModelClient({
-    apiKey: "test-key",
-    model: "deepseek-v4-pro",
-    postJson: async () => usageOnlyResponse(),
-  });
+test.each([
+  ["omits created", undefined],
+  // A stamp of 0 is the trap: finite, but pricing it literally puts the turn at
+  // the Unix epoch and calls it off-peak on a value the provider never sent.
+  ["reports created as 0", 0],
+  ["reports a non-finite created", Number.NaN],
+])(
+  "DeepSeekModelClient falls back to the local clock when the response %s",
+  async (_label, created) => {
+    jest.spyOn(Date, "now").mockReturnValue(utc(2, 30));
+    const client = new DeepSeekModelClient({
+      apiKey: "test-key",
+      model: "deepseek-v4-pro",
+      postJson: async () => usageOnlyResponse(created),
+    });
 
-  const result = await client.createTurn({
-    messages: [{ role: "user", content: "Hello" }],
-    tools: [],
-  });
+    const result = await client.createTurn({
+      messages: [{ role: "user", content: "Hello" }],
+      tools: [],
+    });
 
-  // The local clock decides which window applies, so only the two possible
-  // outcomes are assertable — never that pricing silently went missing.
-  const expected = pricingWindowAt(Date.now()) === "peak" ? 0.0019844 : 0.0009922;
-  expect(result.usage?.estimatedCostUsd).toBeCloseTo(expected, 10);
-  expect(result.usage?.pricingWindow).toBe(pricingWindowAt(Date.now()));
+    expect(result.usage?.pricingWindow).toBe("peak");
+    expect(result.usage?.estimatedCostUsd).toBeCloseTo(0.0019844, 10);
+  },
+);
+
+afterEach(() => {
+  jest.restoreAllMocks();
 });
 
 test("readDeepSeekResponse carries the created stamp off the stream so the turn can be priced", async () => {

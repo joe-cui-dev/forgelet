@@ -15,7 +15,7 @@ import {
   formatSessionPreview,
   type RunCommand,
 } from "../present/preview.js";
-import { formatPeakPricingNotice } from "../present/pricing.js";
+import { notifyPeakPricing } from "../present/pricing.js";
 import {
   createDeepSeekLiveModelClient,
   createCliPublicWebAdapters,
@@ -69,8 +69,7 @@ export async function runRunCommand(
   }
   // Emitted before the Session starts: the only useful response to a peak
   // window is to postpone, and once turns are running the money is spent.
-  const peakNotice = formatPeakPricingNotice();
-  if (peakNotice) options.notify?.(peakNotice);
+  notifyPeakPricing(options.notify);
   const publicWeb = command.publicWeb
     ? await createCliPublicWebAdapters({
         workspaceRoot,

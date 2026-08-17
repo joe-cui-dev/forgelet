@@ -13,7 +13,12 @@ import type {
   ReasoningEffort,
   ToolSchema,
 } from "../../types.js";
-import { modelProfile, pricesAt, pricingWindowAt } from "../profiles.js";
+import {
+  modelProfile,
+  pricesAt,
+  pricingWindowAt,
+  type ModelProfile,
+} from "../profiles.js";
 
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
 const TOKENS_PER_MILLION = 1_000_000;
@@ -290,16 +295,20 @@ function fromDeepSeekUsage(
 ): ModelUsage | undefined {
   if (!usage) return undefined;
   const billedAtMs = billingInstantMs(createdUnixSeconds);
+  const profile = modelProfile(model);
   const modelUsage: ModelUsage = {
     inputTokens: usage.prompt_tokens,
     outputTokens: usage.completion_tokens,
     // DeepSeek does not report USD cost, so this is an estimate from published
     // rates — including the peak-hour multiplier, which the profile now carries
     // as explicit UTC windows.
-    estimatedCostUsd: estimateDeepSeekCostUsd(model, usage, billedAtMs),
+    estimatedCostUsd: estimateDeepSeekCostUsd(profile, usage, billedAtMs),
   };
-  if (modelUsage.estimatedCostUsd !== undefined)
-    modelUsage.pricingWindow = pricingWindowAt(billedAtMs);
+  if (profile && modelUsage.estimatedCostUsd !== undefined)
+    modelUsage.pricingWindow = pricingWindowAt(
+      profile.timeOfDayPricing,
+      billedAtMs,
+    );
   if (usage.prompt_cache_hit_tokens !== undefined)
     modelUsage.inputCacheHitTokens = usage.prompt_cache_hit_tokens;
   if (usage.prompt_cache_miss_tokens !== undefined)
@@ -315,17 +324,23 @@ function fromDeepSeekUsage(
  * a window boundary. The local clock is the fallback when `created` is absent,
  * which costs nothing away from a boundary. */
 function billingInstantMs(createdUnixSeconds: number | undefined): number {
-  if (createdUnixSeconds === undefined || !Number.isFinite(createdUnixSeconds))
+  // A stamp must be positive to be a stamp. Zero and garbage take the local
+  // clock rather than pricing the turn at the Unix epoch, which would silently
+  // classify it off-peak on the strength of a value the provider never sent.
+  if (
+    createdUnixSeconds === undefined ||
+    !Number.isFinite(createdUnixSeconds) ||
+    createdUnixSeconds <= 0
+  )
     return Date.now();
   return createdUnixSeconds * 1000;
 }
 
 function estimateDeepSeekCostUsd(
-  model: string,
+  profile: ModelProfile | undefined,
   usage: NonNullable<DeepSeekChatResponse["usage"]>,
   billedAtMs: number,
 ): number | undefined {
-  const profile = modelProfile(model);
   if (!profile || profile.retired) return undefined;
   const pricing = pricesAt(profile, billedAtMs);
   const promptTokens = usage.prompt_tokens ?? 0;

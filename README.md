@@ -38,6 +38,8 @@ Session reads stop at two boundaries. `.git` and `.forgelet` are internal Sessio
 
 Routes select both a model and reasoning effort. Sessions default to `deepseek-v4-flash`; `--model deepseek-v4-pro` overrides the model for one run, and `--effort none|low|high|max` overrides the reasoning effort. Defaults are `high` for Coding, Learning, and Writing. Forgelet validates the selected pair against its Model Profile before a provider call.
 
+DeepSeek charges double during its published peak hours — 01:00–04:00 and 06:00–10:00 UTC. Estimated cost accounts for this per turn, priced from the provider's own timestamp, and `forge explain <id>` reports how many of a Session's turns were billed at peak rates. Starting `forge code` or `forge resume` inside a peak window prints one line on stderr naming when the window closes, so you can postpone if waiting is cheaper than running; off-peak runs print nothing. The `--budget` default of `0.35` is calibrated against the off-peak rates.
+
 ```bash
 forge code --write-scope src --write-scope docs "add a changelog entry"
 forge code --write-scope . --allow-command "npm test" "run the tests and fix failures"
