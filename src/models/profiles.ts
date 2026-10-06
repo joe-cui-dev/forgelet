@@ -18,18 +18,25 @@ export interface PeakWindow {
  * functions ignore — a Profile that states a policy must be the thing that
  * decides its own rates, or the statement is decoration. */
 export interface TimeOfDayPricing {
+  /** UTC days of the week (0 = Sunday) on which the peak windows apply. Every
+   * other day is off-peak at every hour. */
+  peakDaysUtc: readonly number[];
   peakWindowsUtc: readonly PeakWindow[];
   peakRateMultiplier: number;
 }
 
 /** DeepSeek's published policy: peak hours 01:00-04:00 and 06:00-10:00 UTC,
- * every other hour off-peak, off-peak rates exactly half the peak rates. Two
- * disjoint windows, not one — 04:00-06:00 UTC is an off-peak gap between them.
+ * Monday through Friday, every other hour off-peak, off-peak rates exactly half
+ * the peak rates. Two disjoint windows, not one — 04:00-06:00 UTC is an
+ * off-peak gap between them. DeepSeek also exempts Chinese public holidays but
+ * publishes no machine-readable calendar, so holidays are priced as ordinary
+ * weekdays: the estimate errs high, which is the safe side for a cost budget.
  * Holding the multiplier here keeps "off-peak is half of peak" an invariant
  * rather than a coincidence two hand-maintained rate tables must keep agreeing
  * on. Every DeepSeek Profile shares this one object, so the CLI can report the
  * policy without first resolving a Route. */
 export const DEEPSEEK_TIME_OF_DAY_PRICING: TimeOfDayPricing = {
+  peakDaysUtc: [1, 2, 3, 4, 5],
   peakWindowsUtc: [
     { startHourUtc: 1, endHourUtc: 4 },
     { startHourUtc: 6, endHourUtc: 10 },
@@ -51,33 +58,43 @@ export interface ModelProfile {
   replacement?: string;
 }
 
-// Facts verified against https://api-docs.deepseek.com on 2026-08-17, covering
-// DeepSeek-V4-Pro-0813 and DeepSeek-V4-Flash-0731. Both are in-place updates:
-// the API ids below are unchanged, so nothing in a request or response marks
-// which weights answered. The increase DeepSeek had announced without a date
-// landed on this date, and the peak-hour windows are now published as explicit
-// UTC times, so time-of-day pricing is applied rather than treated as unknown.
+// Facts verified against https://api-docs.deepseek.com/quick_start/pricing/ on
+// 2026-10-06, covering DeepSeek-V4.1-Flash (served as `deepseek-flash`) and
+// DeepSeek-V4-Pro-0813. The legacy `deepseek-v4-flash` name is still accepted
+// by the API but answered by DeepSeek-V4.1-Flash, so it is retired here: a
+// Route that names it would silently run different weights than it says.
 // Prices below are the off-peak rates; peak rates are derived by doubling.
 const deepSeekProfiles: readonly ModelProfile[] = [
   {
-    id: "deepseek-v4-flash",
+    id: "deepseek-flash",
     protocols: ["chat_completions", "responses"],
     acceptedEfforts: ["none", "low", "high", "max"],
     contextWindowTokens: 1_000_000,
     maxOutputTokens: 384_000,
-    pricesUsdPerMillion: { inputCacheHit: 0.007, inputCacheMiss: 0.22, output: 0.66 },
+    pricesUsdPerMillion: { inputCacheHit: 0.003, inputCacheMiss: 0.15, output: 0.6 },
     timeOfDayPricing: DEEPSEEK_TIME_OF_DAY_PRICING,
     retired: false,
   },
   {
     id: "deepseek-v4-pro",
-    protocols: ["chat_completions"],
+    protocols: ["chat_completions", "responses"],
     acceptedEfforts: ["none", "low", "high", "max"],
     contextWindowTokens: 1_000_000,
     maxOutputTokens: 384_000,
     pricesUsdPerMillion: { inputCacheHit: 0.022, inputCacheMiss: 0.66, output: 1.98 },
     timeOfDayPricing: DEEPSEEK_TIME_OF_DAY_PRICING,
     retired: false,
+  },
+  {
+    id: "deepseek-v4-flash",
+    protocols: ["chat_completions"],
+    acceptedEfforts: [],
+    contextWindowTokens: 0,
+    maxOutputTokens: 0,
+    pricesUsdPerMillion: { inputCacheHit: 0, inputCacheMiss: 0, output: 0 },
+    timeOfDayPricing: DEEPSEEK_TIME_OF_DAY_PRICING,
+    retired: true,
+    replacement: "deepseek-flash",
   },
   {
     id: "deepseek-chat",
@@ -88,7 +105,7 @@ const deepSeekProfiles: readonly ModelProfile[] = [
     pricesUsdPerMillion: { inputCacheHit: 0, inputCacheMiss: 0, output: 0 },
     timeOfDayPricing: DEEPSEEK_TIME_OF_DAY_PRICING,
     retired: true,
-    replacement: "deepseek-v4-flash",
+    replacement: "deepseek-flash",
   },
   {
     id: "deepseek-reasoner",
@@ -99,7 +116,7 @@ const deepSeekProfiles: readonly ModelProfile[] = [
     pricesUsdPerMillion: { inputCacheHit: 0, inputCacheMiss: 0, output: 0 },
     timeOfDayPricing: DEEPSEEK_TIME_OF_DAY_PRICING,
     retired: true,
-    replacement: "deepseek-v4-flash",
+    replacement: "deepseek-flash",
   },
 ];
 
@@ -159,6 +176,7 @@ function currentPeakWindow(
   policy: TimeOfDayPricing,
   instantMs: number,
 ): PeakWindow | undefined {
+  if (!policy.peakDaysUtc.includes(new Date(instantMs).getUTCDay())) return undefined;
   const hoursIntoDay = (instantMs - startOfUtcDayMs(instantMs)) / MS_PER_HOUR;
   return policy.peakWindowsUtc.find(
     (window) =>

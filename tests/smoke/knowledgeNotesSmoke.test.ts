@@ -34,7 +34,7 @@ test("Knowledge Notes smoke promotes a Learning Session and searches the accepte
       "    event('session_started', { workflow: 'learning' }),",
       "    event('user_task', { task: 'teach me the core ideas' }),",
       "    event('context_attachment', { title: 'article.md', uri: 'fixtures/learning/article.md' }),",
-      "    event('routing_selected', { model: 'deepseek-v4-flash', reason: 'default route for learning workflow' }),",
+      "    event('routing_selected', { model: 'deepseek-flash', reason: 'default route for learning workflow' }),",
       "    event('final_summary', { summary: 'Summary\\nOk\\n\\nKey Concepts\\nRetrieval practice\\n\\nSource Links\\n- article.md\\n\\nOpen Questions\\nOk\\n\\nReview Prompts\\nOk' }),",
       "    event('session_finished', { status: 'completed' })",
       "  ].join('\\n') + '\\n');",

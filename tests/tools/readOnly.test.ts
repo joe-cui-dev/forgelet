@@ -209,7 +209,7 @@ test("a workspace-wide search never walks into a credential file", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-search-secret-"));
   await writeFile(
     join(workspaceRoot, ".env"),
-    "DEEPSEEK_API_KEY=sk-live-secret\nDEEPSEEK_MODEL=deepseek-v4-flash\n",
+    "DEEPSEEK_API_KEY=sk-live-secret\nDEEPSEEK_MODEL=deepseek-flash\n",
     "utf8",
   );
   await writeFile(

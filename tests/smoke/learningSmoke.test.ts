@@ -30,7 +30,7 @@ test("learning smoke runs the CLI in the project workspace and validates Learnin
       "writeFileSync(tracePath, [",
       "  event('session_started', { workflow: 'learning' }),",
       "  event('context_attachment', { title: 'article.md', uri: 'fixtures/learning/article.md' }),",
-      "  event('routing_selected', { model: 'deepseek-v4-flash', reason: 'default route for learning workflow' }),",
+      "  event('routing_selected', { model: 'deepseek-flash', reason: 'default route for learning workflow' }),",
       "  event('final_summary', { summary: 'Summary\\nOk\\n\\nKey Concepts\\nOk\\n\\nSource Links\\n- article.md\\n\\nOpen Questions\\nOk\\n\\nReview Prompts\\nOk' }),",
       "  event('session_finished', { status: 'completed' })",
       "].join('\\n') + '\\n');",

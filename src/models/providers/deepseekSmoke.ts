@@ -82,7 +82,7 @@ async function main(): Promise<void> {
     throw new Error("DEEPSEEK_API_KEY is required for npm run smoke:deepseek.");
   const client = new DeepSeekModelClient({
     apiKey,
-    model: process.env.DEEPSEEK_MODEL ?? "deepseek-v4-flash",
+    model: process.env.DEEPSEEK_MODEL ?? "deepseek-flash",
   });
   const outcomes: Record<string, unknown>[] = [];
   for (const stream of [false, true]) {

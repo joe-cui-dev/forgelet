@@ -85,8 +85,8 @@ test("selects the built-in model route when project config tries to override def
   const trace = await readFile(result.tracePath ?? "", "utf8");
   const events = trace.trim().split("\n").map((line) => JSON.parse(line));
   const routing = events.find((event) => event.type === "routing_selected");
-  expect(routing.payload.model).toBe("deepseek-v4-flash");
-  expect(result.summary).toMatch(/Route: deepseek-v4-flash/);
+  expect(routing.payload.model).toBe("deepseek-flash");
+  expect(result.summary).toMatch(/Route: deepseek-flash/);
 });
 
 test("records creative writing variant metadata in the Session trace", async () => {

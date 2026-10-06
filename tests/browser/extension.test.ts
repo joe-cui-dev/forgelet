@@ -473,6 +473,7 @@ test("browser extension build includes every local Service Worker dependency", a
     await mkdir(compiledDir, { recursive: true });
     const compiledFiles = [
       "serviceWorker.js",
+      "modelPreference.js",
       "pageConversationController.js",
       "pageConversationProjection.js",
       "pageConversationStore.js",

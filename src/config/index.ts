@@ -64,25 +64,25 @@ type WritableConfig = Partial<
 };
 
 export const defaultConfig: ForgeletConfig = {
-  defaultModel: "deepseek-v4-flash",
+  defaultModel: "deepseek-flash",
   fallbackModel: "gpt-5",
-  cheapModel: "deepseek-v4-flash",
+  cheapModel: "deepseek-flash",
   routing: {
     coding: {
-      default: "deepseek-v4-flash",
-      review: "deepseek-v4-flash",
+      default: "deepseek-flash",
+      review: "deepseek-flash",
       effort: "high",
       maxConversationBytes: 512 * 1024,
     },
     writing: {
-      default: "deepseek-v4-flash",
-      review: "deepseek-v4-flash",
+      default: "deepseek-flash",
+      review: "deepseek-flash",
       effort: "low",
       maxConversationBytes: 512 * 1024,
     },
     learning: {
-      default: "deepseek-v4-flash",
-      review: "deepseek-v4-flash",
+      default: "deepseek-flash",
+      review: "deepseek-flash",
       effort: "high",
       maxConversationBytes: 256 * 1024,
     },

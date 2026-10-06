@@ -823,8 +823,8 @@ test("parses non-model config set", () => {
 });
 
 test("rejects config set for model defaults", () => {
-  expect(() => parseArgs(["config", "set", "defaultModel", "deepseek-v4-flash"])).toThrow(/Model defaults are defined in src\/config\/index\.ts/);
-  expect(() => parseArgs(["config", "set", "routing.coding.default", "deepseek-v4-flash"])).toThrow(/Model defaults are defined in src\/config\/index\.ts/);
+  expect(() => parseArgs(["config", "set", "defaultModel", "deepseek-flash"])).toThrow(/Model defaults are defined in src\/config\/index\.ts/);
+  expect(() => parseArgs(["config", "set", "routing.coding.default", "deepseek-flash"])).toThrow(/Model defaults are defined in src\/config\/index\.ts/);
 });
 
 test("parses memory commands", () => {

@@ -51,7 +51,7 @@ test("creative writing smoke evidence accepts a completed Revision Pack Session"
         type: "routing_selected",
         sessionId: "sess_creative",
         payload: {
-          model: "deepseek-v4-flash",
+          model: "deepseek-flash",
           reason: "default route for writing workflow",
         },
       },
@@ -75,7 +75,7 @@ test("creative writing smoke evidence accepts a completed Revision Pack Session"
 
   expect(result.sessionId).toBe("sess_creative");
   expect(result.tracePath).toMatch(/sess_creative\.jsonl$/);
-  expect(result.model).toBe("deepseek-v4-flash");
+  expect(result.model).toBe("deepseek-flash");
 });
 
 test("creative writing smoke runs the CLI in the project workspace and reads the new Trace", async () => {
@@ -99,7 +99,7 @@ test("creative writing smoke runs the CLI in the project workspace and reads the
       "writeFileSync(tracePath, [",
       "  event('session_started', { workflow: 'writing', workflowVariant: 'creative', creativeStyle: 'vivid' }),",
       "  event('context_attachment', { title: 'scene.md', uri: 'fixtures/writing/scene.md' }),",
-      "  event('routing_selected', { model: 'deepseek-v4-flash', reason: 'default route for writing workflow' }),",
+      "  event('routing_selected', { model: 'deepseek-flash', reason: 'default route for writing workflow' }),",
       "  event('final_summary', { summary: 'Critique\\nRevision\\nAlternatives\\n1. A\\n2. B\\nNotes' }),",
       "  event('session_finished', { status: 'completed' })",
       "].join('\\n') + '\\n');",
@@ -162,7 +162,7 @@ test("creative writing smoke accepts labeled Alternatives from a real Revision P
       {
         type: "routing_selected",
         sessionId: "sess_creative",
-        payload: { model: "deepseek-v4-flash" },
+        payload: { model: "deepseek-flash" },
       },
       {
         type: "final_summary",

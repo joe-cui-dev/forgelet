@@ -11,6 +11,7 @@ import {
   type PageConversationBridge,
 } from "./pageConversationController.js";
 import type { PageConversationFrame } from "./pageConversationProjection.js";
+import { normalizeWorkbenchModel } from "./modelPreference.js";
 
 declare const chrome: any;
 
@@ -92,9 +93,7 @@ const pageConversations = createPageConversationController({
     try {
       const stored = await chrome.storage.local.get("forgeletBrowserWorkbenchModel");
       const value = stored.forgeletBrowserWorkbenchModel;
-      return value === "deepseek-v4-flash" || value === "deepseek-v4-pro"
-        ? value
-        : undefined;
+      return normalizeWorkbenchModel(value);
     } catch {
       // A storage failure must not silently select a model; use the Route.
       return undefined;

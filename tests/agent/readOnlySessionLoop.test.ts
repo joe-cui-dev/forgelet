@@ -169,12 +169,12 @@ test("a model-backed coding Session emits Session Live View events without writi
     {
       type: "model_turn_started",
       turnIndex: 0,
-      model: "deepseek-v4-flash",
+      model: "deepseek-flash",
     },
     {
       type: "model_turn_finished",
       turnIndex: 0,
-      model: "deepseek-v4-flash",
+      model: "deepseek-flash",
       toolCallCount: 1,
     },
     {
@@ -196,12 +196,12 @@ test("a model-backed coding Session emits Session Live View events without writi
     {
       type: "model_turn_started",
       turnIndex: 1,
-      model: "deepseek-v4-flash",
+      model: "deepseek-flash",
     },
     {
       type: "model_turn_finished",
       turnIndex: 1,
-      model: "deepseek-v4-flash",
+      model: "deepseek-flash",
       toolCallCount: 0,
     },
     { type: "session_finished", status: "completed" },
@@ -413,7 +413,7 @@ test("a debug-enabled coding Session writes the full agent-model exchange outsid
   ]);
   expect(debugEvents[0]?.payload).toMatchObject({
     turnIndex: 0,
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     task: "find the answer",
     finalOnly: false,
   });
@@ -544,13 +544,13 @@ test("a model-backed coding Session streams model output deltas through Session 
       {
         type: "model_output_delta",
         turnIndex: 0,
-        model: "deepseek-v4-flash",
+        model: "deepseek-flash",
         text: "The repo",
       },
       {
         type: "model_output_delta",
         turnIndex: 0,
-        model: "deepseek-v4-flash",
+        model: "deepseek-flash",
         text: " is ready.",
       },
     ]),
@@ -603,14 +603,14 @@ test("a thinking turn streams its Reasoning Stream text to Session Live View in 
     {
       type: "model_reasoning_progress",
       turnIndex: 0,
-      model: "deepseek-v4-flash",
+      model: "deepseek-flash",
       bytesSoFar: 1200,
       text: "a".repeat(300) + "b".repeat(600) + "c".repeat(300),
     },
     {
       type: "model_reasoning_progress",
       turnIndex: 0,
-      model: "deepseek-v4-flash",
+      model: "deepseek-flash",
       bytesSoFar: 2400,
       text: "d".repeat(600) + "e".repeat(600),
     },
@@ -650,14 +650,14 @@ test("a thinking turn's final sub-heartbeat segment is still flushed to Session 
     {
       type: "model_reasoning_progress",
       turnIndex: 0,
-      model: "deepseek-v4-flash",
+      model: "deepseek-flash",
       bytesSoFar: 1200,
       text: "x".repeat(1200),
     },
     {
       type: "model_reasoning_progress",
       turnIndex: 0,
-      model: "deepseek-v4-flash",
+      model: "deepseek-flash",
       bytesSoFar: 1500,
       text: "y".repeat(300),
     },
@@ -756,7 +756,7 @@ test("a model execution failure records the failed model turn before rethrowing"
 
   expect(modelTurnError?.payload).toMatchObject({
     turnIndex: 1,
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     finalOnly: false,
     error: {
       message: "DeepSeek API response aborted before completion.",
@@ -849,7 +849,7 @@ test("a debug-enabled model execution failure records model error and finalizes 
   ]);
   expect(debugEvents[1]?.payload).toMatchObject({
     turnIndex: 0,
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     finalOnly: false,
     error: {
       message: "DeepSeek API response aborted before completion.",

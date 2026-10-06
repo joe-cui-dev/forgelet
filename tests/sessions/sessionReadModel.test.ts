@@ -31,7 +31,7 @@ test("folds lifecycle evidence once for downstream Session read models", () => {
       type: "routing_selected",
       ts: "2026-07-17T00:00:02.000Z",
       sessionId: "sess_folded",
-      payload: { model: "deepseek-v4-flash", reason: "configured route" },
+      payload: { model: "deepseek-flash", reason: "configured route" },
     },
     {
       type: "final_summary",
@@ -56,7 +56,7 @@ test("folds lifecycle evidence once for downstream Session read models", () => {
     status: "paused",
     pausedAt: "2026-07-17T00:00:04.000Z",
     finalSummary: "Lifecycle evidence consolidated.",
-    route: { model: "deepseek-v4-flash", reason: "configured route" },
+    route: { model: "deepseek-flash", reason: "configured route" },
   });
 });
 
@@ -240,7 +240,7 @@ test("shows a session summary from its trace events", async () => {
   expect(session.task).toBe("revise this");
   expect(session.contextAttachments.length).toBe(1);
   expect(session.contextAttachments[0]?.title).toBe("draft.md");
-  expect(session.route?.model).toBe("deepseek-v4-flash");
+  expect(session.route?.model).toBe("deepseek-flash");
   expect(session.finalSummary).toMatch(/deterministic test seam/);
 });
 

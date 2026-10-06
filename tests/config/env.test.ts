@@ -11,7 +11,7 @@ test("loads local .env values without overriding existing environment", async ()
     [
       "# local secrets",
       "DEEPSEEK_API_KEY=from-file",
-      "DEEPSEEK_MODEL=deepseek-v4-flash # local default",
+      "DEEPSEEK_MODEL=deepseek-flash # local default",
       'export QUOTED="hello\\nworld"',
       "SINGLE='literal value'",
     ].join("\n"),
@@ -22,7 +22,7 @@ test("loads local .env values without overriding existing environment", async ()
   await loadDotEnv({ workspaceRoot, env });
 
   expect(env.DEEPSEEK_API_KEY).toBe("from-shell");
-  expect(env.DEEPSEEK_MODEL).toBe("deepseek-v4-flash");
+  expect(env.DEEPSEEK_MODEL).toBe("deepseek-flash");
   expect(env.QUOTED).toBe("hello\nworld");
   expect(env.SINGLE).toBe("literal value");
 });

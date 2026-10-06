@@ -6,6 +6,7 @@ import type {
   PageConversationTerminalCard,
 } from "./pageConversationProjection.js";
 import type { PageConversationNotice } from "./pageConversationController.js";
+import { normalizeWorkbenchModel, type WorkbenchModel } from "./modelPreference.js";
 
 declare const chrome: any;
 declare const document: any;
@@ -531,7 +532,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export type PanelFontSizePreference = "small" | "medium" | "large" | "xlarge";
-type PanelModelPreference = "default" | "deepseek-v4-flash" | "deepseek-v4-pro";
+type PanelModelPreference = "default" | WorkbenchModel;
 
 export function normalizeFontSizePreference(raw: unknown): PanelFontSizePreference {
   return raw === "small" || raw === "large" || raw === "xlarge" ? raw : "medium";
@@ -542,7 +543,7 @@ function normalizeOutputLanguagePreference(raw: unknown): "auto" | "en" | "zh-CN
 }
 
 function normalizeModelPreference(raw: unknown): PanelModelPreference {
-  return raw === "deepseek-v4-flash" || raw === "deepseek-v4-pro" ? raw : "default";
+  return normalizeWorkbenchModel(raw) ?? "default";
 }
 
 async function initializeSidePanel(): Promise<void> {

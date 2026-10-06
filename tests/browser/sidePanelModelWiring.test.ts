@@ -59,7 +59,7 @@ test("the model preference is omitted for Default route, forwarded for selected 
   await h.controller.handleToolbarClick(1);
   expect(h.starts[0]).not.toHaveProperty("model");
 
-  selected = "deepseek-v4-flash";
+  selected = "deepseek-flash";
   const rootInvocationId = h.starts[0]!.invocationId;
   h.frames.get(rootInvocationId)!({
     type: "session_ready",
@@ -72,7 +72,7 @@ test("the model preference is omitted for Default route, forwarded for selected 
     message: "temporary failure",
   });
   await h.controller.retry(1, rootInvocationId);
-  expect(h.starts.at(-1)).toMatchObject({ kind: "root_retry", model: "deepseek-v4-flash" });
+  expect(h.starts.at(-1)).toMatchObject({ kind: "root_retry", model: "deepseek-flash" });
 
   const pro = controllerHarness(() => "deepseek-v4-pro");
   await pro.controller.handleToolbarClick(2);
@@ -113,7 +113,7 @@ test("the Side Panel restores and persists its model preference independently", 
     ].map((id) => [id, fakeElement(id)]),
   );
   const stored: Record<string, unknown> = {
-    forgeletBrowserWorkbenchModel: "deepseek-v4-flash",
+    forgeletBrowserWorkbenchModel: "deepseek-flash",
   };
   const setCalls: Record<string, unknown>[] = [];
   (globalThis as any).document = {
@@ -143,7 +143,7 @@ test("the Side Panel restores and persists its model preference independently", 
   await new Promise((resolve) => setTimeout(resolve, 0));
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  expect(elements.model.value).toBe("deepseek-v4-flash");
+  expect(elements.model.value).toBe("deepseek-flash");
   elements.model.value = "deepseek-v4-pro";
   elements.model.change();
   await new Promise((resolve) => setTimeout(resolve, 0));

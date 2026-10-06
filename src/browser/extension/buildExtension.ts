@@ -13,6 +13,10 @@ export async function buildBrowserExtension(): Promise<void> {
       resolve(outputDir, "serviceWorker.js"),
     ),
     copyFile(
+      resolve(compiledDir, "modelPreference.js"),
+      resolve(outputDir, "modelPreference.js"),
+    ),
+    copyFile(
       resolve(compiledDir, "pageConversationController.js"),
       resolve(outputDir, "pageConversationController.js"),
     ),
@@ -381,7 +385,7 @@ export function sidePanelHtml(): string {
         <label for="model">Model</label>
         <select id="model">
           <option value="default">Default route</option>
-          <option value="deepseek-v4-flash">Flash</option>
+          <option value="deepseek-flash">Flash</option>
           <option value="deepseek-v4-pro">Pro</option>
         </select>
       </div>

@@ -189,7 +189,7 @@ test("CLI explains an actionable session from grouped trace evidence", async () 
         payload: {
           workflow: "coding",
           stage: "act_loop",
-          model: "deepseek-v4-flash",
+          model: "deepseek-flash",
           reason: "default route for coding workflow",
         },
       }),
@@ -199,7 +199,7 @@ test("CLI explains an actionable session from grouped trace evidence", async () 
         sessionId: "sess_explain",
         payload: {
           turnIndex: 0,
-          model: "deepseek-v4-flash",
+          model: "deepseek-flash",
           toolCalls: [{ id: "call_patch", name: "apply_patch" }],
           usage: { inputTokens: 100, outputTokens: 30, estimatedCostUsd: 0.01 },
         },
@@ -306,7 +306,7 @@ test("CLI explains an actionable session from grouped trace evidence", async () 
   expect(result.stdout).toMatch(/What happened/);
   expect(result.stdout).toMatch(/Task: change the greeting/);
   expect(result.stdout).toMatch(
-    /Route: deepseek-v4-flash \(default route for coding workflow\)/,
+    /Route: deepseek-flash \(default route for coding workflow\)/,
   );
   expect(result.stdout).toMatch(/Estimated cost: \$0\.0100/);
   expect(result.stdout).toMatch(/Tool use/);
@@ -411,7 +411,7 @@ test("CLI explains an incomplete session without inventing missing evidence", as
         sessionId: "sess_incomplete_explain",
         payload: {
           turnIndex: 0,
-          model: "deepseek-v4-flash",
+          model: "deepseek-flash",
           toolCalls: [{ id: "call_status", name: "git_status" }],
         },
       }),
@@ -919,7 +919,7 @@ test("CLI preview prints run shape without creating a model-backed Session", asy
   expect(result.stdout).toMatch(/Workflow: coding/);
   expect(result.stdout).toMatch(/Task: inspect this repo/);
   expect(result.stdout).toMatch(
-    /Model route: deepseek-v4-flash \(default route for coding workflow\)/,
+    /Model route: deepseek-flash \(default route for coding workflow\)/,
   );
   expect(result.stdout).toMatch(/Runnable: yes/);
   expect(result.stdout).toMatch(/Required provider env var: DEEPSEEK_API_KEY/);
@@ -987,7 +987,7 @@ test("CLI preview reports a source-backed learning workflow without persistence"
   expect(result.stdout).toMatch(/Workflow: learning/);
   expect(result.stdout).toMatch(/Task: teach me the core ideas/);
   expect(result.stdout).toMatch(
-    /Model route: deepseek-v4-flash \(default route for learning workflow\)/,
+    /Model route: deepseek-flash \(default route for learning workflow\)/,
   );
   expect(result.stdout).toMatch(/Action mode: not available for learning/);
   expect(result.stdout).toMatch(/Read scope: not available for learning/);
@@ -1178,7 +1178,7 @@ test("CLI shows Debug Transcript previews and full content", async () => {
         sessionId: "sess_debug",
         payload: {
           turnIndex: 0,
-          model: "deepseek-v4-flash",
+          model: "deepseek-flash",
           messages: [
             { role: "system", content: `${"system ".repeat(120)}END` },
             { role: "user", content: "User task with secret detail." },
@@ -2308,18 +2308,18 @@ test("interactive terminal suppresses repeated writing stdout after final answer
   await terminalOutput.onLiveEvent({
     type: "model_turn_started",
     turnIndex: 0,
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
   });
   await terminalOutput.onLiveEvent({
     type: "model_output_delta",
     turnIndex: 0,
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     text: "Revision\n\nA clearer draft.",
   });
   await terminalOutput.onLiveEvent({
     type: "model_turn_finished",
     turnIndex: 0,
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     toolCallCount: 0,
   });
 
@@ -2354,13 +2354,13 @@ test("interactive terminal keeps writing stdout when streamed output was not fin
   await terminalOutput.onLiveEvent({
     type: "model_output_delta",
     turnIndex: 0,
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     text: "I need to inspect context first.",
   });
   await terminalOutput.onLiveEvent({
     type: "model_turn_finished",
     turnIndex: 0,
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     toolCallCount: 1,
   });
 
@@ -2418,8 +2418,8 @@ test("CLI prints merged config", async () => {
   const config = JSON.parse(result.stdout);
 
   expect(result.exitCode).toBe(0);
-  expect(config.defaultModel).toBe("deepseek-v4-flash");
-  expect(config.routing.coding.default).toBe("deepseek-v4-flash");
+  expect(config.defaultModel).toBe("deepseek-flash");
+  expect(config.routing.coding.default).toBe("deepseek-flash");
 });
 
 test("CLI sets narrow user config values", async () => {

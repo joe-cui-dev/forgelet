@@ -32,10 +32,10 @@ test("formats concise terminal Session Live View events", () => {
     formatSessionLiveEvent({
       type: "model_turn_finished",
       turnIndex: 1,
-      model: "deepseek-v4-flash",
+      model: "deepseek-flash",
       toolCallCount: 2,
     }),
-  ).toBe("Model turn 2 finished: deepseek-v4-flash, 2 tool calls");
+  ).toBe("Model turn 2 finished: deepseek-flash, 2 tool calls");
 
   expect(
     formatSessionLiveEvent({
@@ -64,32 +64,32 @@ test("terminal Session Live View streams the Reasoning Stream under one header, 
   await sink({
     type: "model_turn_started",
     turnIndex: 0,
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
   });
   await sink({
     type: "model_reasoning_progress",
     turnIndex: 0,
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     bytesSoFar: 1024,
     text: "First I should check the tests.\n",
   });
   await sink({
     type: "model_reasoning_progress",
     turnIndex: 0,
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     bytesSoFar: 2048,
     text: "Then update the docs",
   });
   await sink({
     type: "model_output_delta",
     turnIndex: 0,
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     text: "Done.",
   });
 
   expect(writes.join("")).toBe(
     [
-      "Model turn 1 started: deepseek-v4-flash\n",
+      "Model turn 1 started: deepseek-flash\n",
       "Model turn 1 thinking:\n",
       "First I should check the tests.\n",
       "Then update the docs",
@@ -110,14 +110,14 @@ test("terminal Session Live View does not repeat the thinking header within a tu
   await sink({
     type: "model_reasoning_progress",
     turnIndex: 0,
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     bytesSoFar: 1024,
     text: "A complete sentence.\n",
   });
   await sink({
     type: "model_reasoning_progress",
     turnIndex: 0,
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     bytesSoFar: 1500,
     text: "Another one.",
   });
@@ -140,32 +140,32 @@ test("terminal Session Live View streams model output deltas inline", async () =
   await sink({
     type: "model_turn_started",
     turnIndex: 0,
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
   });
   await sink({
     type: "model_output_delta",
     turnIndex: 0,
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     text: "Hello",
   });
   await sink({
     type: "model_output_delta",
     turnIndex: 0,
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     text: " world",
   });
   await sink({
     type: "model_turn_finished",
     turnIndex: 0,
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     toolCallCount: 0,
   });
 
   expect(writes.join("")).toBe(
     [
-      "Model turn 1 started: deepseek-v4-flash\n",
+      "Model turn 1 started: deepseek-flash\n",
       "Hello world\n",
-      "Model turn 1 finished: deepseek-v4-flash, 0 tool calls\n",
+      "Model turn 1 finished: deepseek-flash, 0 tool calls\n",
     ].join(""),
   );
 });

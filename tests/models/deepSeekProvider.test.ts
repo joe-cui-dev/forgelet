@@ -112,7 +112,7 @@ test("DeepSeekModelClient sends tool_choice none with the tools still attached",
   const bodies: DeepSeekChatRequest[] = [];
   const client = new DeepSeekModelClient({
     apiKey: "test-key",
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     postJson: async (_url, body) => {
       bodies.push(body as DeepSeekChatRequest);
       return {
@@ -199,7 +199,7 @@ test("DeepSeekModelClient omits tool_calls for a carryover-only assistant turn",
   let requestBody: DeepSeekChatRequest | undefined;
   const client = new DeepSeekModelClient({
     apiKey: "test-key",
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     postJson: async (_url, body) => {
       requestBody = body;
       return { choices: [{ message: { content: "Done." } }] };
@@ -234,7 +234,7 @@ test("DeepSeekModelClient replays opaque Provider Carryover with an enabled effo
   let requestBody: unknown;
   const client = new DeepSeekModelClient({
     apiKey: "test-key",
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     postJson: async (_url, body) => {
       requestBody = body;
       return {
@@ -405,7 +405,7 @@ test("readDeepSeekResponse carries the created stamp off the stream so the turn 
 test("DeepSeekModelClient reports reasoning tokens separately from output tokens", async () => {
   const client = new DeepSeekModelClient({
     apiKey: "test-key",
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     postJson: async () => ({
       choices: [{ message: { content: "Done." } }],
       usage: {
@@ -429,7 +429,7 @@ test("DeepSeekModelClient requests streaming and emits text deltas when caller o
   const deltas: string[] = [];
   const client = new DeepSeekModelClient({
     apiKey: "test-key",
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     postJson: async (_url, body, _headers, options) => {
       requestBody = body;
       await options?.onOutputDelta?.({ text: "Hello" });
@@ -458,7 +458,7 @@ test("DeepSeekModelClient requests streaming and emits text deltas when caller o
   });
 
   expect(requestBody).toMatchObject({
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     stream: true,
     stream_options: { include_usage: true },
   });
@@ -479,7 +479,7 @@ test("readDeepSeekResponse parses streaming chunks into one chat response", asyn
   const result = readDeepSeekResponse(response as unknown as IncomingMessage, {
     requestStartedAtMs: Date.now() - 10,
     stream: true,
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     onOutputDelta: (delta) => {
       deltas.push(delta.text);
     },
@@ -553,7 +553,7 @@ test("readDeepSeekResponse buffers streaming tool call deltas without emitting t
   const result = readDeepSeekResponse(response as unknown as IncomingMessage, {
     requestStartedAtMs: Date.now() - 10,
     stream: true,
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     onOutputDelta: (delta) => {
       deltas.push(delta.text);
     },

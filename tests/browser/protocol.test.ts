@@ -103,8 +103,8 @@ test("an optional debug flag round-trips as a boolean and rejects non-boolean va
 });
 
 test("an optional model accepts live route ids, omits an absent field, and rejects invalid ids", () => {
-  expect(validateBrowserInvocationRequest({ ...rootRequest, model: "deepseek-v4-flash" }))
-    .toMatchObject({ model: "deepseek-v4-flash" });
+  expect(validateBrowserInvocationRequest({ ...rootRequest, model: "deepseek-flash" }))
+    .toMatchObject({ model: "deepseek-flash" });
   expect(validateBrowserInvocationRequest({ ...rootRequest, model: "deepseek-v4-pro" }))
     .toMatchObject({ model: "deepseek-v4-pro" });
   expect(validateBrowserInvocationRequest(rootRequest)).not.toHaveProperty("model");

@@ -51,9 +51,9 @@ describe("providerForModel", () => {
 describe("maxConversationBytesForRoute", () => {
   const routingConfig: Pick<ForgeletConfig, "routing" | "activeContext"> = {
     routing: {
-      coding: { default: "deepseek-v4-flash", review: "deepseek-v4-flash" },
-      writing: { default: "deepseek-v4-flash", review: "deepseek-v4-flash" },
-      learning: { default: "deepseek-v4-flash", review: "deepseek-v4-flash" },
+      coding: { default: "deepseek-flash", review: "deepseek-flash" },
+      writing: { default: "deepseek-flash", review: "deepseek-flash" },
+      learning: { default: "deepseek-flash", review: "deepseek-flash" },
       fallback: "gpt-5",
     },
     activeContext: {
@@ -84,14 +84,14 @@ describe("maxConversationBytesForRoute", () => {
 test("derives the output ceiling from the route conversation budget", () => {
   const config: Pick<ForgeletConfig, "routing" | "activeContext"> = {
     routing: {
-      coding: { default: "deepseek-v4-flash", review: "deepseek-v4-flash", maxConversationBytes: 65_536 },
-      writing: { default: "deepseek-v4-flash", review: "deepseek-v4-flash" },
-      learning: { default: "deepseek-v4-flash", review: "deepseek-v4-flash" },
+      coding: { default: "deepseek-flash", review: "deepseek-flash", maxConversationBytes: 65_536 },
+      writing: { default: "deepseek-flash", review: "deepseek-flash" },
+      learning: { default: "deepseek-flash", review: "deepseek-flash" },
       fallback: "gpt-5",
     },
     activeContext: { maxConversationBytes: 65_536, observationDigestPreviewBytes: 2_048, protectedRecentTurns: 3 },
   };
-  expect(maxOutputTokensForRoute(config, "coding", "deepseek-v4-flash")).toBe(4_096);
+  expect(maxOutputTokensForRoute(config, "coding", "deepseek-flash")).toBe(4_096);
 });
 
 describe("maxObservationBytesForRoute", () => {
@@ -99,9 +99,9 @@ describe("maxObservationBytesForRoute", () => {
     maxConversationBytes: number,
   ): Pick<ForgeletConfig, "routing" | "activeContext"> => ({
     routing: {
-      coding: { default: "deepseek-v4-flash", review: "deepseek-v4-flash", maxConversationBytes },
-      writing: { default: "deepseek-v4-flash", review: "deepseek-v4-flash" },
-      learning: { default: "deepseek-v4-flash", review: "deepseek-v4-flash" },
+      coding: { default: "deepseek-flash", review: "deepseek-flash", maxConversationBytes },
+      writing: { default: "deepseek-flash", review: "deepseek-flash" },
+      learning: { default: "deepseek-flash", review: "deepseek-flash" },
       fallback: "gpt-5",
     },
     activeContext: {
@@ -124,8 +124,16 @@ describe("modelRunnability", () => {
   it("rejects retired DeepSeek models with a migration message", () => {
     expect(modelRunnability("deepseek-chat")).toEqual({
       runnable: false,
-      errorMessage: "Model deepseek-chat was retired. Migrate to deepseek-v4-flash.",
-      previewReason: "model deepseek-chat was retired; migrate to deepseek-v4-flash.",
+      errorMessage: "Model deepseek-chat was retired. Migrate to deepseek-flash.",
+      previewReason: "model deepseek-chat was retired; migrate to deepseek-flash.",
+    });
+  });
+
+  it("rejects the legacy deepseek-v4-flash name with a migration to deepseek-flash", () => {
+    expect(modelRunnability("deepseek-v4-flash", "high")).toEqual({
+      runnable: false,
+      errorMessage: "Model deepseek-v4-flash was retired. Migrate to deepseek-flash.",
+      previewReason: "model deepseek-v4-flash was retired; migrate to deepseek-flash.",
     });
   });
 
