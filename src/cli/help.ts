@@ -18,6 +18,7 @@ Usage:
   forge write --preview --context draft.md "revise this"
   forge write --context draft.md "revise this"
   forge write --with-browser "turn this article into an outline"
+  forge write --creative "write a rain-soaked convenience store scene"
   forge write --creative --style vivid "write a rain-soaked convenience store scene"
   forge write --preview --creative --style vivid "write a rain-soaked convenience store scene"
   forge write --creative --style vivid --context scene.md "revise this scene"

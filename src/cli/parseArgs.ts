@@ -680,8 +680,6 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
     throw new Error(
       "--debug is available only for model-backed Session runs, not --preview.",
     );
-  if (workflowVariant === "creative" && !creativeStyle)
-    throw new Error("--creative requires --style <name>.");
   const creativeInputKind: CreativeInputKind | undefined =
     workflowVariant === "creative"
       ? continuationFile

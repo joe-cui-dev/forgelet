@@ -802,10 +802,21 @@ test("rejects malformed Writing Artifact Continuation options", () => {
   ).toThrow(/--continue supports Markdown files only/);
 });
 
-test("rejects creative writing without a style", () => {
-  expect(() =>
+test("parses creative writing without a style", () => {
+  expect(
     parseArgs(["write", "--creative", "--context", "draft.md", "revise this"]),
-  ).toThrow(/--creative requires --style <name>\./);
+  ).toEqual({
+    kind: "run",
+    workflow: "writing",
+    workflowVariant: "creative",
+    creativeInputKind: "revision",
+    task: "revise this",
+    contextFiles: ["draft.md"],
+    model: undefined,
+    budgetUsd: undefined,
+    preview: false,
+    act: false
+  });
 });
 
 test("rejects style without creative writing", () => {

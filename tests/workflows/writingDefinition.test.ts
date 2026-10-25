@@ -157,3 +157,19 @@ test("writing definition renders creative draft, continuation, and revision prom
     ].join("\n"),
   );
 });
+
+test("creative writing without a Style Preset sends no style instructions", () => {
+  const draft = createWritingWorkflowDefinition({
+    workflowVariant: "creative",
+    creativeInputKind: "draft",
+  });
+  expect(draft.systemPrompt({ act: false })).toBe(
+    [
+      ...kernelCommonPromptLines(),
+      "This is a Creative Writing Workflow variant.",
+      "Use the Creative Brief and Durable Memory for original drafting, but do not request workspace, git, shell, patch, or command tools.",
+      "Return only a Draft heading followed by the drafted prose.",
+    ].join("\n"),
+  );
+  expect(draft.sessionTraits).not.toHaveProperty("creativeStyle");
+});

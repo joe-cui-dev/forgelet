@@ -74,8 +74,10 @@ export function formatWritingArtifactContinueHint(
 ): string {
   if (entry.status === "missing")
     return "unavailable; artifact file is missing";
-  const style = entry.creativeStyle ?? "<style>";
-  return `forge write --creative --style ${style} --continue ${entry.path} "<brief>"`;
+  const styleFlag = entry.creativeStyle
+    ? ` --style ${entry.creativeStyle}`
+    : "";
+  return `forge write --creative${styleFlag} --continue ${entry.path} "<brief>"`;
 }
 
 export function formatWritingArtifactDetail(input: {
