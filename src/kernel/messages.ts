@@ -76,7 +76,7 @@ export const buildMessages = (
   const continuationSourceLines = continuationAttachment
     ? formatContextAttachmentsForPrompt(
         [continuationAttachment],
-        "Continuation source",
+        definition.continuationSourceLabel?.() ?? "Continuation source",
       )
     : [];
   const contextAttachmentLines = formatContextAttachmentsForPrompt(

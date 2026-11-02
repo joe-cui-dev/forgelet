@@ -30,6 +30,7 @@ export interface WritingWorkflowDefinitionInput {
   creativeStyle?: CreativeStyle;
   creativeInputKind?: CreativeInputKind;
   continuationFile?: string;
+  expansionFile?: string;
   hasScopedProject?: boolean;
   project?: WritingProjectManifest;
   creativeStylePresetBlock?: string;
@@ -46,6 +47,7 @@ export type WritingSessionInput = Omit<
   creativeStyle?: CreativeStyle;
   creativeInputKind?: CreativeInputKind;
   continuationFile?: string;
+  expansionFile?: string;
   project?: WritingProjectManifest;
   projectReadScopeMembers?: string[];
   allowedReadPaths?: string[];
@@ -66,7 +68,9 @@ export async function runWritingSession(
       ? (input.creativeInputKind ??
         (input.continuationFile
           ? "continuation"
-          : input.contextFiles.length > 0
+          : input.expansionFile
+            ? "expansion"
+            : input.contextFiles.length > 0
             ? "revision"
             : "draft"))
       : undefined;
@@ -103,6 +107,7 @@ export async function runWritingSession(
       hasScopedProject: input.project !== undefined,
       project: input.project,
       continuationFile: input.continuationFile,
+      expansionFile: input.expansionFile,
       creativeStylePresetBlock,
     }),
   });
@@ -131,7 +136,8 @@ export function createWritingWorkflowDefinition(
         : {}),
     },
     async loadAttachments({ workspaceRoot, contextFiles, sourceLedger }) {
-      if (!input.continuationFile)
+      const sourceFile = input.continuationFile ?? input.expansionFile;
+      if (!sourceFile)
         return {
           contextAttachments: await loadContextAttachments(
             workspaceRoot,
@@ -143,12 +149,13 @@ export function createWritingWorkflowDefinition(
       let continuationAttachments;
       try {
         continuationAttachments = await loadContextAttachments(workspaceRoot, [
-          input.continuationFile,
+          sourceFile,
         ], { sourceLedger });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        const role = input.continuationFile ? "continuation" : "expansion";
         throw new Error(
-          `Unable to read continuation artifact: ${input.continuationFile}. Pass an explicit Markdown artifact path, such as .forgelet/writing/<artifact>.md. ${message}`,
+          `Unable to read ${role} artifact: ${sourceFile}. Pass an explicit Markdown artifact path, such as .forgelet/writing/<artifact>.md. ${message}`,
         );
       }
       return {
@@ -176,6 +183,7 @@ export function createWritingWorkflowDefinition(
         !input.project &&
         (input.creativeInputKind === "draft" ||
           input.creativeInputKind === "continuation" ||
+          input.creativeInputKind === "expansion" ||
           (!input.creativeInputKind &&
             !continuationAttachment &&
             contextAttachments.length === 0));
@@ -208,6 +216,19 @@ export function createWritingWorkflowDefinition(
           "Use the Creative Brief, Continuation source, Additional context attachments, and Durable Memory to continue the source prose, but do not request workspace, git, shell, patch, or command tools.",
           "Return only a Draft heading followed by the continued prose.",
         ].join("\n");
+      if (
+        input.workflowVariant === "creative" &&
+        input.creativeInputKind === "expansion"
+      )
+        return [
+          ...kernelCommonPromptLines(),
+          "This is a Creative Writing Workflow variant.",
+          ...styleLines,
+          "Use the Creative Brief, Expansion source, Additional context attachments, and Durable Memory to expand one passage of the source prose into a fuller, more detailed scene, but do not request workspace, git, shell, patch, or command tools.",
+          "The Creative Brief names the passage to expand; if it does not match the source exactly, expand the passage that best fits it.",
+          "Keep the expanded passage consistent with the surrounding source prose so it can replace the original passage in place.",
+          "Return only a Draft heading followed by the expanded passage; do not reproduce the rest of the source.",
+        ].join("\n");
       if (input.workflowVariant === "creative")
         return [
           ...kernelCommonPromptLines(),
@@ -227,6 +248,9 @@ export function createWritingWorkflowDefinition(
     },
     taskLabel() {
       return input.workflowVariant === "creative" ? "Creative brief" : "Task";
+    },
+    continuationSourceLabel() {
+      return input.expansionFile ? "Expansion source" : "Continuation source";
     },
     promptContextLines() {
       return formatWritingProjectForPrompt(input.project);
@@ -259,6 +283,7 @@ export function createWritingWorkflowDefinition(
         const update = applyArtifactToProject(input.project, {
           artifactPath: writingArtifact.path,
           continuationSource: input.continuationFile ?? null,
+          expansion: input.expansionFile !== undefined,
         });
         await saveWritingProject(workspaceRoot, update.manifest);
         await appendTrace("writing_project_updated", {
@@ -284,7 +309,11 @@ function normalizeWritingFinalContent(
   if (input.workflowVariant === "creative") {
     const creativeInputKind =
       input.creativeInputKind ?? ("revision" as CreativeInputKind);
-    if (creativeInputKind === "draft" || creativeInputKind === "continuation") {
+    if (
+      creativeInputKind === "draft" ||
+      creativeInputKind === "continuation" ||
+      creativeInputKind === "expansion"
+    ) {
       if (hasMarkdownHeading(content, "Draft")) return content;
       return ["Draft", content.trim() || "(empty)"].join("\n");
     }
@@ -393,7 +422,9 @@ function writingArtifactContentKind(
 ): WritingArtifact["contentKind"] {
   if (
     session.workflowVariant === "creative" &&
-    (creativeInputKind === "draft" || creativeInputKind === "continuation")
+    (creativeInputKind === "draft" ||
+      creativeInputKind === "continuation" ||
+      creativeInputKind === "expansion")
   )
     return "draft";
   if (session.workflowVariant === "creative" && contextAttachmentCount === 0)

@@ -54,9 +54,11 @@ export async function runRunCommand(
     workspaceRoot,
     project,
     continuationFile: command.continuationFile,
+    expansionFile: command.expansionFile,
     allowedReadPaths: command.allowedReadPaths,
   });
   const continuationFile = projectRun.continuationFile;
+  const expansionFile = projectRun.expansionFile;
   const browserSnapshot = command.withBrowser
     ? await loadCurrentBrowserSnapshot({ homeDir: options.homeDir })
     : undefined;
@@ -109,6 +111,7 @@ export async function runRunCommand(
           contextFiles: command.contextFiles,
           browserSnapshot,
           continuationFile,
+          expansionFile,
           ...(project ? { project } : {}),
           ...(project
             ? { projectReadScopeMembers: projectRun.readScopeMembers }

@@ -20,11 +20,17 @@ export interface ApplyWritingProjectArtifactResult {
 
 export function applyArtifactToProject(
   manifest: WritingProjectManifest,
-  input: { artifactPath: string; continuationSource: string | null },
+  input: {
+    artifactPath: string;
+    continuationSource: string | null;
+    /** An expanded passage is a fragment, never a continuation point. */
+    expansion?: boolean;
+  },
 ): ApplyWritingProjectArtifactResult {
   const headBefore = manifest.head;
   const shouldAdvanceHead =
-    manifest.head === null || input.continuationSource === manifest.head;
+    !input.expansion &&
+    (manifest.head === null || input.continuationSource === manifest.head);
   const nextManifest: WritingProjectManifest = {
     ...manifest,
     members: [...manifest.members, input.artifactPath],
@@ -105,6 +111,7 @@ export interface PrepareWritingProjectRunInput {
   workspaceRoot: string;
   project?: WritingProjectManifest;
   continuationFile?: string;
+  expansionFile?: string;
   allowedReadPaths?: string[];
 }
 
@@ -112,6 +119,7 @@ export interface PrepareWritingProjectRunResult {
   readScopeMembers: string[];
   warnings: string[];
   continuationFile?: string;
+  expansionFile?: string;
 }
 
 export async function prepareWritingProjectRun(
@@ -138,6 +146,18 @@ export async function prepareWritingProjectRun(
         `Warning: Writing Project member is missing and was excluded from this Session Read Scope: ${member}`,
       );
     }
+  }
+
+  if (input.expansionFile) {
+    if (input.project && !input.project.members.includes(input.expansionFile))
+      throw new Error(
+        [
+          `--expand artifact is not a member of Writing Project ${input.project.slug}: ${input.expansionFile}`,
+          "Remove --project to expand it directly, or edit .forgelet/writing/projects/" +
+            `${input.project.slug}.json to add the member.`,
+        ].join("\n"),
+      );
+    return { readScopeMembers, warnings, expansionFile: input.expansionFile };
   }
 
   const continuationFile = resolveProjectContinuationFile({

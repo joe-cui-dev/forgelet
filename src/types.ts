@@ -5,7 +5,11 @@ export type WorkflowKind = "coding" | "writing" | "learning";
 export type WorkflowVariant = "creative";
 /** Style Preset names remain open to workspace-defined additions and replacements. */
 export type CreativeStyle = string;
-export type CreativeInputKind = "draft" | "revision" | "continuation";
+export type CreativeInputKind =
+  | "draft"
+  | "revision"
+  | "continuation"
+  | "expansion";
 
 export type AgentStage =
   | "intake"

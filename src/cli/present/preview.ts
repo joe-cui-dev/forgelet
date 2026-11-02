@@ -73,6 +73,7 @@ export function formatPreviewContextAttachments(
     ...command.contextFiles,
     ...(browserSnapshot ? [`browser: ${browserSnapshot.title}`] : []),
     ...(command.continuationFile ? [command.continuationFile] : []),
+    ...(command.expansionFile ? [command.expansionFile] : []),
   ];
   return attachments.length > 0 ? attachments.join(", ") : "none";
 }

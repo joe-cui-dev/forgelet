@@ -192,6 +192,31 @@ test("keeps the head when continuing from an older member", () => {
   expect(result.manifest.head).toBe(".forgelet/writing/chapter-3.md");
 });
 
+test("appends an expanded passage without advancing the head, even from the head", () => {
+  for (const head of [".forgelet/writing/chapter-1.md", null]) {
+    const result = applyArtifactToProject(
+      {
+        slug: "my-novel",
+        createdAt: "2026-07-06T00:00:00.000Z",
+        head,
+        members: [".forgelet/writing/chapter-1.md"],
+      },
+      {
+        artifactPath: ".forgelet/writing/chapter-1-chase.md",
+        continuationSource: null,
+        expansion: true,
+      },
+    );
+
+    expect(result.manifest.members).toEqual([
+      ".forgelet/writing/chapter-1.md",
+      ".forgelet/writing/chapter-1-chase.md",
+    ]);
+    expect(result.headAfter).toBe(head);
+    expect(result.manifest.head).toBe(head);
+  }
+});
+
 test("saves and reloads an updated Writing Project manifest", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "forgelet-writing-project-"));
   const project = await createWritingProject(workspaceRoot, "my-novel");

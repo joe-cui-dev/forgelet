@@ -139,6 +139,27 @@ test("writing definition renders creative draft, continuation, and revision prom
     ].join("\n"),
   );
 
+  const expansion = createWritingWorkflowDefinition({
+    workflowVariant: "creative",
+    creativeStyle: "vivid",
+    creativeInputKind: "expansion",
+    expansionFile: ".forgelet/writing/chapter-1.md",
+    creativeStylePresetBlock: stylePresetBlock,
+  });
+  expect(expansion.systemPrompt({ act: false })).toBe(
+    [
+      ...kernelCommonPromptLines(),
+      "This is a Creative Writing Workflow variant.",
+      stylePresetBlock,
+      "Use the Creative Brief, Expansion source, Additional context attachments, and Durable Memory to expand one passage of the source prose into a fuller, more detailed scene, but do not request workspace, git, shell, patch, or command tools.",
+      "The Creative Brief names the passage to expand; if it does not match the source exactly, expand the passage that best fits it.",
+      "Keep the expanded passage consistent with the surrounding source prose so it can replace the original passage in place.",
+      "Return only a Draft heading followed by the expanded passage; do not reproduce the rest of the source.",
+    ].join("\n"),
+  );
+  expect(expansion.continuationSourceLabel?.()).toBe("Expansion source");
+  expect(continuation.continuationSourceLabel?.()).toBe("Continuation source");
+
   const revision = createWritingWorkflowDefinition({
     workflowVariant: "creative",
     creativeStyle: "vivid",

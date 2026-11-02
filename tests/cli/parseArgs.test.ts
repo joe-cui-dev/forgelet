@@ -615,6 +615,67 @@ test("parses a creative Writing Artifact Continuation", () => {
   });
 });
 
+test("parses a creative Writing Artifact Expansion", () => {
+  expect(
+    parseArgs([
+      "write",
+      "--creative",
+      "--expand",
+      ".forgelet/writing/chapter-1.md",
+      "expand the rooftop chase",
+    ]),
+  ).toEqual({
+    kind: "run",
+    workflow: "writing",
+    workflowVariant: "creative",
+    creativeInputKind: "expansion",
+    task: "expand the rooftop chase",
+    contextFiles: [],
+    expansionFile: ".forgelet/writing/chapter-1.md",
+    model: undefined,
+    budgetUsd: undefined,
+    preview: false,
+    act: false
+  });
+});
+
+test("rejects misplaced or malformed Writing Artifact Expansion options", () => {
+  expect(() =>
+    parseArgs(["code", "--expand", "chapter-1.md", "expand the chase"]),
+  ).toThrow(/--expand is only available for the writing workflow/);
+  expect(() =>
+    parseArgs(["write", "--expand", "chapter-1.md", "expand the chase"]),
+  ).toThrow(/--expand is only available with --creative/);
+  expect(() => parseArgs(["write", "--creative", "--expand"])).toThrow(
+    /Missing value for --expand/,
+  );
+  expect(() =>
+    parseArgs([
+      "write",
+      "--creative",
+      "--expand",
+      "chapter-1.md",
+      "--expand",
+      "chapter-2.md",
+      "expand",
+    ]),
+  ).toThrow(/Exactly one --expand artifact/);
+  expect(() =>
+    parseArgs(["write", "--creative", "--expand", "chapter-1.txt", "expand"]),
+  ).toThrow(/--expand supports Markdown files only/);
+  expect(() =>
+    parseArgs([
+      "write",
+      "--creative",
+      "--continue",
+      "chapter-1.md",
+      "--expand",
+      "chapter-1.md",
+      "expand",
+    ]),
+  ).toThrow(/--expand cannot be combined with --continue/);
+});
+
 test("parses any --style value without validating it against a fixed list", () => {
   for (const style of ["vivid", "gothic", "冷峻"]) {
     expect(

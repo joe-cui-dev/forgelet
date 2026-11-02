@@ -18,6 +18,7 @@ export type ForgeCommand =
       withBrowser?: boolean;
       publicWeb?: boolean;
       continuationFile?: string;
+      expansionFile?: string;
       projectSlug?: string;
       allowedReadPaths?: string[];
       model?: string;
@@ -488,6 +489,7 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
   let workflowVariant: WorkflowVariant | undefined;
   let creativeStyle: CreativeStyle | undefined;
   let continuationFile: string | undefined;
+  let expansionFile: string | undefined;
   let projectSlug: string | undefined;
   let preview = false;
   let act = false;
@@ -531,6 +533,19 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
           "--continue supports Markdown files only; pass a path such as .forgelet/writing/<artifact>.md.",
         );
       continuationFile = value;
+      continue;
+    }
+    if (arg === "--expand") {
+      rejectOptionAfterTask(taskParts, arg);
+      const value = args[++i];
+      if (!value) throw new Error("Missing value for --expand");
+      if (expansionFile)
+        throw new Error("Exactly one --expand artifact can be provided.");
+      if (!value.toLowerCase().endsWith(".md"))
+        throw new Error(
+          "--expand supports Markdown files only; pass a path such as .forgelet/writing/<artifact>.md.",
+        );
+      expansionFile = value;
       continue;
     }
     if (arg === "--project") {
@@ -676,6 +691,14 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
     throw new Error("--continue is only available for the writing workflow.");
   if (continuationFile && workflowVariant !== "creative")
     throw new Error("--continue is only available with --creative.");
+  if (expansionFile && workflow !== "writing")
+    throw new Error("--expand is only available for the writing workflow.");
+  if (expansionFile && workflowVariant !== "creative")
+    throw new Error("--expand is only available with --creative.");
+  if (expansionFile && continuationFile)
+    throw new Error(
+      "--expand cannot be combined with --continue; pass one source artifact.",
+    );
   if (debug && preview)
     throw new Error(
       "--debug is available only for model-backed Session runs, not --preview.",
@@ -684,7 +707,9 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
     workflowVariant === "creative"
       ? continuationFile
         ? "continuation"
-        : contextFiles.length > 0
+        : expansionFile
+          ? "expansion"
+          : contextFiles.length > 0
           ? "revision"
           : "draft"
       : undefined;
@@ -699,6 +724,7 @@ function parseRun(args: string[], workflow: WorkflowKind): ForgeCommand {
     ...(withBrowser ? { withBrowser } : {}),
     ...(publicWeb ? { publicWeb } : {}),
     ...(continuationFile ? { continuationFile } : {}),
+    ...(expansionFile ? { expansionFile } : {}),
     ...(projectSlug ? { projectSlug } : {}),
     ...(allowedReadPaths.length > 0 ? { allowedReadPaths } : {}),
     model,

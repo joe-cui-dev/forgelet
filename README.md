@@ -56,6 +56,7 @@ forge write --creative "write a rain-soaked convenience store scene"
 forge write --creative --style vivid "write a rain-soaked convenience store scene"
 forge write --creative --style vivid --context scene.md "revise this scene"
 forge write --creative --style vivid --continue .forgelet/writing/chapter-1.md "continue the next chapter"
+forge write --creative --style vivid --expand .forgelet/writing/chapter-1.md "expand the rooftop chase"
 forge write projects create my-novel
 forge write --project my-novel --creative --style vivid "write chapter one"
 forge write --project my-novel --creative --style vivid "continue from the project head"
@@ -67,7 +68,9 @@ forge write artifacts search --limit 5 "chapter"
 
 Writing Sessions use model text generation without workspace, Git, patch, or command tools. Model-backed writing saves drafted or revised prose under `.forgelet/writing/` with local timestamp-prefixed filenames. Forgelet ships built-in Creative Style Presets; `.forgelet/style-presets.local.json` is a git-ignored file that merges over them by name, adding new presets or replacing a built-in preset whole. Sessions/Traces record only the selected preset name, never its instructions. `--style <name>` is optional: without it, `--creative` sends no Style Preset and the model writes in its own voice; there is no default style. An unknown `--style` name reports the names that are currently available.
 
-Writing Projects group long-form Writing Artifacts in `.forgelet/writing/projects/<slug>.json`. `forge write --project <slug>` continues from the manifest head by default, appends the new artifact to the manifest, and advances the head only when the Session continued from the current head. Use `--project` with `--continue <member.md>` to revise an older member without moving the head. To enroll older artifacts, edit the manifest by hand; unknown projects and non-member `--continue` paths are errors.
+`--expand <artifact.md>` (with `--creative`, exclusive with `--continue`) expands one passage of the source into a fuller scene; the brief names which passage. The saved Draft holds only the expanded passage — splice it into the source yourself; the source file is never modified.
+
+Writing Projects group long-form Writing Artifacts in `.forgelet/writing/projects/<slug>.json`. `forge write --project <slug>` continues from the manifest head by default, appends the new artifact to the manifest, and advances the head only when the Session continued from the current head. Use `--project` with `--continue <member.md>` to revise an older member without moving the head. `--project` with `--expand <member.md>` appends the expanded passage as a member but never moves the head, since a passage is not a continuation point. To enroll older artifacts, edit the manifest by hand; unknown projects and non-member `--continue` paths are errors.
 
 ```json
 {

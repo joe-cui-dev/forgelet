@@ -23,7 +23,7 @@ export interface TraceEventPayloads {
     workflow?: WorkflowKind;
     workflowVariant?: "creative";
     creativeStyle?: string;
-    creativeInputKind?: "draft" | "revision" | "continuation";
+    creativeInputKind?: "draft" | "revision" | "continuation" | "expansion";
     startedAt?: string;
     taskHash?: string;
     executionPolicy?: "iterative" | "answer_once";

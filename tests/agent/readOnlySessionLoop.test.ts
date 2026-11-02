@@ -1290,6 +1290,61 @@ test("a creative Writing Artifact Continuation labels the source separately in t
   });
 });
 
+test("a creative Writing Artifact Expansion labels the source and saves only the expanded passage", async () => {
+  const workspaceRoot = await mkdtemp(
+    join(tmpdir(), "forgelet-writing-expansion-"),
+  );
+  await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
+  const source = "Mara opened the brass door. The chase was over in a blink.\n";
+  await writeFile(
+    join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"),
+    source,
+    "utf8",
+  );
+  const modelClient = new FakeModelClient([
+    {
+      content: "Draft\nRoof tiles cracked under her boots as the chase began.",
+      toolCalls: [],
+    },
+  ]);
+
+  const result = await runWritingSession({
+    workflowVariant: "creative",
+    creativeInputKind: "expansion",
+    expansionFile: ".forgelet/writing/chapter-1.md",
+    task: "expand the chase",
+    contextFiles: [],
+    workspaceRoot,
+    modelClient,
+  });
+
+  const firstUserMessage =
+    modelClient.turnInputs[0]?.messages.find(
+      (message) => message.role === "user",
+    )?.content ?? "";
+  expect(firstUserMessage).toMatch(/Expansion source:/);
+  expect(firstUserMessage).not.toMatch(/Continuation source:/);
+  expect(firstUserMessage).toMatch(/The chase was over in a blink/);
+  expect(modelClient.turnInputs[0]?.tools).toEqual([]);
+  expect(result.writingArtifact?.contentKind).toBe("draft");
+  const saved = await readFile(
+    join(workspaceRoot, result.writingArtifact?.path ?? ""),
+    "utf8",
+  );
+  expect(saved).toBe("Roof tiles cracked under her boots as the chase began.\n");
+  await expect(
+    readFile(join(workspaceRoot, ".forgelet", "writing", "chapter-1.md"), "utf8"),
+  ).resolves.toBe(source);
+
+  const events = (await readFile(result.tracePath ?? "", "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(
+    events.find((event) => event.type === "session_started")?.payload,
+  ).toMatchObject({ creativeInputKind: "expansion" });
+});
+
 test("a creative Writing Artifact Continuation separates additional context attachments", async () => {
   const workspaceRoot = await mkdtemp(
     join(tmpdir(), "forgelet-writing-continuation-context-"),

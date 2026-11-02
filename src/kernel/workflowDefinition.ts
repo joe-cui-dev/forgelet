@@ -88,6 +88,9 @@ export interface WorkflowDefinition<TCompletion = void> {
 
   taskLabel?(): string;
 
+  /** Prompt label for the continuation attachment; defaults to "Continuation source". */
+  continuationSourceLabel?(): string;
+
   promptContextLines?(): string[];
 
   normalizeFinalContent?(

@@ -152,3 +152,47 @@ test("passes continuationFile through unchanged when no project is given", async
     continuationFile: "draft.md",
   });
 });
+
+test("resolves --expand to the member without defaulting a continuation to the head", async () => {
+  const workspaceRoot = await makeWorkspace();
+  await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
+  for (const name of ["chapter-1.md", "head.md"])
+    await writeFile(join(workspaceRoot, ".forgelet", "writing", name), "content", "utf8");
+
+  const result = await prepareWritingProjectRun({
+    workspaceRoot,
+    project: manifest({
+      head: ".forgelet/writing/head.md",
+      members: [".forgelet/writing/chapter-1.md", ".forgelet/writing/head.md"],
+    }),
+    expansionFile: ".forgelet/writing/chapter-1.md",
+  });
+
+  expect(result).toEqual({
+    readScopeMembers: [".forgelet/writing/chapter-1.md", ".forgelet/writing/head.md"],
+    warnings: [],
+    expansionFile: ".forgelet/writing/chapter-1.md",
+  });
+});
+
+test("rejects --expand when it is not a member of the Writing Project", async () => {
+  const workspaceRoot = await makeWorkspace();
+  await mkdir(join(workspaceRoot, ".forgelet", "writing"), { recursive: true });
+  await writeFile(join(workspaceRoot, ".forgelet", "writing", "head.md"), "content", "utf8");
+
+  await expect(
+    prepareWritingProjectRun({
+      workspaceRoot,
+      project: manifest({
+        head: ".forgelet/writing/head.md",
+        members: [".forgelet/writing/head.md"],
+      }),
+      expansionFile: ".forgelet/writing/other.md",
+    }),
+  ).rejects.toThrow(
+    [
+      "--expand artifact is not a member of Writing Project my-novel: .forgelet/writing/other.md",
+      "Remove --project to expand it directly, or edit .forgelet/writing/projects/my-novel.json to add the member.",
+    ].join("\n"),
+  );
+});
