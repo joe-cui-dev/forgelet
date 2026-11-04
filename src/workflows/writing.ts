@@ -226,7 +226,8 @@ export function createWritingWorkflowDefinition(
           ...styleLines,
           "Use the Creative Brief, Expansion source, Additional context attachments, and Durable Memory to expand one passage of the source prose into a fuller, more detailed scene, but do not request workspace, git, shell, patch, or command tools.",
           "The Creative Brief names the passage to expand; if it does not match the source exactly, expand the passage that best fits it.",
-          "Keep the expanded passage consistent with the surrounding source prose so it can replace the original passage in place.",
+          "Keep the expanded passage continuous with the surrounding source prose in voice, tense, person, and established detail so it can replace the original passage in place.",
+          "Where the Creative Brief contradicts the source, the Creative Brief wins: write the passage the brief asks for, and let it depart from the source on that point rather than overruling the brief.",
           "Return only a Draft heading followed by the expanded passage; do not reproduce the rest of the source.",
         ].join("\n");
       if (input.workflowVariant === "creative")
